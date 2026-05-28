@@ -57,6 +57,14 @@ func New(
 	}
 }
 
+// SetEventHandler replaces the event handler after construction.
+// Safe to call before any tasks are started.
+func (r *Runner) SetEventHandler(h EventHandler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onEvent = h
+}
+
 // RunTask starts execution of the given task in a background goroutine.
 // It transitions the task to Queued immediately, then Running when the
 // goroutine starts.

@@ -23,6 +23,7 @@ type Server struct {
 	users     store.UserRepo
 	runner    *agent.Runner
 	registry  *registry.Registry
+	hub       *Hub
 	router    http.Handler
 }
 
@@ -46,10 +47,14 @@ func New(
 		users:     users,
 		runner:    runner,
 		registry:  reg,
+		hub:       NewHub(),
 	}
 	s.router = s.buildRouter()
 	return s
 }
+
+// Hub returns the event hub so callers can broadcast events.
+func (s *Server) Hub() *Hub { return s.hub }
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +112,9 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Stats
 		r.Get("/stats/costs", s.getCosts)
+
+		// WebSocket
+		r.Get("/ws", s.handleWS)
 	})
 
 	return r
