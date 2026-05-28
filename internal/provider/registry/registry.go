@@ -64,6 +64,13 @@ func (r *Registry) Invalidate(providerID string) {
 	r.mu.Unlock()
 }
 
+// InjectForTest pre-loads a provider into the cache. Only for use in tests.
+func (r *Registry) InjectForTest(providerID string, p provider.Provider) {
+	r.mu.Lock()
+	r.cache[providerID] = p
+	r.mu.Unlock()
+}
+
 // buildProvider constructs a Provider from a model.Provider record.
 func buildProvider(rec *model.Provider) (provider.Provider, error) {
 	switch rec.Type {
