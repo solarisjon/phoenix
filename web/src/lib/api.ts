@@ -1,0 +1,117 @@
+// Typed API client for Phoenix backend
+
+export interface Provider {
+  id: string
+  name: string
+  type: 'llm' | 'coding_agent'
+  config: string
+  created_by: string
+  created_at: string
+}
+
+export interface Agent {
+  id: string
+  name: string
+  persona: string
+  instructions: string
+  guardrails: string
+  provider_id: string
+  heartbeat_interval: number | null
+  status: 'active' | 'paused' | 'disabled'
+  created_at: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string
+  owner: string
+  status: 'active' | 'archived'
+  created_at: string
+}
+
+export interface Task {
+  id: string
+  project_id: string
+  agent_id: string
+  parent_task_id: string | null
+  title: string
+  description: string
+  status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'awaiting_approval'
+  input: string
+  output: string
+  cost_usd: number
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface CostSummary {
+  id: string
+  name: string
+  total_cost_usd: number
+}
+
+export interface CostsResponse {
+  total_cost_usd: number
+  by_agent: CostSummary[]
+  by_project: CostSummary[]
+}
+
+const BASE = '/api'
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(BASE + path, {
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    ...init,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || res.statusText)
+  }
+  if (res.status === 204) return undefined as T
+  return res.json()
+}
+
+// Providers
+export const api = {
+  providers: {
+    list: () => request<Provider[]>('/providers'),
+    get: (id: string) => request<Provider>(`/providers/${id}`),
+    create: (data: Partial<Provider>) => request<Provider>('/providers', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Provider>) => request<Provider>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
+  },
+  agents: {
+    list: () => request<Agent[]>('/agents'),
+    get: (id: string) => request<Agent>(`/agents/${id}`),
+    create: (data: Partial<Agent>) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Agent>) => request<Agent>(`/agents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
+  },
+  projects: {
+    list: () => request<Project[]>('/projects'),
+    get: (id: string) => request<Project>(`/projects/${id}`),
+    create: (data: Partial<Project>) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Project>) => request<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+    listAgents: (id: string) => request<Agent[]>(`/projects/${id}/agents`),
+    assignAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
+    removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),
+  },
+  tasks: {
+    list: (projectId: string) => request<Task[]>(`/tasks?project_id=${projectId}`),
+    get: (id: string) => request<Task>(`/tasks/${id}`),
+    create: (data: Partial<Task>) => request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
+  },
+  inbox: {
+    list: () => request<Task[]>('/inbox'),
+    approve: (taskId: string) => request<Task>(`/inbox/${taskId}/approve`, { method: 'POST', body: '{}' }),
+    reject: (taskId: string) => request<Task>(`/inbox/${taskId}/reject`, { method: 'POST', body: '{}' }),
+    revise: (taskId: string, feedback: string) => request<Task>(`/inbox/${taskId}/revise`, { method: 'POST', body: JSON.stringify({ feedback }) }),
+  },
+  stats: {
+    costs: () => request<CostsResponse>('/stats/costs'),
+  },
+}
