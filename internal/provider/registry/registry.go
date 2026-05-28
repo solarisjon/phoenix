@@ -12,6 +12,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/store"
 )
 
+
 // Registry resolves a provider ID to a live Provider instance.
 // It caches instances so adapters are not re-created on every task.
 type Registry struct {
@@ -72,10 +73,13 @@ func (r *Registry) InjectForTest(providerID string, p provider.Provider) {
 }
 
 // buildProvider constructs a Provider from a model.Provider record.
+// Environment variable placeholders (${VAR}) in the config are expanded
+// at build time so secrets never need to be stored in the database.
 func buildProvider(rec *model.Provider) (provider.Provider, error) {
+	expandedConfig := provider.ExpandEnv(rec.Config)
 	switch rec.Type {
 	case model.ProviderTypeLLM:
-		return llm.New(rec.Config)
+		return llm.New(expandedConfig)
 	case model.ProviderTypeCodingAgent:
 		return nil, fmt.Errorf("coding_agent provider not yet implemented")
 	default:

@@ -4,16 +4,134 @@ import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
-import { Input, Textarea, Select, Label } from '@/components/ui/input'
+import { Input, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
+import { cn } from '@/lib/utils'
 
-const defaultLLMConfig = JSON.stringify({
+// Env variable helper — renders a small hint and lets the user type ${ENV_VAR}
+function EnvHint() {
+  return (
+    <p className="text-xs text-slate-600 mt-1">
+      Use <code className="bg-slate-800 px-1 rounded text-slate-400">{'${ENV_VAR}'}</code> to reference environment variables
+    </p>
+  )
+}
+
+interface LLMConfig {
+  endpoint: string
+  auth_header: string
+  model: string
+  cost_per_input_token: number
+  cost_per_output_token: number
+  timeout_seconds: number
+}
+
+interface CodingAgentConfig {
+  binary_path: string
+  args_template: string
+  working_directory: string
+}
+
+function LLMFields({ cfg, onChange }: {
+  cfg: LLMConfig
+  onChange: (c: LLMConfig) => void
+}) {
+  const set = (key: keyof LLMConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: key.startsWith('cost') || key === 'timeout_seconds' ? Number(e.target.value) : e.target.value })
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="endpoint">Endpoint URL *</Label>
+        <Input id="endpoint" value={cfg.endpoint} onChange={set('endpoint')}
+          placeholder="https://api.openai.com/v1  or  ${LLM_ENDPOINT}" />
+        <EnvHint />
+      </div>
+      <div>
+        <Label htmlFor="auth">Auth Header</Label>
+        <Input id="auth" value={cfg.auth_header} onChange={set('auth_header')}
+          placeholder="Bearer ${OPENAI_API_KEY}" />
+        <EnvHint />
+      </div>
+      <div>
+        <Label htmlFor="model">Model</Label>
+        <Input id="model" value={cfg.model} onChange={set('model')}
+          placeholder="gpt-4o" />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="cost_in">Cost / Input Token (USD)</Label>
+          <Input id="cost_in" type="number" step="0.000001" value={cfg.cost_per_input_token} onChange={set('cost_per_input_token')}
+            placeholder="0.000005" />
+        </div>
+        <div>
+          <Label htmlFor="cost_out">Cost / Output Token (USD)</Label>
+          <Input id="cost_out" type="number" step="0.000001" value={cfg.cost_per_output_token} onChange={set('cost_per_output_token')}
+            placeholder="0.000015" />
+        </div>
+      </div>
+      <div>
+        <Label htmlFor="timeout">Timeout (seconds)</Label>
+        <Input id="timeout" type="number" value={cfg.timeout_seconds} onChange={set('timeout_seconds')}
+          placeholder="60" />
+      </div>
+    </div>
+  )
+}
+
+function CodingAgentFields({ cfg, onChange }: {
+  cfg: CodingAgentConfig
+  onChange: (c: CodingAgentConfig) => void
+}) {
+  const set = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.value })
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="binary">Binary Path *</Label>
+        <Input id="binary" value={cfg.binary_path} onChange={set('binary_path')}
+          placeholder="/usr/local/bin/pi  or  ${PI_PATH}" />
+        <EnvHint />
+      </div>
+      <div>
+        <Label htmlFor="args">Args Template</Label>
+        <Input id="args" value={cfg.args_template} onChange={set('args_template')}
+          placeholder="--prompt {prompt}" />
+        <p className="text-xs text-slate-600 mt-1">Use <code className="bg-slate-800 px-1 rounded text-slate-400">{'{prompt}'}</code> for task input injection</p>
+      </div>
+      <div>
+        <Label htmlFor="workdir">Working Directory</Label>
+        <Input id="workdir" value={cfg.working_directory} onChange={set('working_directory')}
+          placeholder="/home/user/projects  or  ${WORKSPACE}" />
+        <EnvHint />
+      </div>
+    </div>
+  )
+}
+
+const defaultLLM: LLMConfig = {
   endpoint: '',
   auth_header: '',
   model: 'gpt-4o',
   cost_per_input_token: 0.000005,
   cost_per_output_token: 0.000015,
-}, null, 2)
+  timeout_seconds: 60,
+}
+
+const defaultCoding: CodingAgentConfig = {
+  binary_path: '',
+  args_template: '',
+  working_directory: '',
+}
+
+function parseConfig(type: string, configJSON: string): LLMConfig | CodingAgentConfig {
+  try {
+    return JSON.parse(configJSON)
+  } catch {
+    return type === 'llm' ? { ...defaultLLM } : { ...defaultCoding }
+  }
+}
 
 function ProviderForm({ initial, onSave, onClose }: {
   initial?: Provider
@@ -22,25 +140,35 @@ function ProviderForm({ initial, onSave, onClose }: {
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [type, setType] = useState<'llm' | 'coding_agent'>(initial?.type ?? 'llm')
-  const [config, setConfig] = useState(initial?.config ?? defaultLLMConfig)
+  const [llmCfg, setLlmCfg] = useState<LLMConfig>(
+    initial?.type === 'llm' ? parseConfig('llm', initial.config) as LLMConfig : { ...defaultLLM }
+  )
+  const [codingCfg, setCodingCfg] = useState<CodingAgentConfig>(
+    initial?.type === 'coding_agent' ? parseConfig('coding_agent', initial.config) as CodingAgentConfig : { ...defaultCoding }
+  )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
     setError('')
-    try {
-      JSON.parse(config)
-    } catch {
-      setError('Config must be valid JSON')
+    if (!name.trim()) { setError('Name is required'); return }
+
+    const cfg = type === 'llm' ? llmCfg : codingCfg
+
+    if (type === 'llm' && !(cfg as LLMConfig).endpoint.trim()) {
+      setError('Endpoint URL is required')
       return
     }
+    if (type === 'coding_agent' && !(cfg as CodingAgentConfig).binary_path.trim()) {
+      setError('Binary path is required')
+      return
+    }
+
     setSaving(true)
     try {
-      if (initial) {
-        await api.providers.update(initial.id, { name, type, config })
-      } else {
-        await api.providers.create({ name, type, config })
-      }
+      const data = { name, type, config: JSON.stringify(cfg) }
+      if (initial) await api.providers.update(initial.id, data)
+      else await api.providers.create(data)
       onSave()
     } catch (e: any) {
       setError(e.message)
@@ -50,32 +178,48 @@ function ProviderForm({ initial, onSave, onClose }: {
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Label htmlFor="name">Name</Label>
-        <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. LLM Proxy" />
+    <div className="space-y-5">
+      {/* Name + Type */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="name">Name *</Label>
+          <Input id="name" value={name} onChange={e => setName(e.target.value)}
+            placeholder="e.g. LLM Proxy" />
+        </div>
+        <div>
+          <Label htmlFor="type">Type</Label>
+          <Select id="type" value={type} onChange={e => {
+            setType(e.target.value as any)
+            setError('')
+          }}>
+            <option value="llm">LLM Endpoint</option>
+            <option value="coding_agent">Coding Agent (pi, opencode…)</option>
+          </Select>
+        </div>
       </div>
-      <div>
-        <Label htmlFor="type">Type</Label>
-        <Select id="type" value={type} onChange={e => setType(e.target.value as any)}>
-          <option value="llm">LLM Endpoint</option>
-          <option value="coding_agent">Coding Agent</option>
-        </Select>
+
+      {/* Divider */}
+      <div className="border-t border-slate-800 pt-4">
+        <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">
+          {type === 'llm' ? 'LLM Endpoint Configuration' : 'Coding Agent Configuration'}
+        </p>
+        {type === 'llm'
+          ? <LLMFields cfg={llmCfg} onChange={setLlmCfg} />
+          : <CodingAgentFields cfg={codingCfg} onChange={setCodingCfg} />
+        }
       </div>
-      <div>
-        <Label htmlFor="config">Configuration (JSON)</Label>
-        <Textarea id="config" value={config} onChange={e => setConfig(e.target.value)} rows={10}
-          className="font-mono text-xs" placeholder="{}" />
-        {type === 'llm' && (
-          <p className="text-xs text-slate-500 mt-1">
-            Fields: endpoint, auth_header, model, cost_per_input_token, cost_per_output_token
-          </p>
-        )}
-      </div>
-      {error && <p className="text-sm text-red-400">{error}</p>}
+
+      {error && (
+        <div className="bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
+          <p className="text-sm text-red-400">{error}</p>
+        </div>
+      )}
+
       <div className="flex gap-3 justify-end pt-2">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Provider'}</Button>
+        <Button onClick={save} disabled={saving}>
+          {saving ? 'Saving…' : initial ? 'Update Provider' : 'Add Provider'}
+        </Button>
       </div>
     </div>
   )
@@ -89,15 +233,23 @@ export function ProvidersPage() {
 
   const load = async () => {
     try { setProviders(await api.providers.list()) }
+    catch { /* ignore */ }
     finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [])
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this provider?')) return
-    await api.providers.delete(id)
-    load()
+    if (!confirm('Delete this provider? Any agents using it will stop working.')) return
+    try { await api.providers.delete(id); load() }
+    catch (e: any) { alert(e.message) }
+  }
+
+  const endpointLabel = (p: Provider) => {
+    try {
+      const cfg = JSON.parse(p.config)
+      return cfg.endpoint || cfg.binary_path || '–'
+    } catch { return '–' }
   }
 
   return (
@@ -105,7 +257,10 @@ export function ProvidersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Providers</h1>
-          <p className="text-slate-400 text-sm mt-1">Configure LLM endpoints and coding agent connections</p>
+          <p className="text-slate-400 text-sm mt-1">
+            Configure LLM endpoints and coding agent connections.{' '}
+            <span className="text-slate-500">Use <code className="bg-slate-800 px-1 rounded text-xs">{'${ENV_VAR}'}</code> for secrets.</span>
+          </p>
         </div>
         <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ Add Provider</Button>
       </div>
@@ -114,7 +269,7 @@ export function ProvidersPage() {
         <div className="text-slate-500 text-sm">Loading…</div>
       ) : providers.length === 0 ? (
         <EmptyState icon="⊕" title="No providers configured"
-          description="Add your first LLM endpoint to start running agents."
+          description="Add your first LLM endpoint or coding agent to start running agents."
           action={<Button onClick={() => setShowForm(true)}>Add Provider</Button>} />
       ) : (
         <div className="grid gap-4">
@@ -122,15 +277,23 @@ export function ProvidersPage() {
             <Card key={p.id}>
               <CardBody className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-medium text-white">{p.name}</h3>
-                    <Badge variant={p.type === 'llm' ? 'info' : 'default'}>
-                      {p.type === 'llm' ? 'LLM Endpoint' : 'Coding Agent'}
-                    </Badge>
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <div className={cn(
+                      'w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0',
+                      p.type === 'llm'
+                        ? 'bg-violet-900/50 border border-violet-800/50 text-violet-400'
+                        : 'bg-emerald-900/50 border border-emerald-800/50 text-emerald-400'
+                    )}>
+                      {p.type === 'llm' ? '⬡' : '⌘'}
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-white">{p.name}</h3>
+                      <Badge variant={p.type === 'llm' ? 'info' : 'success'} className="mt-0.5">
+                        {p.type === 'llm' ? 'LLM Endpoint' : 'Coding Agent'}
+                      </Badge>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500 font-mono truncate">
-                    {(() => { try { return JSON.parse(p.config).endpoint || JSON.parse(p.config).binary_path || '–' } catch { return '–' } })()}
-                  </p>
+                  <p className="text-xs text-slate-500 font-mono truncate pl-11">{endpointLabel(p)}</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
                   <Button variant="ghost" size="sm" onClick={() => { setEditing(p); setShowForm(true) }}>Edit</Button>
@@ -143,8 +306,16 @@ export function ProvidersPage() {
       )}
 
       {showForm && (
-        <Modal title={editing ? 'Edit Provider' : 'Add Provider'} onClose={() => setShowForm(false)}>
-          <ProviderForm initial={editing} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
+        <Modal
+          title={editing ? `Edit: ${editing.name}` : 'Add Provider'}
+          onClose={() => setShowForm(false)}
+          className="max-w-xl"
+        >
+          <ProviderForm
+            initial={editing}
+            onSave={() => { setShowForm(false); load() }}
+            onClose={() => setShowForm(false)}
+          />
         </Modal>
       )}
     </div>
