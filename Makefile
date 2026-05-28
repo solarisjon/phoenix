@@ -16,10 +16,16 @@ build-web:
 	cp -r $(WEB_DIR)/dist $(FRONTEND_DIST)
 
 ## build-go: compile the Go binary (requires build-web first)
-build-go:
+build-go: sync-migrations
 	@echo "→ Building Go binary..."
 	go build -o $(BINARY) ./cmd/phoenix/...
 	@echo "✓ Binary: ./$(BINARY)"
+
+## sync-migrations: copy root migrations into the sqlite embed directory
+sync-migrations:
+	@echo "→ Syncing migrations..."
+	rm -rf internal/store/sqlite/migrations
+	cp -r migrations internal/store/sqlite/migrations
 
 ## dev: run frontend and backend dev servers concurrently
 dev:
