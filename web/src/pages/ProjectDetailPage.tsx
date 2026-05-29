@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent, type Task } from '@/lib/api'
+import { api, type Project, type Agent, type Task, type Team } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -166,6 +166,51 @@ function AssignAgentModal({ projectId, allAgents, assigned, onSave, onClose }: {
   )
 }
 
+function AssignTeamModal({ projectId, onSave, onClose }: {
+  projectId: string; onSave: (msg: string) => void; onClose: () => void
+}) {
+  const [teams, setTeams] = useState<Team[]>([])
+  const [selected, setSelected] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [result, setResult] = useState('')
+
+  useEffect(() => {
+    api.teams.list().then(t => { setTeams(t); setSelected(t[0]?.id ?? '') })
+  }, [])
+
+  const save = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      const r = await api.projects.assignTeam(projectId, selected)
+      onSave(`Added ${r.assigned} of ${r.total} agent(s) from "${r.team}"`)
+    } catch (e: any) { setResult(e.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      {teams.length === 0 ? (
+        <p className="text-slate-400 text-sm">No teams yet. <a href="/teams" className="text-violet-400 hover:underline">Create a team</a> first.</p>
+      ) : (
+        <>
+          <div>
+            <Label htmlFor="team">Select Team</Label>
+            <Select id="team" value={selected} onChange={e => setSelected(e.target.value)}>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.agents?.length ?? 0} members)</option>)}
+            </Select>
+          </div>
+          {result && <p className="text-sm text-slate-400">{result}</p>}
+          <div className="flex gap-3 justify-end">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button onClick={save} disabled={saving || !selected}>{saving ? 'Assigning…' : 'Assign Team'}</Button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -176,6 +221,8 @@ export function ProjectDetailPage() {
   const [loading, setLoading] = useState(true)
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [showAssignAgent, setShowAssignAgent] = useState(false)
+  const [showAssignTeam, setShowAssignTeam] = useState(false)
+  const [teamAssignMsg, setTeamAssignMsg] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -289,8 +336,16 @@ export function ProjectDetailPage() {
         <div className="col-span-1 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Agents</h2>
-            <Button variant="ghost" size="sm" onClick={() => setShowAssignAgent(true)}>+ Assign</Button>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" onClick={() => setShowAssignTeam(true)}>+ Team</Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowAssignAgent(true)}>+ Agent</Button>
+            </div>
           </div>
+          {teamAssignMsg && (
+            <p className="text-xs text-green-400 bg-green-900/20 border border-green-800/40 rounded px-2 py-1">
+              ✓ {teamAssignMsg}
+            </p>
+          )}
           {agents.length === 0 ? (
             <p className="text-slate-500 text-xs">No agents assigned. <button className="text-violet-400 hover:underline" onClick={() => setShowAssignAgent(true)}>Add one</button>.</p>
           ) : agents.map(a => (
@@ -350,6 +405,15 @@ export function ProjectDetailPage() {
           <AssignAgentModal projectId={project.id} allAgents={allAgents} assigned={agents}
             onSave={() => { setShowAssignAgent(false); load() }}
             onClose={() => setShowAssignAgent(false)} />
+        </Modal>
+      )}
+      {showAssignTeam && (
+        <Modal title="Assign Team" onClose={() => setShowAssignTeam(false)}>
+          <AssignTeamModal
+            projectId={project.id}
+            onSave={(msg) => { setShowAssignTeam(false); setTeamAssignMsg(msg); load(); setTimeout(() => setTeamAssignMsg(''), 5000) }}
+            onClose={() => setShowAssignTeam(false)}
+          />
         </Modal>
       )}
     </div>

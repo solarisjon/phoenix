@@ -6,6 +6,7 @@ const nav = [
   { label: 'Inbox', href: '/inbox', icon: '⊡' },
   { label: 'Projects', href: '/projects', icon: '⊞' },
   { label: 'Agents', href: '/agents', icon: '⬡' },
+  { label: 'Teams', href: '/teams', icon: '⬡⬡' },
   { label: 'Providers', href: '/providers', icon: '⊕' },
 ]
 

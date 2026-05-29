@@ -20,6 +20,7 @@
   - [TODO]  import/export agents and teams — share agent configs between instances
   - [TODO]  UI theming
   - [TODO]  agent teams — group agents into a named team, assign team to project
+  - need to think of a way managing heartbeat projects , projects may be static where there are created and a human adds tasks etc some of those tasks may need refining so we should allow for a completed task toi be refined. But also some tasks like manage a queue should wake and generate a persistent task on an agents queue so when they wake they can actioin it .. i am open to suggestions as to how best presnet these flows and make it intuitive as to whats going on whats pending and whats been completed
 
 
 

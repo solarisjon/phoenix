@@ -118,6 +118,16 @@ type Task struct {
 	CompletedAt  *time.Time `json:"completed_at"`
 }
 
+// Team is a named group of agents that can be assigned to projects as a unit.
+type Team struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	Agents      []*Agent  `json:"agents,omitempty"` // populated on Get/List
+}
+
 // TodoItem is a queued work item for a target agent.
 type TodoItem struct {
 	ID            string         `json:"id"`

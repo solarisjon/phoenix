@@ -58,6 +58,18 @@ type TaskRepo interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// TeamRepo manages agent teams.
+type TeamRepo interface {
+	List(ctx context.Context) ([]*model.Team, error)
+	Get(ctx context.Context, id string) (*model.Team, error)
+	Create(ctx context.Context, t *model.Team) error
+	Update(ctx context.Context, t *model.Team) error
+	Delete(ctx context.Context, id string) error
+	AddAgent(ctx context.Context, teamID, agentID string) error
+	RemoveAgent(ctx context.Context, teamID, agentID string) error
+	ListAgents(ctx context.Context, teamID string) ([]*model.Agent, error)
+}
+
 // CostSummary holds aggregated cost data.
 type CostSummary struct {
 	ID    string  `json:"id"`

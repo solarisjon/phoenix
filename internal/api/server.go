@@ -21,6 +21,7 @@ type Server struct {
 	tasks     store.TaskRepo
 	stats     store.StatsRepo
 	users     store.UserRepo
+	teams     store.TeamRepo
 	runner    *agent.Runner
 	registry  *registry.Registry
 	hub       *Hub
@@ -35,6 +36,7 @@ func New(
 	tasks store.TaskRepo,
 	stats store.StatsRepo,
 	users store.UserRepo,
+	teams store.TeamRepo,
 	runner *agent.Runner,
 	reg *registry.Registry,
 ) *Server {
@@ -45,6 +47,7 @@ func New(
 		tasks:     tasks,
 		stats:     stats,
 		users:     users,
+		teams:     teams,
 		runner:    runner,
 		registry:  reg,
 		hub:       NewHub(),
@@ -89,6 +92,15 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/agents/{id}", s.updateAgent)
 		r.Delete("/agents/{id}", s.deleteAgent)
 
+		// Teams
+		r.Get("/teams", s.listTeams)
+		r.Post("/teams", s.createTeam)
+		r.Get("/teams/{id}", s.getTeam)
+		r.Put("/teams/{id}", s.updateTeam)
+		r.Delete("/teams/{id}", s.deleteTeam)
+		r.Post("/teams/{id}/agents", s.addTeamAgent)
+		r.Delete("/teams/{id}/agents/{agentId}", s.removeTeamAgent)
+
 		// Projects
 		r.Get("/projects", s.listProjects)
 		r.Post("/projects", s.createProject)
@@ -98,6 +110,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/projects/{id}/agents", s.assignAgent)
 		r.Delete("/projects/{id}/agents/{agentId}", s.removeAgent)
 		r.Get("/projects/{id}/agents", s.listProjectAgents)
+		r.Post("/projects/{id}/teams", s.assignTeamToProject)
 
 		// Tasks
 		r.Get("/tasks", s.listTasks)

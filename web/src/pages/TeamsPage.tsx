@@ -1,0 +1,208 @@
+import { useState, useEffect } from 'react'
+import { api, type Team, type Agent } from '@/lib/api'
+import { Card, CardBody } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Modal } from '@/components/ui/modal'
+import { Input, Textarea, Label } from '@/components/ui/input'
+import { EmptyState } from '@/components/ui/empty'
+import { timeAgo } from '@/lib/utils'
+
+// ---- Team form ----
+
+function TeamForm({ initial, allAgents, onSave, onClose }: {
+  initial?: Team
+  allAgents: Agent[]
+  onSave: () => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [selectedAgents, setSelectedAgents] = useState<Set<string>>(
+    new Set(initial?.agents?.map(a => a.id) ?? [])
+  )
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const toggleAgent = (id: string) => {
+    setSelectedAgents(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const save = async () => {
+    if (!name.trim()) { setError('Name is required'); return }
+    setSaving(true)
+    try {
+      if (initial) {
+        await api.teams.update(initial.id, { name, description })
+        // Sync agent membership
+        const current = new Set(initial.agents?.map(a => a.id) ?? [])
+        for (const id of selectedAgents) {
+          if (!current.has(id)) await api.teams.addAgent(initial.id, id)
+        }
+        for (const id of current) {
+          if (!selectedAgents.has(id)) await api.teams.removeAgent(initial.id, id)
+        }
+      } else {
+        await api.teams.create({ name, description, agent_ids: [...selectedAgents] })
+      }
+      onSave()
+    } catch (e: any) { setError(e.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="tname">Team Name</Label>
+        <Input id="tname" value={name} onChange={e => setName(e.target.value)}
+          placeholder="e.g. Sustaining Team" />
+      </div>
+      <div>
+        <Label htmlFor="tdesc">Description</Label>
+        <Textarea id="tdesc" value={description} onChange={e => setDescription(e.target.value)}
+          rows={2} placeholder="What does this team handle?" />
+      </div>
+      <div>
+        <Label>Members</Label>
+        <p className="text-xs text-slate-500 mb-2">Select agents to include in this team.</p>
+        {allAgents.length === 0 ? (
+          <p className="text-sm text-slate-500 italic">No agents yet — create some first.</p>
+        ) : (
+          <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+            {allAgents.map(a => (
+              <label key={a.id} className="flex items-center gap-3 p-2 rounded hover:bg-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedAgents.has(a.id)}
+                  onChange={() => toggleAgent(a.id)}
+                  className="rounded"
+                />
+                <div>
+                  <p className="text-sm text-white">{a.name}</p>
+                  {a.persona && <p className="text-xs text-slate-500 line-clamp-1">{a.persona}</p>}
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      <div className="flex gap-3 justify-end pt-2">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Team'}</Button>
+      </div>
+    </div>
+  )
+}
+
+// ---- Main page ----
+
+export function TeamsPage() {
+  const [teams, setTeams] = useState<Team[]>([])
+  const [allAgents, setAllAgents] = useState<Agent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<Team | undefined>()
+
+  const load = async () => {
+    try {
+      const [t, a] = await Promise.all([api.teams.list(), api.agents.list()])
+      setTeams(t)
+      setAllAgents(a)
+    } finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const remove = async (id: string) => {
+    if (!confirm('Delete this team? Agents will not be deleted.')) return
+    await api.teams.delete(id)
+    load()
+  }
+
+  if (loading) return <div className="text-slate-500 text-sm">Loading…</div>
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Teams</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Group agents into teams and assign the whole team to a project at once.
+          </p>
+        </div>
+        <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ New Team</Button>
+      </div>
+
+      {teams.length === 0 ? (
+        <EmptyState
+          icon="⬡⬡"
+          title="No teams yet"
+          description="Create a team to group agents together. Assigning a team to a project adds all its members at once."
+          action={<Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ New Team</Button>}
+        />
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          {teams.map(team => (
+            <Card key={team.id}>
+              <CardBody>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold text-white">{team.name}</h3>
+                    {team.description && (
+                      <p className="text-sm text-slate-400 mt-0.5 line-clamp-2">{team.description}</p>
+                    )}
+                    <p className="text-xs text-slate-600 mt-1">Created {timeAgo(team.created_at)}</p>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => { setEditing(team); setShowForm(true) }}>Edit</Button>
+                    <Button variant="danger" size="sm" onClick={() => remove(team.id)}>Delete</Button>
+                  </div>
+                </div>
+
+                {/* Member list */}
+                <div className="mt-3 border-t border-slate-800 pt-3">
+                  {team.agents && team.agents.length > 0 ? (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">
+                        {team.agents.length} member{team.agents.length !== 1 ? 's' : ''}
+                      </p>
+                      {team.agents.map(a => (
+                        <div key={a.id} className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-violet-900/60 text-violet-300 text-xs flex items-center justify-center font-medium flex-shrink-0">
+                            {a.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-sm text-slate-300 truncate">{a.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-600 italic">No members — edit to add agents.</p>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {showForm && (
+        <Modal
+          title={editing ? 'Edit Team' : 'New Team'}
+          onClose={() => { setShowForm(false); setEditing(undefined) }}
+        >
+          <TeamForm
+            initial={editing}
+            allAgents={allAgents}
+            onSave={() => { setShowForm(false); setEditing(undefined); load() }}
+            onClose={() => { setShowForm(false); setEditing(undefined) }}
+          />
+        </Modal>
+      )}
+    </div>
+  )
+}

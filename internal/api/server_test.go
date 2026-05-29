@@ -36,6 +36,7 @@ func testServer(t *testing.T) *Server {
 	taskRepo := sqllite.NewTaskRepo(db)
 	statsRepo := sqllite.NewStatsRepo(db)
 	userRepo := sqllite.NewUserRepo(db)
+	teamRepo := sqllite.NewTeamRepo(db)
 
 	reg := registry.NewRegistry(provRepo)
 	reg.InjectForTest("prov-test", &mockProv{})
@@ -43,7 +44,7 @@ func testServer(t *testing.T) *Server {
 	runner := agent.New(agentRepo, taskRepo, projRepo, reg, nil)
 	t.Cleanup(runner.Shutdown)
 
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, runner, reg)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, runner, reg)
 }
 
 type mockProv struct{}
@@ -350,6 +351,7 @@ var _ store.ProviderRepo = (*sqllite.ProviderRepo)(nil)
 var _ store.AgentRepo = (*sqllite.AgentRepo)(nil)
 var _ store.ProjectRepo = (*sqllite.ProjectRepo)(nil)
 var _ store.TaskRepo = (*sqllite.TaskRepo)(nil)
+var _ store.TeamRepo = (*sqllite.TeamRepo)(nil)
 
 // Suppress unused import
 var _ = time.Now

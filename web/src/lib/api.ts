@@ -29,6 +29,15 @@ export interface GeneratedAgent {
   guardrails: string
 }
 
+export interface Team {
+  id: string
+  name: string
+  description: string
+  created_by: string
+  created_at: string
+  agents: Agent[]
+}
+
 export interface Project {
   id: string
   name: string
@@ -103,6 +112,15 @@ export const api = {
         body: JSON.stringify({ description, provider_id: providerId ?? '' }),
       }),
   },
+  teams: {
+    list: () => request<Team[]>('/teams'),
+    get: (id: string) => request<Team>(`/teams/${id}`),
+    create: (data: Partial<Team> & { agent_ids?: string[] }) => request<Team>('/teams', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<Team>) => request<Team>(`/teams/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>(`/teams/${id}`, { method: 'DELETE' }),
+    addAgent: (id: string, agentId: string) => request<void>(`/teams/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
+    removeAgent: (id: string, agentId: string) => request<void>(`/teams/${id}/agents/${agentId}`, { method: 'DELETE' }),
+  },
   projects: {
     list: () => request<Project[]>('/projects'),
     get: (id: string) => request<Project>(`/projects/${id}`),
@@ -112,6 +130,7 @@ export const api = {
     listAgents: (id: string) => request<Agent[]>(`/projects/${id}/agents`),
     assignAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),
+    assignTeam: (id: string, teamId: string) => request<{ assigned: number, total: number, team: string }>(`/projects/${id}/teams`, { method: 'POST', body: JSON.stringify({ team_id: teamId }) }),
   },
   tasks: {
     list: (projectId: string) => request<Task[]>(`/tasks?project_id=${projectId}`),
