@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Task, type Agent, type Project } from '@/lib/api'
+import { api, type Task, type Agent, type Project, type AgentDraft, type Provider } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -256,6 +256,174 @@ function InboxTaskCard({ task, agentName, projectName, onAction }: {
   )
 }
 
+// ---- Pending hire card ----
+
+function HireApprovalCard({ draft, providers, onAction }: {
+  draft: AgentDraft
+  providers: Provider[]
+  onAction: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [selectedProvider, setSelectedProvider] = useState(draft.provider_id)
+  const [editName, setEditName] = useState(draft.name)
+  const [editPersona, setEditPersona] = useState(draft.persona)
+  const [editInstructions, setEditInstructions] = useState(draft.instructions)
+  const [editGuardrails, setEditGuardrails] = useState(draft.guardrails)
+  const [expanded, setExpanded] = useState(false)
+  const [error, setError] = useState('')
+
+  const saveEdits = async () => {
+    setBusy(true)
+    try {
+      await api.agentDrafts.update(draft.id, {
+        name: editName,
+        persona: editPersona,
+        instructions: editInstructions,
+        guardrails: editGuardrails,
+        provider_id: selectedProvider,
+      })
+      setEditing(false)
+      onAction()
+    } catch (e: any) { setError(e.message) }
+    finally { setBusy(false) }
+  }
+
+  const approve = async () => {
+    setBusy(true)
+    try { await api.agentDrafts.approve(draft.id, selectedProvider); onAction() }
+    catch (e: any) { setError(e.message) }
+    finally { setBusy(false) }
+  }
+
+  const reject = async () => {
+    if (!confirm(`Reject hire proposal for "${draft.name}"? This cannot be undone.`)) return
+    setBusy(true)
+    try { await api.agentDrafts.reject(draft.id); onAction() }
+    finally { setBusy(false) }
+  }
+
+  const dismiss = async () => {
+    setBusy(true)
+    try { await api.agentDrafts.dismiss(draft.id); onAction() }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Card className="border-purple-900/50 bg-purple-950/10">
+      <CardBody>
+        <div className="flex items-start gap-4">
+          {/* Icon */}
+          <div className="w-8 h-8 rounded-full bg-purple-900/40 flex items-center justify-center text-sm flex-shrink-0">
+            🧑‍💼
+          </div>
+          <div className="flex-1 min-w-0">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <Badge variant="default" className="bg-purple-900/60 text-purple-300 border-purple-700/50 text-xs">Pending Hire</Badge>
+                <h3 className="font-semibold text-white">{editing ? editName : draft.name}</h3>
+              </div>
+            </div>
+
+            {/* Provenance */}
+            <p className="text-xs text-slate-500 mb-3">
+              Proposed by <span className="text-slate-300">{draft.created_by_agent_name}</span>
+              {draft.created_by_task_title && <> · via task <span className="text-slate-300">{draft.created_by_task_title}</span></>}
+              {' · '}{new Date(draft.created_at).toLocaleDateString()}
+            </p>
+
+            {/* Edit mode */}
+            {editing ? (
+              <div className="space-y-3 mb-4">
+                <div>
+                  <Label htmlFor={`dn-${draft.id}`}>Name</Label>
+                  <Input id={`dn-${draft.id}`} value={editName} onChange={e => setEditName(e.target.value)} />
+                </div>
+                <div>
+                  <Label htmlFor={`dp-${draft.id}`}>Persona</Label>
+                  <Textarea id={`dp-${draft.id}`} value={editPersona} onChange={e => setEditPersona(e.target.value)} rows={3} />
+                </div>
+                <div>
+                  <Label htmlFor={`di-${draft.id}`}>Instructions</Label>
+                  <Textarea id={`di-${draft.id}`} value={editInstructions} onChange={e => setEditInstructions(e.target.value)} rows={5} />
+                </div>
+                <div>
+                  <Label htmlFor={`dg-${draft.id}`}>Guardrails</Label>
+                  <Textarea id={`dg-${draft.id}`} value={editGuardrails} onChange={e => setEditGuardrails(e.target.value)} rows={3} />
+                </div>
+                {error && <p className="text-xs text-red-400">{error}</p>}
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={saveEdits} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              /* Preview / expanded view */
+              <div className="mb-4">
+                <div className="bg-slate-900 rounded-lg p-3 text-xs text-slate-300 mb-2">
+                  <p className="text-slate-500 mb-1 font-medium">Persona</p>
+                  <p className="whitespace-pre-wrap">{draft.persona}</p>
+                </div>
+                {expanded && (
+                  <>
+                    <div className="bg-slate-900 rounded-lg p-3 text-xs text-slate-300 mb-2">
+                      <p className="text-slate-500 mb-1 font-medium">Instructions</p>
+                      <p className="whitespace-pre-wrap">{draft.instructions}</p>
+                    </div>
+                    {draft.guardrails && (
+                      <div className="bg-slate-900 rounded-lg p-3 text-xs text-slate-300 mb-2">
+                        <p className="text-slate-500 mb-1 font-medium">Guardrails</p>
+                        <p className="whitespace-pre-wrap">{draft.guardrails}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+                <button
+                  className="text-xs text-violet-400 hover:text-violet-300 mt-1"
+                  onClick={() => setExpanded(e => !e)}
+                >
+                  {expanded ? '▲ Show less' : '▼ Show instructions & guardrails'}
+                </button>
+              </div>
+            )}
+
+            {/* Provider picker + actions */}
+            {!editing && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-slate-400">Provider:</label>
+                  <select
+                    value={selectedProvider}
+                    onChange={e => setSelectedProvider(e.target.value)}
+                    className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                  >
+                    {providers.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <Button size="sm" onClick={approve} disabled={busy || !selectedProvider}>
+                  ✓ Approve &amp; Create Agent
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setEditing(true); setError('') }}>
+                  ✏ Edit
+                </Button>
+                <Button size="sm" variant="danger" onClick={reject} disabled={busy}>
+                  ✕ Reject
+                </Button>
+                <Button size="sm" variant="ghost" onClick={dismiss} disabled={busy}>
+                  Dismiss
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
 // ---- Group heading ----
 
 function GroupHeading({ label, count, color }: { label: string; count: number; color: string }) {
@@ -273,27 +441,37 @@ function GroupHeading({ label, count, color }: { label: string; count: number; c
 
 export function InboxPage() {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [drafts, setDrafts] = useState<AgentDraft[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
-      const [t, a, p] = await Promise.all([
+      const [t, d, a, p, prov] = await Promise.all([
         api.inbox.listAttention(),
+        api.agentDrafts.list(),
         api.agents.list(),
         api.projects.list(),
+        api.providers.list(),
       ])
       setTasks(t)
+      setDrafts(d)
       setAgents(a)
       setProjects(p)
+      setProviders(prov)
     } finally { setLoading(false) }
   }, [])
 
   useEffect(() => {
     load()
     const unsub = phoenixWS.on((ev) => {
-      if (ev.type === 'inbox.new_item' || ev.type === 'task.status_changed') load()
+      if (
+        ev.type === 'inbox.new_item' ||
+        ev.type === 'task.status_changed' ||
+        ev.type === 'agent_draft.created'
+      ) load()
     })
     return unsub
   }, [load])
@@ -303,25 +481,44 @@ export function InboxPage() {
 
   const awaiting = tasks.filter(t => t.status === 'awaiting_approval')
   const failed = tasks.filter(t => t.status === 'failed')
+  const totalItems = awaiting.length + failed.length + drafts.length
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold text-white">Inbox</h1>
         <p className="text-slate-400 text-sm mt-1">
-          Tasks needing your attention —{' '}
-          <span className="text-amber-400">{awaiting.length} awaiting approval</span>
-          {failed.length > 0 && <>, <span className="text-red-400">{failed.length} failed</span></>}
+          {drafts.length > 0 && <><span className="text-purple-400">{drafts.length} pending hire{drafts.length !== 1 ? 's' : ''}</span>{(awaiting.length > 0 || failed.length > 0) ? ', ' : ''}</>}
+          {awaiting.length > 0 && <><span className="text-amber-400">{awaiting.length} awaiting approval</span>{failed.length > 0 ? ', ' : ''}</>}
+          {failed.length > 0 && <span className="text-red-400">{failed.length} failed</span>}
+          {totalItems === 0 && 'All clear — nothing needs your attention'}
         </p>
       </div>
 
       {loading ? (
         <div className="text-slate-500 text-sm">Loading…</div>
-      ) : tasks.length === 0 ? (
+      ) : totalItems === 0 ? (
         <EmptyState icon="⊡" title="All clear"
           description="No tasks need your attention. Agents are running or idle." />
       ) : (
         <div className="space-y-8">
+          {/* Pending hires */}
+          {drafts.length > 0 && (
+            <section>
+              <GroupHeading label="Pending Hires" count={drafts.length} color="bg-purple-500" />
+              <div className="space-y-3">
+                {drafts.map(d => (
+                  <HireApprovalCard
+                    key={d.id}
+                    draft={d}
+                    providers={providers}
+                    onAction={load}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Awaiting approval */}
           {awaiting.length > 0 && (
             <section>

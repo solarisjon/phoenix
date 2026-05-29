@@ -25,8 +25,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const refreshInbox = useCallback(async () => {
     try {
-      const items = await api.inbox.list()
-      setInboxCount(items.length)
+      const [items, drafts] = await Promise.all([
+        api.inbox.list(),
+        api.agentDrafts.list(),
+      ])
+      setInboxCount(items.length + drafts.length)
     } catch { /* ignore */ }
   }, [])
 
@@ -34,7 +37,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     refreshInbox()
     phoenixWS.connect()
     const unsub = phoenixWS.on((ev) => {
-      if (ev.type === 'inbox.new_item' || ev.type === 'task.status_changed') {
+      if (
+        ev.type === 'inbox.new_item' ||
+        ev.type === 'task.status_changed' ||
+        ev.type === 'agent_draft.created'
+      ) {
         refreshInbox()
       }
     })

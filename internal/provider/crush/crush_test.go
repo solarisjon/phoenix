@@ -64,15 +64,6 @@ func TestBuildArgs_WithWorkDir(t *testing.T) {
 	}
 }
 
-func TestBuildArgs_Yolo(t *testing.T) {
-	a, _ := New(`{"yolo":true}`)
-	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "")
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "--yolo") {
-		t.Errorf("missing --yolo, got: %s", joined)
-	}
-}
-
 func TestBuildArgs_ExtraArgs(t *testing.T) {
 	a, _ := New(`{"extra_args":["--debug","--small-model","haiku"]}`)
 	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "")

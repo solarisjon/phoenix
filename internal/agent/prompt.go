@@ -45,7 +45,7 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task) string {
 	}
 
 	if a.CanSpawnAgents {
-		b.WriteString("## Agent Spawning\n")
+		b.WriteString("## Delegating to Existing Agents\n")
 		b.WriteString(fmt.Sprintf(`You are permitted to delegate work to other agents by calling the Phoenix API.`+"\n"+
 			`To spawn a task for another agent, make an HTTP POST to http://localhost:8080/api/agents/spawn with JSON body:`+"\n\n"+
 			"```json\n"+
@@ -59,6 +59,32 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task) string {
 			"```\n"+
 			`The API returns the created task. Only spawn tasks when explicitly needed to complete your work.`,
 			a.ID, t.ProjectID))
+		b.WriteString("\n\n")
+	}
+
+	if a.CanHireAgents {
+		b.WriteString("## Hiring New Agents\n")
+		b.WriteString(fmt.Sprintf(
+			`You are permitted to recruit and create new agents by calling the Phoenix API.`+"\n\n"+
+			`**Step 1 — Check existing agents first:**`+"\n"+
+			`Before proposing a hire, call GET http://localhost:8080/api/agents to list all existing agents.`+"\n"+
+			`Review their names and personas. Only propose a new hire if no existing agent can fulfill the required role.`+"\n\n"+
+			`**Step 2 — Submit a hire proposal:**`+"\n"+
+			`If no suitable agent exists, make an HTTP POST to http://localhost:8080/api/agent-drafts with this JSON body:`+"\n\n"+
+			"```json\n"+
+			"{\n"+
+			`  "created_by_agent_id": "%s",`+"\n"+
+			`  "created_by_task_id":  "%s",`+"\n"+
+			`  "name":         "<full role title, e.g. Senior Operations Manager>",`+"\n"+
+			`  "persona":      "<2-3 sentences: who they are, personality, communication style>",`+"\n"+
+			`  "instructions": "<detailed operational instructions, 4-8 paragraphs or bullets>",`+"\n"+
+			`  "guardrails":   "<constraints and boundaries, 3-5 items>"`+"\n"+
+			"}\n"+
+			"```\n"+
+			`The draft will be sent to a human for review and approval before the agent is activated.`+"\n"+
+			`You do not need to assign a provider or project — the human handles that at approval time.`+"\n"+
+			`Only propose a hire when explicitly asked to recruit, or when your task requires a capability that no existing agent can fulfill.`,
+			a.ID, t.ID))
 		b.WriteString("\n")
 	}
 

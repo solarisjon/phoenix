@@ -77,6 +77,7 @@ type Agent struct {
 	ProviderID        string      `json:"provider_id"`
 	ModelOverride     string      `json:"model_override"`     // if set, overrides the provider's default model
 	CanSpawnAgents    bool        `json:"can_spawn_agents"`   // if true, agent may create tasks for other agents
+	CanHireAgents     bool        `json:"can_hire_agents"`    // if true, agent may submit new agent hire proposals
 	HeartbeatInterval *int        `json:"heartbeat_interval"` // seconds, nil = manual only
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`
@@ -156,4 +157,31 @@ type Broadcast struct {
 type BroadcastSubscription struct {
 	ProjectID string `json:"project_id"`
 	AgentID   string `json:"agent_id"`
+}
+
+// AgentDraftStatus represents the lifecycle of a pending agent hire.
+type AgentDraftStatus string
+
+const (
+	AgentDraftPending  AgentDraftStatus = "pending_approval"
+	AgentDraftApproved AgentDraftStatus = "approved"
+	AgentDraftRejected AgentDraftStatus = "rejected"
+)
+
+// AgentDraft is a proposed new agent submitted by a hiring agent for human
+// review and approval. On approval it becomes a live Agent.
+type AgentDraft struct {
+	ID                 string           `json:"id"`
+	CreatedByAgentID   string           `json:"created_by_agent_id"`
+	CreatedByAgentName string           `json:"created_by_agent_name"` // denormalised for display
+	CreatedByTaskID    *string          `json:"created_by_task_id"`
+	CreatedByTaskTitle string           `json:"created_by_task_title"` // denormalised for display
+	Name               string           `json:"name"`
+	Persona            string           `json:"persona"`
+	Instructions       string           `json:"instructions"`
+	Guardrails         string           `json:"guardrails"`
+	ProviderID         string           `json:"provider_id"`
+	Status             AgentDraftStatus `json:"status"`
+	Dismissed          bool             `json:"dismissed"`
+	CreatedAt          time.Time        `json:"created_at"`
 }

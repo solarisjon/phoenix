@@ -18,6 +18,7 @@ export interface Agent {
   provider_id: string
   model_override: string
   can_spawn_agents: boolean
+  can_hire_agents: boolean
   heartbeat_interval: number | null
   status: 'active' | 'paused' | 'disabled'
   created_at: string
@@ -80,6 +81,22 @@ export interface DailyCost {
 export interface TaskStatusCount {
   status: string
   count: number
+}
+
+export interface AgentDraft {
+  id: string
+  created_by_agent_id: string
+  created_by_agent_name: string
+  created_by_task_id: string | null
+  created_by_task_title: string
+  name: string
+  persona: string
+  instructions: string
+  guardrails: string
+  provider_id: string
+  status: 'pending_approval' | 'approved' | 'rejected'
+  dismissed: boolean
+  created_at: string
 }
 
 export interface CostsResponse {
@@ -181,6 +198,14 @@ export const api = {
     approve: (taskId: string) => request<Task>(`/inbox/${taskId}/approve`, { method: 'POST', body: '{}' }),
     reject: (taskId: string) => request<Task>(`/inbox/${taskId}/reject`, { method: 'POST', body: '{}' }),
     revise: (taskId: string, feedback: string) => request<Task>(`/inbox/${taskId}/revise`, { method: 'POST', body: JSON.stringify({ feedback }) }),
+  },
+  agentDrafts: {
+    list: () => request<AgentDraft[]>('/agent-drafts'),
+    create: (data: Partial<AgentDraft>) => request<AgentDraft>('/agent-drafts', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<AgentDraft>) => request<AgentDraft>(`/agent-drafts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    approve: (id: string, providerId?: string) => request<Agent>(`/agent-drafts/${id}/approve`, { method: 'POST', body: JSON.stringify({ provider_id: providerId ?? '' }) }),
+    reject: (id: string) => request<void>(`/agent-drafts/${id}/reject`, { method: 'POST', body: '{}' }),
+    dismiss: (id: string) => request<void>(`/agent-drafts/${id}/dismiss`, { method: 'POST', body: '{}' }),
   },
   stats: {
     costs: () => request<CostsResponse>('/stats/costs'),

@@ -10,6 +10,7 @@ const (
 	EventTaskOutputStream   EventType = "task.output_stream"
 	EventAgentStatusChanged EventType = "agent.status_changed"
 	EventInboxNewItem       EventType = "inbox.new_item"
+	EventAgentDraftCreated  EventType = "agent_draft.created"
 )
 
 // Event is the envelope sent over the WebSocket to every connected client.

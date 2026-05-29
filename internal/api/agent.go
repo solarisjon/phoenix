@@ -22,6 +22,7 @@ type createAgentRequest struct {
 	ProviderID        string `json:"provider_id"`
 	ModelOverride     string `json:"model_override"`
 	CanSpawnAgents    bool   `json:"can_spawn_agents"`
+	CanHireAgents     bool   `json:"can_hire_agents"`
 	HeartbeatInterval *int   `json:"heartbeat_interval"`
 	Status            string `json:"status"`
 }
@@ -109,6 +110,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		ProviderID:        req.ProviderID,
 		ModelOverride:     req.ModelOverride,
 		CanSpawnAgents:    req.CanSpawnAgents,
+		CanHireAgents:     req.CanHireAgents,
 		HeartbeatInterval: req.HeartbeatInterval,
 		CreatedBy:         user.ID,
 		Status:            status,
@@ -162,6 +164,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.ProviderID = req.ProviderID
 	existing.ModelOverride = req.ModelOverride
 	existing.CanSpawnAgents = req.CanSpawnAgents
+	existing.CanHireAgents = req.CanHireAgents
 	existing.HeartbeatInterval = req.HeartbeatInterval
 	if req.Status != "" {
 		existing.Status = model.AgentStatus(req.Status)

@@ -90,6 +90,15 @@ type TaskCountByStatus struct {
 	Count  int    `json:"count"`
 }
 
+// AgentDraftRepo manages pending agent hire proposals.
+type AgentDraftRepo interface {
+	List(ctx context.Context) ([]*model.AgentDraft, error)
+	Get(ctx context.Context, id string) (*model.AgentDraft, error)
+	Create(ctx context.Context, d *model.AgentDraft) error
+	Update(ctx context.Context, d *model.AgentDraft) error
+	Dismiss(ctx context.Context, id string) error
+}
+
 // StatsRepo provides aggregated cost queries.
 type StatsRepo interface {
 	CostByAgent(ctx context.Context) ([]*CostSummary, error)

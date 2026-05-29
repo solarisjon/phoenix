@@ -47,10 +47,6 @@ type Config struct {
 	// If set and no project working_dir override is provided, used as the base dir.
 	WorkingDir string `json:"working_dir"`
 
-	// Yolo auto-approves all tool use without prompting (--yolo).
-	// Only enable in trusted environments.
-	Yolo bool `json:"yolo"`
-
 	// ExtraArgs are passed verbatim to the crush CLI after all other flags.
 	ExtraArgs []string `json:"extra_args"`
 }
@@ -250,9 +246,6 @@ func (a *Adapter) buildArgs(req provider.TaskRequest, workDir string) []string {
 	}
 	if workDir != "" {
 		args = append(args, "--cwd", workDir)
-	}
-	if a.cfg.Yolo {
-		args = append(args, "--yolo")
 	}
 	args = append(args, a.cfg.ExtraArgs...)
 	args = append(args, req.Prompt)

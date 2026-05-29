@@ -84,6 +84,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [providerID, setProviderID] = useState(initial?.provider_id ?? providers[0]?.id ?? '')
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
   const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
+  const [canHireAgents, setCanHireAgents] = useState(initial?.can_hire_agents ?? false)
   const [heartbeatInterval, setHeartbeatInterval] = useState<string>(
     initial?.heartbeat_interval != null ? String(initial.heartbeat_interval) : ''
   )
@@ -101,7 +102,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     setSaving(true)
     try {
       const hbSecs = heartbeatInterval.trim() ? parseInt(heartbeatInterval, 10) : null
-      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, heartbeat_interval: hbSecs, status }
+      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -202,6 +203,25 @@ function AgentForm({ initial, providers, onSave, onClose }: {
                 When enabled, this agent's system prompt includes instructions to call
                 <code className="bg-slate-800 px-1 rounded mx-1 text-slate-400">POST /api/agents/spawn</code>
                 to delegate work. Off by default.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        {/* Hire agents toggle */}
+        <div className="border-t border-slate-800 pt-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={canHireAgents}
+              onChange={e => setCanHireAgents(e.target.checked)}
+              className="mt-0.5 rounded"
+            />
+            <div>
+              <p className="text-sm text-slate-200 font-medium">Allow agent to hire new agents 🧑‍💼</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                When enabled, this agent can propose new agent hires during task execution.
+                Proposals land in the <strong className="text-slate-400">Inbox</strong> for human review and approval before any agent is created.
               </p>
             </div>
           </label>

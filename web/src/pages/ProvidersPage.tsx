@@ -188,14 +188,9 @@ function CodingAgentFields({ cfg, onChange }: {
       {/* crush-specific */}
       {cfg.kind === 'crush' && (
         <div>
-          <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={!!cfg.yolo} onChange={setBool('yolo') as any}
-              className="rounded" />
-            Yolo mode — auto-approve all tool use (equivalent to --yolo)
-          </label>
-          <p className="text-xs text-slate-600 mt-1">
-            System prompt is delivered via AGENTS.md in the working directory.
-            Crush picks this up automatically at startup.
+          <p className="text-xs text-slate-500">
+            System prompt is delivered via <code className="bg-slate-800 px-1 rounded text-slate-400">AGENTS.md</code> in the working directory.
+            Tool permissions are configured via crush's own config (<code className="bg-slate-800 px-1 rounded text-slate-400">~/.config/crush/crush.json</code>).
           </p>
         </div>
       )}

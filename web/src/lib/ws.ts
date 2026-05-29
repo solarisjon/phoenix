@@ -6,6 +6,7 @@ export type EventType =
   | 'task.output_stream'
   | 'agent.status_changed'
   | 'inbox.new_item'
+  | 'agent_draft.created'
 
 export interface WSEvent {
   type: EventType

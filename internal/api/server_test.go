@@ -44,7 +44,8 @@ func testServer(t *testing.T) *Server {
 	runner := agent.New(agentRepo, taskRepo, projRepo, reg, nil)
 	t.Cleanup(runner.Shutdown)
 
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, runner, reg, nil)
+	agentDraftRepo := sqllite.NewAgentDraftRepo(db)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, runner, reg, nil)
 }
 
 type mockProv struct{}

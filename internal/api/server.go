@@ -16,18 +16,19 @@ import (
 
 // Server holds all dependencies and exposes the HTTP handler.
 type Server struct {
-	providers store.ProviderRepo
-	agents    store.AgentRepo
-	projects  store.ProjectRepo
-	tasks     store.TaskRepo
-	stats     store.StatsRepo
-	users     store.UserRepo
-	teams     store.TeamRepo
-	runner    *agent.Runner
-	registry  *registry.Registry
-	hub       *Hub
-	router    http.Handler
-	admin     *sqlite.AdminRepo
+	providers   store.ProviderRepo
+	agents      store.AgentRepo
+	projects    store.ProjectRepo
+	tasks       store.TaskRepo
+	stats       store.StatsRepo
+	users       store.UserRepo
+	teams       store.TeamRepo
+	agentDrafts store.AgentDraftRepo
+	runner      *agent.Runner
+	registry    *registry.Registry
+	hub         *Hub
+	router      http.Handler
+	admin       *sqlite.AdminRepo
 }
 
 // New creates a Server and registers all routes.
@@ -39,22 +40,24 @@ func New(
 	stats store.StatsRepo,
 	users store.UserRepo,
 	teams store.TeamRepo,
+	agentDrafts store.AgentDraftRepo,
 	runner *agent.Runner,
 	reg *registry.Registry,
 	admin *sqlite.AdminRepo,
 ) *Server {
 	s := &Server{
-		providers: providers,
-		agents:    agents,
-		projects:  projects,
-		tasks:     tasks,
-		stats:     stats,
-		users:     users,
-		teams:     teams,
-		runner:    runner,
-		registry:  reg,
-		hub:       NewHub(),
-		admin:     admin,
+		providers:   providers,
+		agents:      agents,
+		projects:    projects,
+		tasks:       tasks,
+		stats:       stats,
+		users:       users,
+		teams:       teams,
+		agentDrafts: agentDrafts,
+		runner:      runner,
+		registry:    reg,
+		hub:         NewHub(),
+		admin:       admin,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -132,6 +135,14 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/tasks/{id}/retry", s.retryTask)
 		r.Post("/tasks/{id}/dismiss", s.dismissTask)
 		r.Post("/tasks/{id}/followup", s.followUpTask)
+
+		// Agent drafts (pending hire proposals)
+		r.Get("/agent-drafts", s.listAgentDrafts)
+		r.Post("/agent-drafts", s.createAgentDraft)
+		r.Put("/agent-drafts/{id}", s.updateAgentDraft)
+		r.Post("/agent-drafts/{id}/approve", s.approveAgentDraft)
+		r.Post("/agent-drafts/{id}/reject", s.rejectAgentDraft)
+		r.Post("/agent-drafts/{id}/dismiss", s.dismissAgentDraft)
 
 		// Inbox
 		r.Get("/inbox", s.listInbox)
