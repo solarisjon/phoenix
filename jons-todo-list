@@ -1,4 +1,5 @@
 # a running list of things to implement resolve etc
+# See docs/superpowers/specs/CONTEXT.md for full project context (read this first when resuming)
 #
   - [FIXED] failed tasks need a retry option — POST /api/tasks/:id/retry, retry buttons on task cards, inbox, dashboard
   - [FIXED] inbox now shows failed + awaiting_approval tasks, grouped by state, with project name + clickable project links
