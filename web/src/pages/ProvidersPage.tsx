@@ -217,6 +217,61 @@ function CodingAgentFields({ cfg, onChange }: {
   )
 }
 
+interface OllamaConfig {
+  kind: 'ollama'
+  base_url: string
+  model: string
+  keep_thinking: boolean
+  timeout_seconds: number
+}
+
+const defaultOllama: OllamaConfig = {
+  kind: 'ollama',
+  base_url: 'http://localhost:11434',
+  model: '',
+  keep_thinking: false,
+  timeout_seconds: 300,
+}
+
+function OllamaFields({ cfg, onChange }: {
+  cfg: OllamaConfig
+  onChange: (c: OllamaConfig) => void
+}) {
+  const set = (key: keyof OllamaConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.value })
+  const setNum = (key: keyof OllamaConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: Number(e.target.value) })
+  const setBool = (key: keyof OllamaConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.checked })
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="ol-url">Ollama Server URL</Label>
+        <Input id="ol-url" value={cfg.base_url} onChange={set('base_url')}
+          placeholder="http://localhost:11434" />
+        <p className="text-xs text-slate-600 mt-1">Default: http://localhost:11434 — change if Ollama runs remotely.</p>
+      </div>
+      <div>
+        <Label htmlFor="ol-model">Model *</Label>
+        <Input id="ol-model" value={cfg.model} onChange={set('model')}
+          placeholder="e.g. qwen3.5:latest, llama3.2:3b, mistral:7b" />
+        <p className="text-xs text-slate-600 mt-1">Must match an installed Ollama model. Run <code className="bg-slate-800 px-1 rounded text-slate-400">ollama list</code> to see available models.</p>
+      </div>
+      <div>
+        <Label htmlFor="ol-timeout">Timeout (seconds)</Label>
+        <Input id="ol-timeout" type="number" value={cfg.timeout_seconds} onChange={setNum('timeout_seconds')}
+          placeholder="300" />
+        <p className="text-xs text-slate-600 mt-1">Local models can be slow to generate. 300s (5 min) is a safe default.</p>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={cfg.keep_thinking} onChange={setBool('keep_thinking')} className="rounded" />
+        Show thinking tokens in output (chain-of-thought models like Qwen3)
+      </label>
+    </div>
+  )
+}
+
 const defaultLLM: LLMConfig = {
   endpoint: '',
   auth_header: '',
@@ -255,12 +310,19 @@ function ProviderForm({ initial, onSave, onClose }: {
   onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
-  const [type, setType] = useState<'llm' | 'coding_agent'>(initial?.type ?? 'llm')
   const [llmCfg, setLlmCfg] = useState<LLMConfig>(
     initial?.type === 'llm' ? parseConfig('llm', initial.config) as LLMConfig : { ...defaultLLM }
   )
   const [codingCfg, setCodingCfg] = useState<CodingAgentConfig>(
     initial?.type === 'coding_agent' ? parseConfig('coding_agent', initial.config) as CodingAgentConfig : { ...defaultCoding }
+  )
+  // Ollama is stored as type=llm with kind=ollama in config
+  const isOllama = initial?.type === 'llm' && (() => { try { return JSON.parse(initial.config).kind === 'ollama' } catch { return false } })()
+  const [ollamaCfg, setOllamaCfg] = useState<OllamaConfig>(
+    isOllama ? parseConfig('llm', initial!.config) as unknown as OllamaConfig : { ...defaultOllama }
+  )
+  const [uiType, setUiType] = useState<'llm' | 'ollama' | 'coding_agent'>(
+    initial?.type === 'coding_agent' ? 'coding_agent' : isOllama ? 'ollama' : 'llm'
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -269,18 +331,24 @@ function ProviderForm({ initial, onSave, onClose }: {
     setError('')
     if (!name.trim()) { setError('Name is required'); return }
 
-    const cfg = type === 'llm' ? llmCfg : codingCfg
-
-    if (type === 'llm' && !(cfg as LLMConfig).endpoint.trim()) {
-      setError('Endpoint URL is required')
-      return
+    let storageType: 'llm' | 'coding_agent'
+    let cfg: object
+    if (uiType === 'llm') {
+      storageType = 'llm'
+      cfg = llmCfg
+      if (!(llmCfg as LLMConfig).endpoint.trim()) { setError('Endpoint URL is required'); return }
+    } else if (uiType === 'ollama') {
+      storageType = 'llm'
+      cfg = ollamaCfg
+      if (!ollamaCfg.model.trim()) { setError('Model is required'); return }
+    } else {
+      storageType = 'coding_agent'
+      cfg = codingCfg
     }
-    // binary_path is optional for coding agents (defaults to PATH lookup)
-    void cfg
 
     setSaving(true)
     try {
-      const data = { name, type, config: JSON.stringify(cfg) }
+      const data = { name, type: storageType, config: JSON.stringify(cfg) }
       if (initial) await api.providers.update(initial.id, data)
       else await api.providers.create(data)
       onSave()
@@ -302,11 +370,12 @@ function ProviderForm({ initial, onSave, onClose }: {
         </div>
         <div>
           <Label htmlFor="type">Type</Label>
-          <Select id="type" value={type} onChange={e => {
-            setType(e.target.value as any)
+          <Select id="type" value={uiType} onChange={e => {
+            setUiType(e.target.value as any)
             setError('')
           }}>
-            <option value="llm">LLM Endpoint</option>
+            <option value="ollama">🧠 Ollama (local models)</option>
+            <option value="llm">LLM Endpoint (OpenAI-compatible)</option>
             <option value="coding_agent">Coding Agent (pi, opencode…)</option>
           </Select>
         </div>
@@ -315,12 +384,11 @@ function ProviderForm({ initial, onSave, onClose }: {
       {/* Divider */}
       <div className="border-t border-slate-800 pt-4">
         <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">
-          {type === 'llm' ? 'LLM Endpoint Configuration' : 'Coding Agent Configuration'}
+          {uiType === 'llm' ? 'LLM Endpoint Configuration' : uiType === 'ollama' ? 'Ollama Configuration' : 'Coding Agent Configuration'}
         </p>
-        {type === 'llm'
-          ? <LLMFields cfg={llmCfg} onChange={setLlmCfg} />
-          : <CodingAgentFields cfg={codingCfg} onChange={setCodingCfg} />
-        }
+        {uiType === 'llm' && <LLMFields cfg={llmCfg} onChange={setLlmCfg} />}
+        {uiType === 'ollama' && <OllamaFields cfg={ollamaCfg} onChange={setOllamaCfg} />}
+        {uiType === 'coding_agent' && <CodingAgentFields cfg={codingCfg} onChange={setCodingCfg} />}
       </div>
 
       {error && (
@@ -362,9 +430,26 @@ export function ProvidersPage() {
   const endpointLabel = (p: Provider) => {
     try {
       const cfg = JSON.parse(p.config)
+      if (cfg.kind === 'ollama') return `🧠 ${cfg.base_url ?? 'localhost:11434'} · ${cfg.model}`
       const kind = cfg.kind ? `[${cfg.kind}] ` : ''
       return kind + (cfg.endpoint || cfg.binary_path || '–')
     } catch { return '–' }
+  }
+
+  const providerIcon = (p: Provider) => {
+    try {
+      const cfg = JSON.parse(p.config)
+      if (cfg.kind === 'ollama') return '🧠'
+    } catch { /* */ }
+    return p.type === 'llm' ? '⯁' : '⌘'
+  }
+
+  const providerLabel = (p: Provider) => {
+    try {
+      const cfg = JSON.parse(p.config)
+      if (cfg.kind === 'ollama') return 'Ollama (local)'
+    } catch { /* */ }
+    return p.type === 'llm' ? 'LLM Endpoint' : 'Coding Agent'
   }
 
   return (
@@ -399,12 +484,12 @@ export function ProvidersPage() {
                         ? 'bg-violet-900/50 border border-violet-800/50 text-violet-400'
                         : 'bg-emerald-900/50 border border-emerald-800/50 text-emerald-400'
                     )}>
-                      {p.type === 'llm' ? '⬡' : '⌘'}
+                      {providerIcon(p)}
                     </div>
                     <div>
                       <h3 className="font-medium text-white">{p.name}</h3>
                       <Badge variant={p.type === 'llm' ? 'info' : 'success'} className="mt-0.5">
-                        {p.type === 'llm' ? 'LLM Endpoint' : 'Coding Agent'}
+                        {providerLabel(p)}
                       </Badge>
                     </div>
                   </div>

@@ -12,6 +12,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider/claudecode"
 	"github.com/solarisjon/phoenix/internal/provider/crush"
 	"github.com/solarisjon/phoenix/internal/provider/llm"
+	"github.com/solarisjon/phoenix/internal/provider/ollama"
 	"github.com/solarisjon/phoenix/internal/provider/opencode"
 	"github.com/solarisjon/phoenix/internal/provider/pi"
 	"github.com/solarisjon/phoenix/internal/store"
@@ -124,6 +125,13 @@ func buildProvider(rec *model.Provider) (provider.Provider, error) {
 	expandedConfig := provider.ExpandEnv(rec.Config)
 	switch rec.Type {
 	case model.ProviderTypeLLM:
+		var llmMeta struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal([]byte(expandedConfig), &llmMeta)
+		if llmMeta.Kind == "ollama" {
+			return ollama.New(expandedConfig)
+		}
 		return llm.New(expandedConfig)
 	case model.ProviderTypeCodingAgent:
 		// Dispatch on the "kind" field in config to support multiple coding agents.
