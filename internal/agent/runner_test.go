@@ -346,9 +346,14 @@ func TestRunTask_StreamEvents(t *testing.T) {
 }
 
 func TestActiveTasksAndShutdown(t *testing.T) {
-	runner := &Runner{cancels: make(map[string]context.CancelFunc)}
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	runner := &Runner{
+		cancels:  make(map[string]context.CancelFunc),
+		bgCtx:    bgCtx,
+		bgCancel: bgCancel,
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(bgCtx)
 	runner.mu.Lock()
 	runner.cancels["task-x"] = cancel
 	runner.mu.Unlock()
@@ -362,5 +367,11 @@ func TestActiveTasksAndShutdown(t *testing.T) {
 	runner.Shutdown()
 	if len(runner.cancels) != 0 {
 		t.Error("expected empty cancels after shutdown")
+	}
+	// bgCtx should be cancelled
+	select {
+	case <-bgCtx.Done():
+	default:
+		t.Error("expected bgCtx to be cancelled after Shutdown")
 	}
 }

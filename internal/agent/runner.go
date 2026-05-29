@@ -36,6 +36,8 @@ type Runner struct {
 	tasks     store.TaskRepo
 	registry  *registry.Registry
 	onEvent   EventHandler
+	bgCtx     context.Context    // long-lived background context for task goroutines
+	bgCancel  context.CancelFunc // cancelled on Shutdown
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // task ID → cancel
@@ -48,11 +50,14 @@ func New(
 	reg *registry.Registry,
 	onEvent EventHandler,
 ) *Runner {
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 	return &Runner{
 		agents:   agents,
 		tasks:    tasks,
 		registry: reg,
 		onEvent:  onEvent,
+		bgCtx:    bgCtx,
+		bgCancel: bgCancel,
 		cancels:  make(map[string]context.CancelFunc),
 	}
 }
@@ -67,8 +72,10 @@ func (r *Runner) SetEventHandler(h EventHandler) {
 
 // RunTask starts execution of the given task in a background goroutine.
 // It transitions the task to Queued immediately, then Running when the
-// goroutine starts.
+// goroutine starts. The task uses the runner's long-lived background context
+// so it is NOT cancelled when the originating HTTP request completes.
 func (r *Runner) RunTask(ctx context.Context, taskID string) error {
+	// Use ctx only for the initial DB lookup — task execution uses bgCtx.
 	task, err := r.tasks.Get(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: get task: %w", err)
@@ -82,11 +89,11 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("runner: task %s is not pending (status: %s)", taskID, task.Status)
 	}
 
-	if err := r.setStatus(ctx, task, model.TaskStatusQueued, nil); err != nil {
+	if err := r.setStatus(r.bgCtx, task, model.TaskStatusQueued, nil); err != nil {
 		return err
 	}
 
-	taskCtx, cancel := context.WithCancel(ctx)
+	taskCtx, cancel := context.WithCancel(r.bgCtx)
 	r.mu.Lock()
 	r.cancels[taskID] = cancel
 	r.mu.Unlock()
@@ -105,8 +112,6 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 }
 
 // ResumeTask resumes a task that is awaiting approval.
-// It re-fetches the task (which may have updated output/instructions from the
-// approval action) and continues execution.
 func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 	task, err := r.tasks.Get(ctx, taskID)
 	if err != nil {
@@ -119,11 +124,11 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("runner: task %s is not awaiting approval", taskID)
 	}
 
-	if err := r.setStatus(ctx, task, model.TaskStatusQueued, nil); err != nil {
+	if err := r.setStatus(r.bgCtx, task, model.TaskStatusQueued, nil); err != nil {
 		return err
 	}
 
-	taskCtx, cancel := context.WithCancel(ctx)
+	taskCtx, cancel := context.WithCancel(r.bgCtx)
 	r.mu.Lock()
 	r.cancels[taskID] = cancel
 	r.mu.Unlock()
@@ -153,10 +158,11 @@ func (r *Runner) CancelTask(taskID string) {
 
 // Shutdown cancels all running tasks and clears the cancel map.
 func (r *Runner) Shutdown() {
+	// Cancelling bgCtx cascades to all task contexts.
+	r.bgCancel()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for id, cancel := range r.cancels {
-		cancel()
+	for id := range r.cancels {
 		delete(r.cancels, id)
 	}
 }
@@ -231,20 +237,26 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		fullOutput += s
 	}
 
-	// Calculate cost from token usage (we re-execute non-streaming for token counts
-	// only when cost pricing is configured — otherwise use streaming result).
-	// For Phase 1 simplicity: run Execute() to get accurate token counts.
-	// TODO Phase 2: extract token counts from streaming response headers/trailer.
-	nonStreamResp, costErr := prov.Execute(ctx, req)
-	if costErr == nil {
-		totalCost = nonStreamResp.CostUSD
+	// Use EstimateCost as a proxy for cost calculation since we can't
+	// easily extract token counts from SSE streams in Phase 1.
+	// This avoids a second round-trip to the LLM.
+	charEstimate := len(req.SystemPrompt) + len(req.Prompt)
+	for _, m := range req.Context {
+		charEstimate += len(m.Content)
+	}
+	charEstimate += len(fullOutput)
+	tokensIn := charEstimate / 4
+	tokensOut := len(fullOutput) / 4
+	estimate := prov.EstimateCost(req)
+	if estimate.EstimatedCostUSD > 0 {
+		totalCost = estimate.EstimatedCostUSD
 	}
 
 	// Build output JSON.
 	outputJSON, _ := json.Marshal(map[string]interface{}{
 		"text":       fullOutput,
-		"tokens_in":  nonStreamResp.TokensIn,
-		"tokens_out": nonStreamResp.TokensOut,
+		"tokens_in":  tokensIn,
+		"tokens_out": tokensOut,
 		"run_id":     uuid.New().String(),
 	})
 
