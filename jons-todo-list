@@ -11,15 +11,15 @@
   - [FIXED] Needs Attention stat card links to /inbox
   - [FIXED] Tasks Running stat card opens live running-tasks panel (card grid with streamed output)
   - [FIXED] Agent can_spawn_agents flag (off by default) — spawn endpoint + system prompt injection
+  - [FIXED] Project working directory — per-project path passed to coding agents as working dir
+  - [FIXED] Project deletion — safe delete with running-task guard, cascade removes tasks+assignments
+  - [FIXED] Heartbeat scheduling — scheduler fires periodic tasks for agents with heartbeat_interval set
   - [TODO]  model picker dropdown — list available models per adapter kind
-  - [TODO]  project creation: allow specifying a working directory / folder for the project
   - [TODO]  README — professional project documentation
   - [TODO]  database backup/restore — export and reimport the SQLite DB
   - [TODO]  import/export agents and teams — share agent configs between instances
   - [TODO]  UI theming
   - [TODO]  agent teams — group agents into a named team, assign team to project
-  - [TODO]  heartbeat scheduling — honour agent heartbeat_interval to trigger periodic tasks
-  - [TODO]  project deletion (currently only archive is supported)
 
 
 
