@@ -17,7 +17,7 @@
   - [TODO]  model picker dropdown — list available models per adapter kind
   - [FIXED] README — 372-line professional README with full setup, API reference, architecture
   - [FIXED] Agent teams — teams + team_agents tables, CRUD UI, assign whole team to project in one click
-  - [TODO]  cost graphs — spending over time and by agent/project on dashboard
+  - [FIXED] cost graphs — area chart (spend over time), bar charts (by agent, by project), task status breakdown bar
   - [TODO]  import/export agents and teams — share agent configs as JSON
   - [TODO]  database backup endpoint — GET /api/admin/backup streams the SQLite file
   - [TODO]  UI theming
