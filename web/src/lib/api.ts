@@ -16,9 +16,16 @@ export interface Agent {
   instructions: string
   guardrails: string
   provider_id: string
+  model_override: string
   heartbeat_interval: number | null
   status: 'active' | 'paused' | 'disabled'
   created_at: string
+}
+
+export interface GeneratedAgent {
+  persona: string
+  instructions: string
+  guardrails: string
 }
 
 export interface Project {
@@ -88,6 +95,11 @@ export const api = {
     create: (data: Partial<Agent>) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Agent>) => request<Agent>(`/agents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
+    generate: (description: string, providerId?: string) =>
+      request<GeneratedAgent>('/agents/generate', {
+        method: 'POST',
+        body: JSON.stringify({ description, provider_id: providerId ?? '' }),
+      }),
   },
   projects: {
     list: () => request<Project[]>('/projects'),
@@ -105,6 +117,9 @@ export const api = {
     create: (data: Partial<Task>) => request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
     retry: (id: string) => request<Task>(`/tasks/${id}/retry`, { method: 'POST', body: '{}' }),
+    dismiss: (id: string) => request<Task>(`/tasks/${id}/dismiss`, { method: 'POST', body: '{}' }),
+    update: (id: string, data: { title?: string; description?: string }) =>
+      request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   },
   inbox: {
     list: () => request<Task[]>('/inbox'),

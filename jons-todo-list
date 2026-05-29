@@ -3,8 +3,15 @@
   - [FIXED] failed tasks need a retry option — POST /api/tasks/:id/retry, retry buttons on task cards, inbox, dashboard
   - [FIXED] inbox now shows failed + awaiting_approval tasks, grouped by state, with project name + clickable project links
   - [FIXED] dashboard task activity rows are clickable — opens detail modal with output + retry for failed tasks
-  - [TODO]  model picker dropdown — list available models per adapter kind
-  - [TODO]  agent config should allow a model override that takes precedence over the provider default
+  - [FIXED] agent model_override field — per-agent model that overrides provider default at execution time
+  - [FIXED] AI generate button on agent form — POST /api/agents/generate returns persona/instructions/guardrails from a description
+  - [FIXED] dismiss tasks from inbox — POST /api/tasks/:id/dismiss hides from inbox without deleting
+  - [FIXED] edit tasks from inbox — title + description editable on non-running tasks
+  - [TODO]  model picker dropdown — list available models per adapter kind (needs per-adapter list-models impl)
+  - NEEDS ATTENTION on dashboard should take you to the tasks needing attention ie the inbox
+
+
+
 
 
 ## coding agent adapter issues (in progress)

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/provider"
 )
 
 type createAgentRequest struct {
@@ -17,6 +20,7 @@ type createAgentRequest struct {
 	Instructions      string `json:"instructions"`
 	Guardrails        string `json:"guardrails"`
 	ProviderID        string `json:"provider_id"`
+	ModelOverride     string `json:"model_override"`
 	HeartbeatInterval *int   `json:"heartbeat_interval"`
 	Status            string `json:"status"`
 }
@@ -102,6 +106,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		Instructions:      req.Instructions,
 		Guardrails:        req.Guardrails,
 		ProviderID:        req.ProviderID,
+		ModelOverride:     req.ModelOverride,
 		HeartbeatInterval: req.HeartbeatInterval,
 		CreatedBy:         user.ID,
 		Status:            status,
@@ -153,6 +158,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.Instructions = req.Instructions
 	existing.Guardrails = req.Guardrails
 	existing.ProviderID = req.ProviderID
+	existing.ModelOverride = req.ModelOverride
 	existing.HeartbeatInterval = req.HeartbeatInterval
 	if req.Status != "" {
 		existing.Status = model.AgentStatus(req.Status)
@@ -163,6 +169,91 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, existing)
+}
+
+// generateAgent uses an LLM provider to generate persona, instructions, and
+// guardrails from a plain-text description of the agent's role.
+func (s *Server) generateAgent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Description string `json:"description"`
+		ProviderID  string `json:"provider_id"` // which provider to use for generation
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Description) == "" {
+		respondErr(w, http.StatusBadRequest, "description is required")
+		return
+	}
+
+	// Fall back to first available LLM provider if none specified.
+	providerID := req.ProviderID
+	if providerID == "" {
+		providers, err := s.providers.List(r.Context())
+		if err != nil || len(providers) == 0 {
+			respondErr(w, http.StatusBadRequest, "no providers available for generation")
+			return
+		}
+		// Prefer LLM providers for generation.
+		for _, p := range providers {
+			if p.Type == model.ProviderTypeLLM {
+				providerID = p.ID
+				break
+			}
+		}
+		if providerID == "" {
+			providerID = providers[0].ID
+		}
+	}
+
+	prov, err := s.registry.Get(r.Context(), providerID)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, fmt.Sprintf("provider load failed: %v", err))
+		return
+	}
+
+	prompt := fmt.Sprintf(`You are an AI agent configuration assistant. Given a description of an AI agent's role, generate a structured JSON configuration with three fields:
+
+- "persona": 2-3 sentences describing who the agent is, their personality, and communication style
+- "instructions": detailed operational instructions for what the agent does and how (4-8 bullet points or paragraphs)
+- "guardrails": constraints and boundaries the agent must respect (3-5 items)
+
+Return ONLY valid JSON with exactly these three string fields. No markdown, no explanation.
+
+Agent description: %s`, req.Description)
+
+	resp, err := prov.Execute(r.Context(), provider.TaskRequest{
+		SystemPrompt: "You are a precise JSON generator. Always return valid JSON only, with no markdown formatting or extra text.",
+		Prompt:       prompt,
+	})
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, fmt.Sprintf("generation failed: %v", err))
+		return
+	}
+
+	// Extract JSON from the response (strip any markdown fences if present).
+	output := strings.TrimSpace(resp.Output)
+	output = strings.TrimPrefix(output, "```json")
+	output = strings.TrimPrefix(output, "```")
+	output = strings.TrimSuffix(output, "```")
+	output = strings.TrimSpace(output)
+
+	var result struct {
+		Persona      string `json:"persona"`
+		Instructions string `json:"instructions"`
+		Guardrails   string `json:"guardrails"`
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		// Return the raw text so the UI can show it rather than failing silently.
+		respond(w, http.StatusOK, map[string]string{
+			"persona":      output,
+			"instructions": "",
+			"guardrails":   "",
+			"raw":          output,
+		})
+		return
+	}
+	respond(w, http.StatusOK, result)
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {

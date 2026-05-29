@@ -62,6 +62,46 @@ func (r *Registry) Get(ctx context.Context, providerID string) (provider.Provide
 	return p, nil
 }
 
+// GetWithOverride returns a Provider for the given ID, with the model field
+// overridden if modelOverride is non-empty. The overridden instance is not
+// cached — it's built fresh each call.
+func (r *Registry) GetWithOverride(ctx context.Context, providerID, modelOverride string) (provider.Provider, error) {
+	if modelOverride == "" {
+		return r.Get(ctx, providerID)
+	}
+
+	record, err := r.repo.Get(ctx, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("registry: load provider %s: %w", providerID, err)
+	}
+	if record == nil {
+		return nil, fmt.Errorf("registry: provider %s not found", providerID)
+	}
+
+	// Patch the "model" field in the config JSON.
+	expandedConfig := provider.ExpandEnv(record.Config)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(expandedConfig), &raw); err != nil {
+		return nil, fmt.Errorf("registry: parse config for override: %w", err)
+	}
+	modelJSON, _ := json.Marshal(modelOverride)
+	raw["model"] = modelJSON
+	patched, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("registry: re-marshal config with override: %w", err)
+	}
+
+	p, err := buildProvider(&model.Provider{
+		ID:     record.ID,
+		Type:   record.Type,
+		Config: string(patched),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("registry: build overridden provider %s: %w", providerID, err)
+	}
+	return p, nil
+}
+
 // Invalidate removes a provider from the cache (call after update/delete).
 func (r *Registry) Invalidate(providerID string) {
 	r.mu.Lock()

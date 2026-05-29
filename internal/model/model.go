@@ -75,6 +75,7 @@ type Agent struct {
 	Instructions      string      `json:"instructions"`
 	Guardrails        string      `json:"guardrails"`
 	ProviderID        string      `json:"provider_id"`
+	ModelOverride     string      `json:"model_override"`    // if set, overrides the provider's default model
 	HeartbeatInterval *int        `json:"heartbeat_interval"` // seconds, nil = manual only
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`
@@ -109,6 +110,7 @@ type Task struct {
 	Input        string     `json:"input"`        // JSON blob
 	Output       string     `json:"output"`       // JSON blob
 	CostUSD      float64    `json:"cost_usd"`
+	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
 	CreatedAt    time.Time  `json:"created_at"`
 	StartedAt    *time.Time `json:"started_at"`
 	CompletedAt  *time.Time `json:"completed_at"`

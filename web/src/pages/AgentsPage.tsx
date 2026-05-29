@@ -6,7 +6,63 @@ import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
-import { formatCost } from '@/lib/utils'
+
+// ---- Generate modal ----
+
+function GenerateModal({ providers, onApply, onClose }: {
+  providers: Provider[]
+  onApply: (persona: string, instructions: string, guardrails: string) => void
+  onClose: () => void
+}) {
+  const [description, setDescription] = useState('')
+  const [providerId, setProviderId] = useState(
+    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
+  )
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
+
+  const generate = async () => {
+    if (!description.trim()) return
+    setError('')
+    setGenerating(true)
+    try {
+      const result = await api.agents.generate(description, providerId)
+      onApply(result.persona, result.instructions, result.guardrails)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400">
+        Describe what you want this agent to do and an AI will generate its persona, instructions, and guardrails.
+      </p>
+      <div>
+        <Label htmlFor="gen-provider">Generate using</Label>
+        <Select id="gen-provider" value={providerId} onChange={e => setProviderId(e.target.value)}>
+          {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </Select>
+      </div>
+      <div>
+        <Label htmlFor="gen-desc">Agent description</Label>
+        <Textarea id="gen-desc" value={description} onChange={e => setDescription(e.target.value)} rows={5}
+          placeholder="e.g. A senior software engineer who reviews pull requests, focuses on security and performance, writes concise actionable feedback, and escalates critical issues immediately." />
+      </div>
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      <div className="flex gap-3 justify-end">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={generate} disabled={generating || !description.trim()}>
+          {generating ? 'Generating…' : '✦ Generate'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ---- Agent form ----
 
 function AgentForm({ initial, providers, onSave, onClose }: {
   initial?: Agent
@@ -19,9 +75,13 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [instructions, setInstructions] = useState(initial?.instructions ?? '')
   const [guardrails, setGuardrails] = useState(initial?.guardrails ?? '')
   const [providerID, setProviderID] = useState(initial?.provider_id ?? providers[0]?.id ?? '')
+  const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showGenerate, setShowGenerate] = useState(false)
+
+  const selectedProvider = providers.find(p => p.id === providerID)
 
   const save = async () => {
     setError('')
@@ -29,7 +89,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, persona, instructions, guardrails, provider_id: providerID, status }
+      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -40,56 +100,109 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     }
   }
 
+  const applyGenerated = (p: string, i: string, g: string) => {
+    setPersona(p)
+    setInstructions(i)
+    setGuardrails(g)
+    setShowGenerate(false)
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
-          <Label htmlFor="name">Name</Label>
-          <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Senior Ops Manager" />
+    <>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Senior Ops Manager" />
+          </div>
+          <div>
+            <Label htmlFor="provider">Provider</Label>
+            <Select id="provider" value={providerID} onChange={e => setProviderID(e.target.value)}>
+              <option value="">Select provider…</option>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="status">Status</Label>
+            <Select id="status" value={status} onChange={e => setStatus(e.target.value as any)}>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="disabled">Disabled</option>
+            </Select>
+          </div>
         </div>
+
+        {/* Model override */}
         <div>
-          <Label htmlFor="provider">Provider</Label>
-          <Select id="provider" value={providerID} onChange={e => setProviderID(e.target.value)}>
-            <option value="">Select provider…</option>
-            {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
+          <Label htmlFor="model-override">
+            Model Override
+            <span className="text-slate-600 font-normal ml-2">
+              (overrides {selectedProvider?.name ?? 'provider'}'s default)
+            </span>
+          </Label>
+          <Input id="model-override" value={modelOverride} onChange={e => setModelOverride(e.target.value)}
+            placeholder={
+              selectedProvider?.type === 'coding_agent'
+                ? 'e.g. claude-sonnet-4-5  or  llm-proxy/claude-opus-4'
+                : 'e.g. gpt-4o  or  claude-opus-4-5  (blank = provider default)'
+            } />
         </div>
-        <div>
-          <Label htmlFor="status">Status</Label>
-          <Select id="status" value={status} onChange={e => setStatus(e.target.value as any)}>
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-            <option value="disabled">Disabled</option>
-          </Select>
+
+        {/* Persona / Instructions / Guardrails with generate button */}
+        <div className="border-t border-slate-800 pt-4">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Agent Configuration</p>
+            <Button variant="ghost" size="sm" onClick={() => setShowGenerate(true)}>
+              ✦ Generate with AI
+            </Button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="persona">Persona</Label>
+              <Textarea id="persona" value={persona} onChange={e => setPersona(e.target.value)} rows={3}
+                placeholder="High-level personality and role description…" />
+            </div>
+            <div>
+              <Label htmlFor="instructions">Instructions</Label>
+              <Textarea id="instructions" value={instructions} onChange={e => setInstructions(e.target.value)} rows={5}
+                placeholder="Detailed operational instructions…" />
+            </div>
+            <div>
+              <Label htmlFor="guardrails">Guardrails</Label>
+              <Textarea id="guardrails" value={guardrails} onChange={e => setGuardrails(e.target.value)} rows={3}
+                placeholder="Constraints, boundaries, escalation rules…" />
+            </div>
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <div className="flex gap-3 justify-end pt-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Agent'}</Button>
         </div>
       </div>
-      <div>
-        <Label htmlFor="persona">Persona</Label>
-        <Textarea id="persona" value={persona} onChange={e => setPersona(e.target.value)} rows={3}
-          placeholder="High-level personality and role description…" />
-      </div>
-      <div>
-        <Label htmlFor="instructions">Instructions</Label>
-        <Textarea id="instructions" value={instructions} onChange={e => setInstructions(e.target.value)} rows={4}
-          placeholder="Detailed operational instructions…" />
-      </div>
-      <div>
-        <Label htmlFor="guardrails">Guardrails</Label>
-        <Textarea id="guardrails" value={guardrails} onChange={e => setGuardrails(e.target.value)} rows={3}
-          placeholder="Constraints, boundaries, escalation rules…" />
-      </div>
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      <div className="flex gap-3 justify-end pt-2">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Agent'}</Button>
-      </div>
-    </div>
+
+      {showGenerate && (
+        <Modal title="Generate Agent Configuration" onClose={() => setShowGenerate(false)} className="max-w-xl">
+          <GenerateModal
+            providers={providers}
+            onApply={applyGenerated}
+            onClose={() => setShowGenerate(false)}
+          />
+        </Modal>
+      )}
+    </>
   )
 }
+
+// ---- Status helpers ----
 
 const statusVariant: Record<string, 'success' | 'warning' | 'muted'> = {
   active: 'success', paused: 'warning', disabled: 'muted'
 }
+
+// ---- Page ----
 
 export function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
@@ -144,7 +257,10 @@ export function AgentsPage() {
                       </div>
                       <div>
                         <h3 className="font-medium text-white">{a.name}</h3>
-                        <p className="text-xs text-slate-500">{providerName(a.provider_id)}</p>
+                        <p className="text-xs text-slate-500">
+                          {providerName(a.provider_id)}
+                          {a.model_override && <span className="text-slate-600"> · {a.model_override}</span>}
+                        </p>
                       </div>
                       <Badge variant={statusVariant[a.status]}>{a.status}</Badge>
                     </div>

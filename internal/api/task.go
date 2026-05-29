@@ -164,8 +164,9 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Allow updating description and input on pending tasks only.
+	// Allow updating title, description, and input on non-running tasks.
 	var req struct {
+		Title       string `json:"title"`
 		Description string `json:"description"`
 		Input       string `json:"input"`
 	}
@@ -173,11 +174,14 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing.Status != model.TaskStatusPending {
-		respondErr(w, http.StatusConflict, "only pending tasks can be updated")
+	if existing.Status == model.TaskStatusRunning || existing.Status == model.TaskStatusQueued {
+		respondErr(w, http.StatusConflict, "cannot edit a running or queued task")
 		return
 	}
 
+	if strings.TrimSpace(req.Title) != "" {
+		existing.Title = strings.TrimSpace(req.Title)
+	}
 	existing.Description = req.Description
 	if req.Input != "" {
 		existing.Input = req.Input
@@ -188,6 +192,25 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, existing)
+}
+
+func (s *Server) dismissTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	task.Dismissed = true
+	if err := s.tasks.Update(r.Context(), task); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, task)
 }
 
 func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {

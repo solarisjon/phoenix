@@ -6,7 +6,7 @@ import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
-import { Label, Textarea } from '@/components/ui/input'
+import { Input, Label, Textarea } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { parseOutput, timeAgo, taskStatusVariant, taskStatusLabel } from '@/lib/utils'
 
@@ -94,6 +94,46 @@ function TaskDetail({ task, agentName, projectName, onRetry, onClose }: {
   )
 }
 
+// ---- Edit task modal ----
+
+function EditTaskModal({ task, onDone, onClose }: { task: Task; onDone: () => void; onClose: () => void }) {
+  const [title, setTitle] = useState(task.title)
+  const [description, setDescription] = useState(task.description)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async () => {
+    if (!title.trim()) { setError('Title is required'); return }
+    setSaving(true)
+    try {
+      await api.tasks.update(task.id, { title, description })
+      onDone()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="edit-title">Title</Label>
+        <Input id="edit-title" value={title} onChange={e => setTitle(e.target.value)} />
+      </div>
+      <div>
+        <Label htmlFor="edit-desc">Description</Label>
+        <Textarea id="edit-desc" value={description} onChange={e => setDescription(e.target.value)} rows={5} />
+      </div>
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      <div className="flex gap-3 justify-end">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+      </div>
+    </div>
+  )
+}
+
 // ---- Task card for inbox ----
 
 function InboxTaskCard({ task, agentName, projectName, onAction }: {
@@ -104,6 +144,7 @@ function InboxTaskCard({ task, agentName, projectName, onAction }: {
 }) {
   const [revising, setRevising] = useState(false)
   const [detail, setDetail] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const approve = async () => {
@@ -118,6 +159,11 @@ function InboxTaskCard({ task, agentName, projectName, onAction }: {
   const retry = async () => {
     setBusy(true)
     try { await api.tasks.retry(task.id); onAction() } finally { setBusy(false) }
+  }
+  const dismiss = async () => {
+    if (!confirm('Dismiss this task? It will be hidden from the inbox.')) return
+    setBusy(true)
+    try { await api.tasks.dismiss(task.id); onAction() } finally { setBusy(false) }
   }
 
   const isFailed = task.status === 'failed'
@@ -167,7 +213,9 @@ function InboxTaskCard({ task, agentName, projectName, onAction }: {
                     <Button size="sm" variant="danger" onClick={reject} disabled={busy}>✕ Reject</Button>
                   </>
                 )}
+                <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>
                 <Button size="sm" variant="ghost" onClick={() => setDetail(true)}>Details</Button>
+                <Button size="sm" variant="ghost" onClick={dismiss} disabled={busy}>Dismiss</Button>
               </div>
             </div>
           </div>
@@ -188,6 +236,16 @@ function InboxTaskCard({ task, agentName, projectName, onAction }: {
             projectName={projectName}
             onRetry={() => { setDetail(false); retry() }}
             onClose={() => setDetail(false)}
+          />
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title="Edit Task" onClose={() => setEditing(false)} className="max-w-xl">
+          <EditTaskModal
+            task={task}
+            onDone={() => { setEditing(false); onAction() }}
+            onClose={() => setEditing(false)}
           />
         </Modal>
       )}

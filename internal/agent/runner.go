@@ -188,8 +188,8 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
-	// Load provider.
-	prov, err := r.registry.Get(ctx, agent.ProviderID)
+	// Load provider, applying any agent-level model override.
+	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.ModelOverride)
 	if err != nil {
 		r.failTask(ctx, task, fmt.Errorf("provider load failed: %w", err))
 		return
