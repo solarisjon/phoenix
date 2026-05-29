@@ -143,6 +143,21 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusNotFound, "project not found")
 		return
 	}
+
+	// Refuse deletion while any task is actively running or queued.
+	tasks, err := s.tasks.List(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	for _, t := range tasks {
+		if t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued {
+			respondErr(w, http.StatusConflict,
+				"cannot delete project while tasks are running or queued — wait for them to finish or cancel them first")
+			return
+		}
+	}
+
 	if err := s.projects.Delete(r.Context(), id); err != nil {
 		respondInternalErr(w, err)
 		return

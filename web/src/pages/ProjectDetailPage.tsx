@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api, type Project, type Agent, type Task } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
@@ -168,6 +168,7 @@ function AssignAgentModal({ projectId, allAgents, assigned, onSave, onClose }: {
 
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [allAgents, setAllAgents] = useState<Agent[]>([])
@@ -175,6 +176,9 @@ export function ProjectDetailPage() {
   const [loading, setLoading] = useState(true)
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [showAssignAgent, setShowAssignAgent] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -198,6 +202,19 @@ export function ProjectDetailPage() {
     if (!id) return
     await api.projects.removeAgent(id, agentId)
     load()
+  }
+
+  const deleteProject = async () => {
+    if (!id) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await api.projects.delete(id)
+      navigate('/projects')
+    } catch (e: any) {
+      setDeleteError(e.message || 'Failed to delete project')
+      setDeleting(false)
+    }
   }
 
   const totalCost = tasks.reduce((s, t) => s + t.cost_usd, 0)
@@ -227,9 +244,36 @@ export function ProjectDetailPage() {
           {totalCost > 0 && (
             <span className="text-sm text-slate-400">Total: <span className="text-white font-medium">{formatCost(totalCost)}</span></span>
           )}
+          <Button variant="secondary" onClick={() => setShowDeleteConfirm(true)}>Delete Project</Button>
           <Button onClick={() => setShowTaskForm(true)} disabled={agents.length === 0}>+ New Task</Button>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {showDeleteConfirm && (
+        <Modal title="Delete Project" onClose={() => { setShowDeleteConfirm(false); setDeleteError('') }}>
+          <div className="space-y-4">
+            <p className="text-slate-300 text-sm">
+              Are you sure you want to delete <span className="text-white font-semibold">{project.name}</span>?
+              This will permanently remove all tasks, agent assignments, and history for this project.
+            </p>
+            <p className="text-slate-400 text-xs">
+              Projects with running or queued tasks cannot be deleted — wait for them to finish first.
+            </p>
+            {deleteError && <p className="text-red-400 text-sm">{deleteError}</p>}
+            <div className="flex gap-3 justify-end">
+              <Button variant="secondary" onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }}>Cancel</Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={deleteProject}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete Project'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       <div className="grid grid-cols-3 gap-6">
         {/* Agents column */}
