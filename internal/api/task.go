@@ -278,6 +278,67 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, task)
 }
 
+// followUpTask creates a new task as a human refinement of an existing completed task.
+// The parent task's output is automatically injected as context when the follow-up runs.
+func (s *Server) followUpTask(w http.ResponseWriter, r *http.Request) {
+	parentID := chi.URLParam(r, "id")
+	parent, err := s.tasks.Get(r.Context(), parentID)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if parent == nil || parent.Dismissed {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if parent.Status == model.TaskStatusRunning || parent.Status == model.TaskStatusQueued {
+		respondErr(w, http.StatusConflict, "cannot follow up a running or queued task — wait for it to complete")
+		return
+	}
+
+	var req struct {
+		Description string `json:"description"`
+		AgentID     string `json:"agent_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Description) == "" {
+		respondErr(w, http.StatusBadRequest, "description is required")
+		return
+	}
+	agentID := req.AgentID
+	if agentID == "" {
+		agentID = parent.AgentID
+	}
+
+	t := &model.Task{
+		ID:          uuid.New().String(),
+		ProjectID:   parent.ProjectID,
+		AgentID:     agentID,
+		FollowUpOf:  &parentID,
+		Title:       parent.Title,
+		Description: strings.TrimSpace(req.Description),
+		Status:      model.TaskStatusPending,
+		Input:       "{}",
+		Output:      "{}",
+		CreatedAt:   time.Now(),
+	}
+	if err := s.tasks.Create(r.Context(), t); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if err := s.runner.RunTask(r.Context(), t.ID); err != nil {
+		respond(w, http.StatusCreated, t)
+		return
+	}
+	updated, _ := s.tasks.Get(r.Context(), t.ID)
+	if updated != nil {
+		t = updated
+	}
+	respond(w, http.StatusCreated, t)
+}
+
 func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.tasks.Get(r.Context(), id)

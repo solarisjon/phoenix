@@ -106,6 +106,7 @@ type Task struct {
 	ProjectID    string     `json:"project_id"`
 	AgentID      string     `json:"agent_id"`
 	ParentTaskID *string    `json:"parent_task_id"` // nil = top-level task
+	FollowUpOf   *string    `json:"follow_up_of"`   // nil = original task; set on human refinement follow-ups
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
 	Status       TaskStatus `json:"status"`

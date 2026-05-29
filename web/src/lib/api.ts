@@ -53,12 +53,14 @@ export interface Task {
   project_id: string
   agent_id: string
   parent_task_id: string | null
+  follow_up_of: string | null
   title: string
   description: string
   status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'awaiting_approval'
   input: string
   output: string
   cost_usd: number
+  dismissed: boolean
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -158,6 +160,11 @@ export const api = {
     delete: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
     retry: (id: string) => request<Task>(`/tasks/${id}/retry`, { method: 'POST', body: '{}' }),
     dismiss: (id: string) => request<Task>(`/tasks/${id}/dismiss`, { method: 'POST', body: '{}' }),
+    followUp: (id: string, description: string, agentId?: string) =>
+      request<Task>(`/tasks/${id}/followup`, {
+        method: 'POST',
+        body: JSON.stringify({ description, agent_id: agentId ?? '' }),
+      }),
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     listRunning: () => request<Task[]>('/tasks/running'),

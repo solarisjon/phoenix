@@ -14,7 +14,7 @@ type TaskRepo struct{ db *DB }
 
 func NewTaskRepo(db *DB) *TaskRepo { return &TaskRepo{db} }
 
-const taskSelectCols = ` id, project_id, agent_id, parent_task_id, title, description,
+const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of, title, description,
 	status, input, output, cost_usd, dismissed,
 	runner_pid, timeout_at,
 	created_at, started_at, completed_at `
@@ -79,9 +79,9 @@ func (r *TaskRepo) Get(ctx context.Context, id string) (*model.Task, error) {
 func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, title, description, status, input, output, cost_usd)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID),
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
 		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
@@ -122,13 +122,13 @@ func (r *TaskRepo) Delete(ctx context.Context, id string) error {
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
 	var status string
-	var parentID sql.NullString
+	var parentID, followUpOf sql.NullString
 	var dismissed int
 	var runnerPID sql.NullInt64
 	var timeoutAt, startedAt, completedAt sql.NullTime
 
 	err := row.Scan(
-		&t.ID, &t.ProjectID, &t.AgentID, &parentID,
+		&t.ID, &t.ProjectID, &t.AgentID, &parentID, &followUpOf,
 		&t.Title, &t.Description, &status,
 		&t.Input, &t.Output, &t.CostUSD, &dismissed,
 		&runnerPID, &timeoutAt,
@@ -144,6 +144,9 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 	t.Dismissed = dismissed != 0
 	if parentID.Valid {
 		t.ParentTaskID = &parentID.String
+	}
+	if followUpOf.Valid {
+		t.FollowUpOf = &followUpOf.String
 	}
 	if runnerPID.Valid {
 		t.RunnerPID = int(runnerPID.Int64)
@@ -165,13 +168,13 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 	for rows.Next() {
 		var t model.Task
 		var status string
-		var parentID sql.NullString
+		var parentID, followUpOf sql.NullString
 		var dismissed int
 		var runnerPID sql.NullInt64
 		var timeoutAt, startedAt, completedAt sql.NullTime
 
 		if err := rows.Scan(
-			&t.ID, &t.ProjectID, &t.AgentID, &parentID,
+			&t.ID, &t.ProjectID, &t.AgentID, &parentID, &followUpOf,
 			&t.Title, &t.Description, &status,
 			&t.Input, &t.Output, &t.CostUSD, &dismissed,
 			&runnerPID, &timeoutAt,
@@ -183,6 +186,9 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 		t.Dismissed = dismissed != 0
 		if parentID.Valid {
 			t.ParentTaskID = &parentID.String
+		}
+		if followUpOf.Valid {
+			t.FollowUpOf = &followUpOf.String
 		}
 		if runnerPID.Valid {
 			t.RunnerPID = int(runnerPID.Int64)

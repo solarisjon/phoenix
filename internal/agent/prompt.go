@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -62,6 +63,42 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task) string {
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+// InjectFollowUpContext prepends the parent task's output to the request prompt
+// so the agent has full context when processing a human refinement follow-up.
+func InjectFollowUpContext(req provider.TaskRequest, parent *model.Task) provider.TaskRequest {
+	if parent.Output == "" || parent.Output == "{}" {
+		return req
+	}
+	// Extract text from the parent output JSON if possible.
+	parentText := extractOutputText(parent.Output)
+	if parentText == "" {
+		return req
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## Previous output (task: %s)\n", parent.Title))
+	b.WriteString(parentText)
+	b.WriteString("\n\n## Your follow-up instructions\n")
+	b.WriteString(req.Prompt)
+	req.Prompt = b.String()
+	return req
+}
+
+// extractOutputText pulls the "text" field from a task output JSON blob,
+// falling back to the raw string if it's not JSON.
+func extractOutputText(output string) string {
+	var m map[string]string
+	if err := json.Unmarshal([]byte(output), &m); err == nil {
+		if t, ok := m["text"]; ok {
+			return t
+		}
+		// error key means the task failed — not useful as context
+		if _, ok := m["error"]; ok {
+			return ""
+		}
+	}
+	return output
 }
 
 // assembleUserPrompt builds the user-facing prompt from the task.

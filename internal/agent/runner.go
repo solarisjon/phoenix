@@ -219,9 +219,15 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
-	// Assemble prompt.
+	// Assemble prompt. For follow-up tasks, inject the parent output as context.
 	req := AssembleRequest(agent, task)
 	req.WorkingDir = workingDir
+	if task.FollowUpOf != nil {
+		parent, err := r.tasks.Get(ctx, *task.FollowUpOf)
+		if err == nil && parent != nil {
+			req = InjectFollowUpContext(req, parent)
+		}
+	}
 
 	// Stream execution.
 	ch, err := prov.StreamExecute(ctx, req)

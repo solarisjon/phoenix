@@ -9,6 +9,8 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
+import { ProjectAutonomousView } from '@/components/project/ProjectAutonomousView'
+import { ProjectHumanView } from '@/components/project/ProjectHumanView'
 
 function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose }: {
   projectId: string
@@ -559,6 +561,70 @@ function AssignTeamModal({ projectId, onSave, onClose }: {
   )
 }
 
+// ---- Task Detail Modal ----
+function TaskDetailModal({ task, agents, onClose, onUpdate }: {
+  task: Task; agents: Agent[]; onClose: () => void; onUpdate: () => void
+}) {
+  const [stream, setStream] = useState('')
+  const [retrying, setRetrying] = useState(false)
+  const agent = agents.find(a => a.id === task.agent_id)
+
+  useEffect(() => {
+    if (task.status !== 'running') { setStream(''); return }
+    const unsub = phoenixWS.on((ev) => {
+      if (ev.type === 'task.output_stream') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) setStream(prev => prev + p.chunk)
+      }
+      if (ev.type === 'task.status_changed') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) { onUpdate(); onClose() }
+      }
+    })
+    return unsub
+  }, [task.id, task.status, onUpdate, onClose])
+
+  const retry = async () => {
+    setRetrying(true)
+    try { await api.tasks.retry(task.id); onUpdate(); onClose() } finally { setRetrying(false) }
+  }
+
+  const output = task.status === 'running' && stream ? stream : parseOutput(task.output)
+
+  return (
+    <Modal title={task.title} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
+          <span>{agent?.name ?? 'Unknown'}</span>
+          <span>·</span>
+          <span>{timeAgo(task.created_at)}</span>
+          {task.cost_usd > 0 && <><span>·</span><span>{formatCost(task.cost_usd)}</span></>}
+        </div>
+        {task.description && (
+          <p className="text-sm text-slate-300">{task.description}</p>
+        )}
+        {task.status === 'running' && (
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+            <span className="text-xs text-violet-400">Running…</span>
+          </div>
+        )}
+        {output && output !== '{}' && (
+          <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-950 rounded-lg p-3 max-h-96 overflow-y-auto">
+            {output}
+          </pre>
+        )}
+        {task.status === 'failed' && (
+          <Button size="sm" variant="secondary" onClick={retry} disabled={retrying}>
+            {retrying ? 'Retrying…' : '↺ Retry'}
+          </Button>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -575,6 +641,7 @@ export function ProjectDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -616,34 +683,32 @@ export function ProjectDetailPage() {
   }
 
   const totalCost = tasks.reduce((s, t) => s + t.cost_usd, 0)
+  // Autonomous mode: any assigned agent has a heartbeat interval
+  const isAutonomous = agents.some(a => (a.heartbeat_interval ?? 0) > 0)
 
   if (loading) return <div className="text-slate-500 text-sm">Loading…</div>
   if (!project) return <div className="text-slate-500 text-sm">Project not found.</div>
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link to="/projects" className="text-slate-500 hover:text-white text-sm transition-colors">Projects</Link>
-            <span className="text-slate-700">/</span>
-            <span className="text-white text-sm">{project.name}</span>
-          </div>
-          <h1 className="text-2xl font-bold text-white">{project.name}</h1>
-          {project.description && <p className="text-slate-400 text-sm mt-1">{project.description}</p>}
-          {project.working_dir && (
-            <p className="text-xs text-slate-500 font-mono mt-1" title={project.working_dir}>
-              📁 {project.working_dir}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm">
+        <Link to="/projects" className="text-slate-500 hover:text-white transition-colors">Projects</Link>
+        <span className="text-slate-700">/</span>
+        <span className="text-white">{project.name}</span>
+        {project.working_dir && (
+          <span className="text-xs text-slate-600 font-mono ml-2" title={project.working_dir}>
+            📁 {project.working_dir.split('/').pop()}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
           {totalCost > 0 && (
             <span className="text-sm text-slate-400">Total: <span className="text-white font-medium">{formatCost(totalCost)}</span></span>
           )}
-          <Button variant="secondary" onClick={() => setShowDeleteConfirm(true)}>Delete Project</Button>
-          <Button onClick={() => setShowTaskForm(true)} disabled={allAgents.length === 0}>+ New Task</Button>
+          <Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
+          {!isAutonomous && (
+            <Button size="sm" onClick={() => setShowTaskForm(true)} disabled={allAgents.length === 0}>+ New Task</Button>
+          )}
         </div>
       </div>
 
@@ -682,73 +747,52 @@ export function ProjectDetailPage() {
         )
       })()}
 
-      <div className="grid grid-cols-3 gap-6">
-        {/* Agents column */}
-        <div className="col-span-1 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Agents</h2>
-            <div className="flex gap-1">
-              <Button variant="ghost" size="sm" onClick={() => setShowAssignTeam(true)}>+ Team</Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowAssignAgent(true)}>+ Agent</Button>
-            </div>
-          </div>
-          {teamAssignMsg && (
-            <p className="text-xs text-green-400 bg-green-900/20 border border-green-800/40 rounded px-2 py-1">
-              ✓ {teamAssignMsg}
-            </p>
-          )}
-          {agents.length === 0 ? (
-            <p className="text-slate-500 text-xs">No agents assigned. <button className="text-violet-400 hover:underline" onClick={() => setShowAssignAgent(true)}>Add one</button>.</p>
-          ) : agents.map(a => (
-            <Card key={a.id}>
-              <CardBody className="py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-7 h-7 rounded-md bg-violet-900/50 border border-violet-800/50 flex items-center justify-center text-violet-400 font-bold text-xs flex-shrink-0">
-                      {a.name.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{a.name}</p>
-                      <Badge variant={a.status === 'active' ? 'success' : 'muted'} className="mt-0.5">{a.status}</Badge>
-                    </div>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => removeAgent(a.id)}>✕</Button>
-                </div>
-              </CardBody>
-            </Card>
-          ))}
-        </div>
-
-        {/* Tasks column */}
-        <div className="col-span-2 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
-              Tasks <span className="text-slate-600 font-normal normal-case">({tasks.length})</span>
-            </h2>
-          </div>
-          {tasks.length === 0 ? (
-            allAgents.length === 0 ? (
-              <EmptyState icon="◈" title="No agents yet"
-                description="Create an agent in Settings before you can run tasks."
-                action={<a href="/settings?tab=agents"><Button size="sm">Go to Settings →</Button></a>} />
-            ) : (
-              <GuidedSetup
-                projectId={project.id}
-                allAgents={allAgents}
-                projectAgents={agents}
-                teams={teams}
-                onDone={() => load()}
-              />
-            )
-          ) : (
-            <div className="space-y-2">
-              {tasks.map(t => (
-                <TaskCard key={t.id} task={t} agents={allAgents} onUpdate={load} />
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Agents sidebar (compact, always visible) */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-slate-500 uppercase tracking-wide">Agents:</span>
+        {agents.map(a => (
+          <span key={a.id} className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-full px-3 py-1 text-xs text-slate-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+            {a.name}
+            <button onClick={() => removeAgent(a.id)} className="text-slate-600 hover:text-slate-400 ml-1">×</button>
+          </span>
+        ))}
+        <button onClick={() => setShowAssignAgent(true)} className="text-xs text-slate-500 hover:text-violet-400 transition-colors">+ Agent</button>
+        <button onClick={() => setShowAssignTeam(true)} className="text-xs text-slate-500 hover:text-violet-400 transition-colors">+ Team</button>
+        {teamAssignMsg && <span className="text-xs text-green-400">✓ {teamAssignMsg}</span>}
       </div>
+
+      {/* Auto-adapting main view */}
+      {isAutonomous ? (
+        <ProjectAutonomousView
+          project={project}
+          tasks={tasks}
+          agents={allAgents}
+          onUpdate={load}
+          onTaskClick={setSelectedTask}
+          onNewTask={() => setShowTaskForm(true)}
+        />
+      ) : tasks.length === 0 && allAgents.length > 0 ? (
+        <GuidedSetup
+          projectId={project.id}
+          allAgents={allAgents}
+          projectAgents={agents}
+          teams={teams}
+          onDone={() => load()}
+        />
+      ) : tasks.length === 0 ? (
+        <EmptyState icon="◈" title="No agents yet"
+          description="Create an agent in Settings before you can run tasks."
+          action={<a href="/settings?tab=agents"><Button size="sm">Go to Settings →</Button></a>} />
+      ) : (
+        <ProjectHumanView
+          project={project}
+          tasks={tasks}
+          agents={allAgents}
+          onUpdate={load}
+          onNewTask={() => setShowTaskForm(true)}
+        />
+      )}
 
       {showTaskForm && (
         <Modal title="New Task" onClose={() => setShowTaskForm(false)}>
@@ -778,6 +822,15 @@ export function ProjectDetailPage() {
             onClose={() => setShowAssignTeam(false)}
           />
         </Modal>
+      )}
+
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          agents={allAgents}
+          onClose={() => setSelectedTask(null)}
+          onUpdate={load}
+        />
       )}
     </div>
   )
