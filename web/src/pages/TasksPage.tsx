@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
+import { MarkdownOutput } from '@/components/ui/markdown-output'
+import { FollowUpThread } from '@/components/ui/follow-up-thread'
 
 const SANDBOX_PROJECT_ID = '00000000-0000-0000-0000-000000000002'
 
@@ -75,7 +77,9 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
       )}
       <div>
         <p className="text-slate-500 text-xs mb-1">Output</p>
-        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-950 rounded-lg p-3 max-h-64 overflow-y-auto">{output || '(no output yet)'}</pre>
+        <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 max-h-64 overflow-y-auto">
+          {output ? <MarkdownOutput content={output} /> : <span className="text-xs text-slate-500">(no output yet)</span>}
+        </div>
       </div>
       <div className="flex gap-2 justify-end">
         <Link to={`/projects/${task.project_id}`} onClick={onClose}>
@@ -85,6 +89,7 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
           <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
         )}
       </div>
+      <FollowUpThread task={task} agents={agents} onSent={onRetry} />
     </div>
   )
 }

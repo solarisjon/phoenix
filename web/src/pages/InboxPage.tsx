@@ -10,6 +10,7 @@ import { Input, Label, Textarea } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { parseOutput, timeAgo, taskStatusVariant, taskStatusLabel } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
+import { FollowUpThread } from '@/components/ui/follow-up-thread'
 
 // ---- Revise modal ----
 
@@ -46,8 +47,9 @@ function ReviseModal({ task, onDone, onClose }: { task: Task; onDone: () => void
 
 // ---- Task detail slide-over ----
 
-function TaskDetail({ task, agentName, projectName, onRetry, onClose }: {
+function TaskDetail({ task, agents, agentName, projectName, onRetry, onClose }: {
   task: Task
+  agents: Agent[]
   agentName: string
   projectName: string
   onRetry: () => void
@@ -93,6 +95,7 @@ function TaskDetail({ task, agentName, projectName, onRetry, onClose }: {
           <Button onClick={onRetry}>↺ Retry Task</Button>
         </div>
       )}
+      <FollowUpThread task={task} agents={agents} onSent={onRetry} />
     </div>
   )
 }
@@ -139,8 +142,9 @@ function EditTaskModal({ task, onDone, onClose }: { task: Task; onDone: () => vo
 
 // ---- Task card for inbox ----
 
-function InboxTaskCard({ task, agentName, projectName, onAction }: {
+function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
   task: Task
+  agents: Agent[]
   agentName: string
   projectName: string
   onAction: () => void
@@ -235,6 +239,7 @@ function InboxTaskCard({ task, agentName, projectName, onAction }: {
         <Modal title={task.title} onClose={() => setDetail(false)} className="max-w-2xl">
           <TaskDetail
             task={task}
+            agents={agents}
             agentName={agentName}
             projectName={projectName}
             onRetry={() => { setDetail(false); retry() }}
@@ -528,6 +533,7 @@ export function InboxPage() {
                   <InboxTaskCard
                     key={t.id}
                     task={t}
+                    agents={agents}
                     agentName={agentName(t.agent_id)}
                     projectName={projectName(t.project_id)}
                     onAction={load}
@@ -546,6 +552,7 @@ export function InboxPage() {
                   <InboxTaskCard
                     key={t.id}
                     task={t}
+                    agents={agents}
                     agentName={agentName(t.agent_id)}
                     projectName={projectName(t.project_id)}
                     onAction={load}

@@ -12,6 +12,7 @@ import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } 
 import { ProjectAutonomousView } from '@/components/project/ProjectAutonomousView'
 import { ProjectHumanView } from '@/components/project/ProjectHumanView'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
+import { FollowUpThread } from '@/components/ui/follow-up-thread'
 
 function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose }: {
   projectId: string
@@ -621,6 +622,7 @@ function TaskDetailModal({ task, agents, onClose, onUpdate }: {
             {retrying ? 'Retrying…' : '↺ Retry'}
           </Button>
         )}
+        <FollowUpThread task={task} agents={agents} onSent={onUpdate} />
       </div>
     </Modal>
   )

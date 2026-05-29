@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
+import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
@@ -140,6 +141,7 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
           <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
         )}
       </div>
+      <FollowUpThread task={task} agents={agents} onSent={onRetry} />
     </div>
   )
 }
