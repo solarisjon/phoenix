@@ -23,6 +23,7 @@
   - [FIXED] UI theming — 5 themes (Dark, Midnight, Forest, Ember, Light), live switcher in sidebar footer, persisted to localStorage
   - [TODO]  model picker dropdown — list available models per adapter kind
   - need to think of a way managing heartbeat projects , projects may be static where there are created and a human adds tasks etc some of those tasks may need refining so we should allow for a completed task toi be refined. But also some tasks like manage a queue should wake and generate a persistent task on an agents queue so when they wake they can actioin it .. i am open to suggestions as to how best presnet these flows and make it intuitive as to whats going on whats pending and whats been completed
+  - light vs dark mode themes
 
 
 

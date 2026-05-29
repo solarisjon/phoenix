@@ -10,24 +10,61 @@ import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 
-function TaskForm({ projectId, agents, onSave, onClose }: {
-  projectId: string; agents: Agent[]; onSave: () => void; onClose: () => void
+function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose }: {
+  projectId: string
+  allAgents: Agent[]
+  projectAgents: Agent[]
+  teams: Team[]
+  onSave: () => void
+  onClose: () => void
 }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [agentId, setAgentId] = useState(agents[0]?.id ?? '')
+  const [mode, setMode] = useState<'agent' | 'team'>('agent')
+  const [agentId, setAgentId] = useState(allAgents[0]?.id ?? '')
+  const [teamId, setTeamId] = useState(teams[0]?.id ?? '')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [progress, setProgress] = useState('')
+
+  // Group agents: assigned to project first, then the rest
+  const projectAgentIds = new Set(projectAgents.map(a => a.id))
+  const assignedAgents = allAgents.filter(a => projectAgentIds.has(a.id))
+  const otherAgents = allAgents.filter(a => !projectAgentIds.has(a.id))
+
+  const selectedTeam = teams.find(t => t.id === teamId)
 
   const save = async () => {
     if (!title.trim()) { setError('Title is required'); return }
-    if (!agentId) { setError('Select an agent'); return }
     setSaving(true)
+    setError('')
+    setProgress('')
     try {
-      await api.tasks.create({ project_id: projectId, agent_id: agentId, title, description })
+      if (mode === 'agent') {
+        if (!agentId) { setError('Select an agent'); setSaving(false); return }
+        // Auto-assign agent to project if not already there
+        if (!projectAgentIds.has(agentId)) {
+          await api.projects.assignAgent(projectId, agentId)
+        }
+        await api.tasks.create({ project_id: projectId, agent_id: agentId, title, description })
+      } else {
+        // Team mode: create one task per team member
+        if (!teamId || !selectedTeam?.agents?.length) {
+          setError('Selected team has no members'); setSaving(false); return
+        }
+        const members = selectedTeam.agents
+        for (let i = 0; i < members.length; i++) {
+          const a = members[i]
+          setProgress(`Creating task ${i + 1}/${members.length} → ${a.name}…`)
+          if (!projectAgentIds.has(a.id)) {
+            await api.projects.assignAgent(projectId, a.id)
+          }
+          await api.tasks.create({ project_id: projectId, agent_id: a.id, title, description })
+        }
+      }
       onSave()
     } catch (e: any) { setError(e.message) }
-    finally { setSaving(false) }
+    finally { setSaving(false); setProgress('') }
   }
 
   return (
@@ -36,22 +73,96 @@ function TaskForm({ projectId, agents, onSave, onClose }: {
         <Label htmlFor="title">Task Title</Label>
         <Input id="title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Research OKR best practices" />
       </div>
+
+      {/* Mode toggle */}
       <div>
-        <Label htmlFor="agent">Assign to Agent</Label>
-        <Select id="agent" value={agentId} onChange={e => setAgentId(e.target.value)}>
-          <option value="">Select agent…</option>
-          {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </Select>
+        <Label>Assign to</Label>
+        <div className="flex gap-1 mt-1 bg-slate-800 rounded-lg p-1">
+          <button
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              mode === 'agent' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+            onClick={() => setMode('agent')}
+          >
+            Agent
+          </button>
+          <button
+            className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              mode === 'team' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+            onClick={() => setMode('team')}
+            disabled={teams.length === 0}
+            title={teams.length === 0 ? 'No teams configured' : undefined}
+          >
+            Team {teams.length === 0 ? '(none)' : `(${teams.length})`}
+          </button>
+        </div>
       </div>
+
+      {mode === 'agent' ? (
+        <div>
+          <Select value={agentId} onChange={e => setAgentId(e.target.value)}>
+            <option value="">Select agent…</option>
+            {assignedAgents.length > 0 && (
+              <optgroup label="— Assigned to this project —">
+                {assignedAgents.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </optgroup>
+            )}
+            {otherAgents.length > 0 && (
+              <optgroup label="— All other agents —">
+                {otherAgents.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </optgroup>
+            )}
+          </Select>
+          <p className="text-xs text-slate-500 mt-1">
+            {allAgents.length} agent{allAgents.length !== 1 ? 's' : ''} available
+            {otherAgents.length > 0 && ' — unassigned agents will be auto-added to this project'}
+          </p>
+        </div>
+      ) : (
+        <div>
+          <Select value={teamId} onChange={e => setTeamId(e.target.value)}>
+            {teams.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.name} ({t.agents?.length ?? 0} member{(t.agents?.length ?? 0) !== 1 ? 's' : ''})
+              </option>
+            ))}
+          </Select>
+          {selectedTeam?.agents && selectedTeam.agents.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {selectedTeam.agents.map(a => (
+                <span key={a.id} className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full">
+                  {a.name}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-slate-500 mt-1">
+            Creates one task per team member. Agents not yet in this project will be auto-added.
+          </p>
+        </div>
+      )}
+
       <div>
         <Label htmlFor="desc">Description</Label>
         <Textarea id="desc" value={description} onChange={e => setDescription(e.target.value)} rows={4}
           placeholder="Detailed instructions for the agent…" />
       </div>
+
+      {progress && <p className="text-sm text-violet-400">{progress}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3 justify-end pt-2">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving}>{saving ? 'Running…' : 'Create & Run Task'}</Button>
+        <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button onClick={save} disabled={saving}>
+          {saving ? 'Creating…' : mode === 'team' && selectedTeam?.agents?.length
+            ? `Create ${selectedTeam.agents.length} Task${selectedTeam.agents.length !== 1 ? 's' : ''}`
+            : 'Create & Run Task'
+          }
+        </Button>
       </div>
     </div>
   )
@@ -217,6 +328,7 @@ export function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [allAgents, setAllAgents] = useState<Agent[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [showTaskForm, setShowTaskForm] = useState(false)
@@ -230,16 +342,18 @@ export function ProjectDetailPage() {
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const [proj, agts, allAgts, tsks] = await Promise.all([
+      const [proj, agts, allAgts, tsks, tms] = await Promise.all([
         api.projects.get(id),
         api.projects.listAgents(id),
         api.agents.list(),
         api.tasks.list(id),
+        api.teams.list(),
       ])
       setProject(proj)
       setAgents(agts)
       setAllAgents(allAgts)
       setTasks(tsks)
+      setTeams(tms)
     } finally { setLoading(false) }
   }, [id])
 
@@ -292,7 +406,7 @@ export function ProjectDetailPage() {
             <span className="text-sm text-slate-400">Total: <span className="text-white font-medium">{formatCost(totalCost)}</span></span>
           )}
           <Button variant="secondary" onClick={() => setShowDeleteConfirm(true)}>Delete Project</Button>
-          <Button onClick={() => setShowTaskForm(true)} disabled={agents.length === 0}>+ New Task</Button>
+          <Button onClick={() => setShowTaskForm(true)} disabled={allAgents.length === 0}>+ New Task</Button>
         </div>
       </div>
 
@@ -378,9 +492,9 @@ export function ProjectDetailPage() {
           {tasks.length === 0 ? (
             <EmptyState icon="◈" title="No tasks yet"
               description="Create a task to assign work to an agent."
-              action={agents.length > 0
+              action={allAgents.length > 0
                 ? <Button size="sm" onClick={() => setShowTaskForm(true)}>New Task</Button>
-                : <p className="text-xs text-slate-500">Assign an agent first</p>
+                : <p className="text-xs text-slate-500">Create an agent first</p>
               } />
           ) : (
             <div className="space-y-2">
@@ -394,9 +508,14 @@ export function ProjectDetailPage() {
 
       {showTaskForm && (
         <Modal title="New Task" onClose={() => setShowTaskForm(false)}>
-          <TaskForm projectId={project.id} agents={agents}
+          <TaskForm
+            projectId={project.id}
+            allAgents={allAgents}
+            projectAgents={agents}
+            teams={teams}
             onSave={() => { setShowTaskForm(false); load() }}
-            onClose={() => setShowTaskForm(false)} />
+            onClose={() => setShowTaskForm(false)}
+          />
         </Modal>
       )}
 
