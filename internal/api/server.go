@@ -123,6 +123,7 @@ func (s *Server) buildRouter() http.Handler {
 		// Tasks
 		r.Get("/tasks", s.listTasks)
 		r.Post("/tasks", s.createTask)
+		r.Post("/tasks/quick", s.quickTask)
 		r.Get("/tasks/running", s.listRunningTasks)
 		r.Get("/tasks/attention", s.listAttentionTasks)
 		r.Get("/tasks/{id}", s.getTask)

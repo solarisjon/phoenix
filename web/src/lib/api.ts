@@ -165,6 +165,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ description, agent_id: agentId ?? '' }),
       }),
+    quick: (agentId: string, title: string, description: string) =>
+      request<Task>('/tasks/quick', {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: agentId, title, description }),
+      }),
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     listRunning: () => request<Task[]>('/tasks/running'),

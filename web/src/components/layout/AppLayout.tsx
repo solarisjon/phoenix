@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { api } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
+import { QuickTaskButton } from '@/components/ui/quick-task'
 
 const titles: Record<string, string> = {
   '/': 'Dashboard',
@@ -51,6 +52,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      <QuickTaskButton />
     </div>
   )
 }

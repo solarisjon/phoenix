@@ -9,6 +9,8 @@ import { Modal } from '@/components/ui/modal'
 import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 
+const SANDBOX_PROJECT_ID = '00000000-0000-0000-0000-000000000002'
+
 type StatusFilter = 'all' | 'running' | 'queued' | 'completed' | 'failed' | 'awaiting_approval'
 
 const FILTERS: { id: StatusFilter; label: string }[] = [
@@ -38,9 +40,13 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <p className="text-slate-500 text-xs mb-0.5">Project</p>
-          <Link to={`/projects/${task.project_id}`} className="text-violet-400 hover:underline" onClick={onClose}>
-            {project?.name ?? 'Unknown'}
-          </Link>
+          {task.project_id === SANDBOX_PROJECT_ID ? (
+            <span className="text-slate-400 text-sm">✦ Quick Task</span>
+          ) : (
+            <Link to={`/projects/${task.project_id}`} className="text-violet-400 hover:underline" onClick={onClose}>
+              {project?.name ?? 'Unknown'}
+            </Link>
+          )}
         </div>
         <div>
           <p className="text-slate-500 text-xs mb-0.5">Agent</p>
@@ -220,15 +226,20 @@ export function TasksPage() {
                     <span className="text-sm text-white truncate">{t.title}</span>
                   </div>
                   <span className="text-xs text-slate-400 truncate">
-                    {project
-                      ? <Link
-                          to={`/projects/${t.project_id}`}
-                          className="hover:text-violet-400 transition-colors"
-                          onClick={e => e.stopPropagation()}
-                        >
-                          {project.name}
-                        </Link>
-                      : '—'
+                    {t.project_id === SANDBOX_PROJECT_ID ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-violet-400">✦</span>
+                        <span className="text-slate-500">Quick Task</span>
+                      </span>
+                    ) : project ? (
+                      <Link
+                        to={`/projects/${t.project_id}`}
+                        className="hover:text-violet-400 transition-colors"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {project.name}
+                      </Link>
+                    ) : '—'
                     }
                   </span>
                   <span className="text-xs text-slate-400 truncate">{agent?.name ?? '—'}</span>

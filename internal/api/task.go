@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -276,6 +278,99 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 		task = updated
 	}
 	respond(w, http.StatusOK, task)
+}
+
+// sandboxProjectID is the well-known UUID for the "Quick Tasks" sandbox project.
+// Using a fixed ID means ensureSandboxProject is idempotent across restarts.
+const sandboxProjectID = "00000000-0000-0000-0000-000000000002"
+
+// ensureSandboxProject creates the Quick Tasks project if it doesn't exist.
+func (s *Server) ensureSandboxProject(ctx context.Context) error {
+	existing, err := s.projects.Get(ctx, sandboxProjectID)
+	if err != nil {
+		return fmt.Errorf("check sandbox project: %w", err)
+	}
+	if existing != nil {
+		return nil // already exists
+	}
+	p := &model.Project{
+		ID:          sandboxProjectID,
+		Name:        "Quick Tasks",
+		Description: "One-off tasks not tied to a specific project.",
+		Owner:       "00000000-0000-0000-0000-000000000001",
+		Status:      model.ProjectStatusActive,
+		CreatedAt:   time.Now(),
+	}
+	return s.projects.Create(ctx, p)
+}
+
+// quickTask creates and immediately runs a task without requiring a project.
+// It uses a well-known sandbox project as the container.
+func (s *Server) quickTask(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AgentID     string `json:"agent_id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.AgentID) == "" {
+		respondErr(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		respondErr(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	// Verify agent exists.
+	a, err := s.agents.Get(r.Context(), req.AgentID)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if a == nil {
+		respondErr(w, http.StatusBadRequest, "agent not found")
+		return
+	}
+
+	// Ensure sandbox project exists.
+	if err := s.ensureSandboxProject(r.Context()); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	// Auto-assign agent to sandbox project (idempotent).
+	if err := s.projects.AssignAgent(r.Context(), sandboxProjectID, req.AgentID); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	t := &model.Task{
+		ID:          uuid.New().String(),
+		ProjectID:   sandboxProjectID,
+		AgentID:     req.AgentID,
+		Title:       strings.TrimSpace(req.Title),
+		Description: strings.TrimSpace(req.Description),
+		Status:      model.TaskStatusPending,
+		Input:       "{}",
+		Output:      "{}",
+		CreatedAt:   time.Now(),
+	}
+	if err := s.tasks.Create(r.Context(), t); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if err := s.runner.RunTask(r.Context(), t.ID); err != nil {
+		respond(w, http.StatusCreated, t)
+		return
+	}
+	updated, _ := s.tasks.Get(r.Context(), t.ID)
+	if updated != nil {
+		t = updated
+	}
+	respond(w, http.StatusCreated, t)
 }
 
 // followUpTask creates a new task as a human refinement of an existing completed task.
