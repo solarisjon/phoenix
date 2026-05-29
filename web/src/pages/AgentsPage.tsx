@@ -9,6 +9,13 @@ import { EmptyState } from '@/components/ui/empty'
 
 // ---- Generate modal ----
 
+function formatInterval(secs: number): string {
+  if (secs < 60) return `${secs}s`
+  if (secs < 3600) return `${Math.round(secs / 60)}m`
+  if (secs < 86400) return `${(secs / 3600).toFixed(1).replace(/\.0$/, '')}h`
+  return `${(secs / 86400).toFixed(1).replace(/\.0$/, '')}d`
+}
+
 function GenerateModal({ providers, onApply, onClose }: {
   providers: Provider[]
   onApply: (persona: string, instructions: string, guardrails: string) => void
@@ -77,6 +84,9 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [providerID, setProviderID] = useState(initial?.provider_id ?? providers[0]?.id ?? '')
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
   const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
+  const [heartbeatInterval, setHeartbeatInterval] = useState<string>(
+    initial?.heartbeat_interval != null ? String(initial.heartbeat_interval) : ''
+  )
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -90,7 +100,8 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, status }
+      const hbSecs = heartbeatInterval.trim() ? parseInt(heartbeatInterval, 10) : null
+      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, heartbeat_interval: hbSecs, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -147,6 +158,33 @@ function AgentForm({ initial, providers, onSave, onClose }: {
                 ? 'e.g. claude-sonnet-4-5  or  llm-proxy/claude-opus-4'
                 : 'e.g. gpt-4o  or  claude-opus-4-5  (blank = provider default)'
             } />
+        </div>
+
+        {/* Heartbeat interval */}
+        <div className="border-t border-slate-800 pt-4">
+          <Label htmlFor="hb">Heartbeat Interval <span className="text-slate-500 font-normal">(optional)</span></Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input
+              id="hb"
+              type="number"
+              min="60"
+              step="60"
+              value={heartbeatInterval}
+              onChange={e => setHeartbeatInterval(e.target.value)}
+              placeholder="e.g. 3600"
+              className="w-36"
+            />
+            <span className="text-slate-500 text-sm">seconds</span>
+            {heartbeatInterval && !isNaN(parseInt(heartbeatInterval)) && (
+              <span className="text-slate-400 text-xs">
+                ≈ every {formatInterval(parseInt(heartbeatInterval))}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            When set, the agent will automatically receive a scheduled check-in task at this interval for each project it's assigned to.
+            Minimum 60 seconds. Leave blank for manual-only.
+          </p>
         </div>
 
         {/* Spawn agents toggle */}
@@ -281,6 +319,9 @@ export function AgentsPage() {
                         <p className="text-xs text-slate-500">
                           {providerName(a.provider_id)}
                           {a.model_override && <span className="text-slate-600"> · {a.model_override}</span>}
+                          {a.heartbeat_interval && (
+                            <span className="text-slate-600"> · ⏱ {formatInterval(a.heartbeat_interval)}</span>
+                          )}
                         </p>
                       </div>
                       <Badge variant={statusVariant[a.status]}>{a.status}</Badge>
