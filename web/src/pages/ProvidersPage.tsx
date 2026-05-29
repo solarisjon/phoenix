@@ -30,9 +30,13 @@ interface CodingAgentConfig {
   kind: string
   binary_path: string
   model: string
-  agent: string
+  agent: string          // opencode only
   working_dir: string
   dangerously_skip_permissions: boolean
+  thinking: string       // pi only
+  tools: string          // pi only
+  no_session: boolean    // pi only
+  max_budget_usd: number // claudecode only
   extra_args: string[]
 }
 
@@ -89,36 +93,36 @@ function CodingAgentFields({ cfg, onChange }: {
 }) {
   const setStr = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     onChange({ ...cfg, [key]: e.target.value })
+  const setBool = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.checked })
+  const setNum = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: Number(e.target.value) })
+
+  const binaryPlaceholder: Record<string, string> = {
+    opencode: 'opencode  or  /opt/homebrew/bin/opencode',
+    pi: 'pi  or  /opt/homebrew/bin/pi',
+    claudecode: 'claude  or  /opt/homebrew/bin/claude',
+  }
 
   return (
     <div className="space-y-4">
+      {/* Kind */}
       <div>
         <Label htmlFor="kind">Agent Kind</Label>
         <Select id="kind" value={cfg.kind} onChange={setStr('kind') as any}>
           <option value="opencode">opencode</option>
+          <option value="pi">pi</option>
+          <option value="claudecode">Claude Code (claude)</option>
         </Select>
-        <p className="text-xs text-slate-600 mt-1">More coding agents coming in future phases</p>
       </div>
+
+      {/* Binary + working dir — common to all */}
       <div>
         <Label htmlFor="binary">Binary Path</Label>
         <Input id="binary" value={cfg.binary_path} onChange={setStr('binary_path') as any}
-          placeholder="opencode  or  /usr/local/bin/opencode  or  ${OPENCODE_PATH}" />
-        <p className="text-xs text-slate-600 mt-1">Leave blank to use <code className="bg-slate-800 px-1 rounded text-slate-400">opencode</code> from PATH</p>
+          placeholder={binaryPlaceholder[cfg.kind] ?? 'path or leave blank for PATH'} />
+        <p className="text-xs text-slate-600 mt-1">Leave blank to resolve from PATH</p>
         <EnvHint />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="oc-model">Model</Label>
-          <Input id="oc-model" value={cfg.model} onChange={setStr('model') as any}
-            placeholder="llm-proxy/claude-sonnet-4.6" />
-          <p className="text-xs text-slate-600 mt-1">Format: provider/model</p>
-        </div>
-        <div>
-          <Label htmlFor="oc-agent">Agent Config</Label>
-          <Input id="oc-agent" value={cfg.agent} onChange={setStr('agent') as any}
-            placeholder="my-agent" />
-          <p className="text-xs text-slate-600 mt-1">Named opencode agent (optional)</p>
-        </div>
       </div>
       <div>
         <Label htmlFor="workdir">Working Directory</Label>
@@ -126,6 +130,75 @@ function CodingAgentFields({ cfg, onChange }: {
           placeholder="/home/user/project  or  ${WORKSPACE}" />
         <EnvHint />
       </div>
+
+      {/* Model — common */}
+      <div>
+        <Label htmlFor="oc-model">Model</Label>
+        <Input id="oc-model" value={cfg.model} onChange={setStr('model') as any}
+          placeholder={
+            cfg.kind === 'opencode' ? 'llm-proxy/claude-sonnet-4.6' :
+            cfg.kind === 'pi'       ? 'llm-proxy/claude-sonnet-4.6  or  sonnet' :
+                                      'claude-opus-4-5  or  sonnet'
+          } />
+        <p className="text-xs text-slate-600 mt-1">Leave blank to use the agent's default model</p>
+      </div>
+
+      {/* opencode-specific */}
+      {cfg.kind === 'opencode' && (
+        <div>
+          <Label htmlFor="oc-agent">Agent Config Name</Label>
+          <Input id="oc-agent" value={cfg.agent} onChange={setStr('agent') as any}
+            placeholder="my-agent" />
+          <p className="text-xs text-slate-600 mt-1">Named opencode agent configuration (optional)</p>
+        </div>
+      )}
+
+      {/* pi-specific */}
+      {cfg.kind === 'pi' && (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="pi-thinking">Thinking Level</Label>
+            <Select id="pi-thinking" value={cfg.thinking} onChange={setStr('thinking') as any}>
+              <option value="">(default)</option>
+              <option value="off">off</option>
+              <option value="minimal">minimal</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="pi-tools">Allowed Tools</Label>
+            <Input id="pi-tools" value={cfg.tools} onChange={setStr('tools') as any}
+              placeholder="read,bash,write  (blank = all)" />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={cfg.no_session} onChange={setBool('no_session') as any}
+              className="rounded" />
+            No session (ephemeral — recommended for Phoenix-managed tasks)
+          </label>
+        </div>
+      )}
+
+      {/* claudecode-specific */}
+      {cfg.kind === 'claudecode' && (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="cc-budget">Max Budget (USD, 0 = unlimited)</Label>
+            <Input id="cc-budget" type="number" step="0.01" value={cfg.max_budget_usd}
+              onChange={setNum('max_budget_usd') as any} placeholder="0" />
+          </div>
+        </div>
+      )}
+
+      {/* Skip permissions — common */}
+      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={cfg.dangerously_skip_permissions}
+          onChange={setBool('dangerously_skip_permissions') as any}
+          className="rounded" />
+        Dangerously skip permissions (auto-approve all tool use)
+      </label>
     </div>
   )
 }
@@ -146,6 +219,10 @@ const defaultCoding: CodingAgentConfig = {
   agent: '',
   working_dir: '',
   dangerously_skip_permissions: false,
+  thinking: '',
+  tools: '',
+  no_session: true,
+  max_budget_usd: 0,
   extra_args: [],
 }
 
@@ -270,7 +347,8 @@ export function ProvidersPage() {
   const endpointLabel = (p: Provider) => {
     try {
       const cfg = JSON.parse(p.config)
-      return cfg.endpoint || cfg.binary_path || '–'
+      const kind = cfg.kind ? `[${cfg.kind}] ` : ''
+      return kind + (cfg.endpoint || cfg.binary_path || '–')
     } catch { return '–' }
   }
 

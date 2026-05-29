@@ -1,0 +1,18 @@
+# a running list of things to implement resolve etc
+#
+  - failed tasks need a retry option
+  - The inbox should show the state of all tasks that require attention or failed etc and be grouped by state and show task and project
+
+## coding agent adapter issues (in progress)
+  - [FIXED] old binary was still running (07:32 build, pre-opencode support) — kill & restart required
+  - [FIXED] DB provider configs had wrong shape (args_template/working_directory) from old UI — updated via sqlite3
+  - [FIXED] registry only knew about opencode kind — now dispatches pi and claudecode kinds too
+  - [FIXED] pi adapter written (internal/provider/pi/) — streams text_delta events, all tests pass
+  - [FIXED] claudecode adapter written (internal/provider/claudecode/) — streams assistant message blocks
+  - [FIXED] UI CodingAgentFields updated — kind dropdown now has opencode / pi / Claude Code with per-kind fields
+  - [FIXED] smoke test passed — pi adapter ran task, completed in ~3s, returned correct output
+             route is POST /api/tasks with {project_id, agent_id, title, description} — run triggered automatically
+  - [TODO]  pi adapter: no_session defaults to false in DB records — update existing PI provider config or handle missing field gracefully
+  - [TODO]  claudecode adapter: needs smoke test once claude auth is set up
+
+

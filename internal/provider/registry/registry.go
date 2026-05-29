@@ -9,8 +9,10 @@ import (
 
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/provider"
+	"github.com/solarisjon/phoenix/internal/provider/claudecode"
 	"github.com/solarisjon/phoenix/internal/provider/llm"
 	"github.com/solarisjon/phoenix/internal/provider/opencode"
+	"github.com/solarisjon/phoenix/internal/provider/pi"
 	"github.com/solarisjon/phoenix/internal/store"
 )
 
@@ -93,6 +95,10 @@ func buildProvider(rec *model.Provider) (provider.Provider, error) {
 		switch meta.Kind {
 		case "opencode", "":
 			return opencode.New(expandedConfig)
+		case "pi":
+			return pi.New(expandedConfig)
+		case "claudecode", "claude":
+			return claudecode.New(expandedConfig)
 		default:
 			return nil, fmt.Errorf("coding_agent: unknown kind %q", meta.Kind)
 		}
