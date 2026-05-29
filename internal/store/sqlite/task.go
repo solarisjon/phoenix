@@ -26,6 +26,18 @@ func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, e
 	return scanTasks(rows)
 }
 
+func (r *TaskRepo) ListAll(ctx context.Context) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, agent_id, parent_task_id, title, description,
+		       status, input, output, cost_usd, dismissed, created_at, started_at, completed_at
+		FROM tasks WHERE dismissed = 0 ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list all tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 func (r *TaskRepo) ListByStatuses(ctx context.Context, statuses []model.TaskStatus) ([]*model.Task, error) {
 	if len(statuses) == 0 {
 		return nil, nil

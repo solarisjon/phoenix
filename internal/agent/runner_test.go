@@ -103,6 +103,14 @@ func (r *memTaskRepo) List(_ context.Context, projectID string) ([]*model.Task, 
 	}
 	return out, nil
 }
+func (r *memTaskRepo) ListAll(_ context.Context) ([]*model.Task, error) {
+	var out []*model.Task
+	for _, t := range r.tasks {
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 func (r *memTaskRepo) ListByStatus(_ context.Context, s model.TaskStatus) ([]*model.Task, error) {
 	var out []*model.Task
 	for _, t := range r.tasks {

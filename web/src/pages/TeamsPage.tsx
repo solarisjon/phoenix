@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, type Team, type Agent } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
+import { ImportTeamWizard } from '@/components/ui/import-team-wizard'
 import { timeAgo } from '@/lib/utils'
 
 // ---- Team form ----
@@ -102,10 +104,12 @@ function TeamForm({ initial, allAgents, onSave, onClose }: {
 // ---- Main page ----
 
 export function TeamsPage() {
+  const [searchParams] = useSearchParams()
   const [teams, setTeams] = useState<Team[]>([])
   const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [editing, setEditing] = useState<Team | undefined>()
 
   const load = async () => {
@@ -116,7 +120,20 @@ export function TeamsPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [])
+  // Support ?edit=<teamId> from TeamDetailPage
+  useEffect(() => {
+    load().then(() => {
+      const editId = searchParams.get('edit')
+      if (editId) {
+        setTeams(prev => {
+          const t = prev.find(x => x.id === editId)
+          if (t) { setEditing(t); setShowForm(true) }
+          return prev
+        })
+      }
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const remove = async (id: string) => {
     if (!confirm('Delete this team? Agents will not be deleted.')) return
@@ -135,7 +152,10 @@ export function TeamsPage() {
             Group agents into teams and assign the whole team to a project at once.
           </p>
         </div>
-        <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ New Team</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setShowImport(true)}>Import Bundle</Button>
+          <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ New Team</Button>
+        </div>
       </div>
 
       {teams.length === 0 ? (
@@ -143,7 +163,12 @@ export function TeamsPage() {
           icon="⬡⬡"
           title="No teams yet"
           description="Create a team to group agents together. Assigning a team to a project adds all its members at once."
-          action={<Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ New Team</Button>}
+          action={
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setShowImport(true)}>Import Bundle</Button>
+              <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ New Team</Button>
+            </div>
+          }
         />
       ) : (
         <div className="grid grid-cols-2 gap-4">
@@ -159,6 +184,9 @@ export function TeamsPage() {
                     <p className="text-xs text-slate-600 mt-1">Created {timeAgo(team.created_at)}</p>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
+                    <Link to={`/teams/${team.id}`}>
+                      <Button variant="secondary" size="sm">View</Button>
+                    </Link>
                     <Button variant="ghost" size="sm" onClick={() => { setEditing(team); setShowForm(true) }}>Edit</Button>
                     <Button variant="danger" size="sm" onClick={() => remove(team.id)}>Delete</Button>
                   </div>
@@ -188,6 +216,10 @@ export function TeamsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {showImport && (
+        <ImportTeamWizard onClose={() => { setShowImport(false); load() }} />
       )}
 
       {showForm && (

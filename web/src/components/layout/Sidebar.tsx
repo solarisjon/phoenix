@@ -6,9 +6,9 @@ const nav = [
   { label: 'Dashboard', href: '/', icon: '◈' },
   { label: 'Inbox', href: '/inbox', icon: '⊡' },
   { label: 'Projects', href: '/projects', icon: '⊞' },
-  { label: 'Agents', href: '/agents', icon: '⬡' },
+  { label: 'Tasks', href: '/tasks', icon: '✦' },
   { label: 'Teams', href: '/teams', icon: '⬡⬡' },
-  { label: 'Providers', href: '/providers', icon: '⊕' },
+  { label: 'Settings', href: '/settings', icon: '⚙' },
 ]
 
 export function Sidebar({ inboxCount }: { inboxCount: number }) {

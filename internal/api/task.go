@@ -70,7 +70,16 @@ func (s *Server) listAttentionTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
-		respondErr(w, http.StatusBadRequest, "project_id query param is required")
+		// No project_id → return all tasks across all projects
+		list, err := s.tasks.ListAll(r.Context())
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if list == nil {
+			list = []*model.Task{}
+		}
+		respond(w, http.StatusOK, list)
 		return
 	}
 

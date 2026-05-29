@@ -168,6 +168,243 @@ function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose 
   )
 }
 
+// ---- Guided Setup (3-step flow for empty projects) ----
+
+function GuidedSetup({ projectId, allAgents, projectAgents, teams, onDone }: {
+  projectId: string
+  allAgents: Agent[]
+  projectAgents: Agent[]
+  teams: Team[]
+  onDone: () => void
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(
+    new Set(projectAgents.map(a => a.id))
+  )
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [progress, setProgress] = useState('')
+
+  const projectAgentIds = new Set(projectAgents.map(a => a.id))
+
+  // Group agents: project-assigned first
+  const assignedAgents = allAgents.filter(a => projectAgentIds.has(a.id))
+  const otherAgents = allAgents.filter(a => !projectAgentIds.has(a.id))
+
+  const toggleAgent = (id: string) => {
+    setSelectedAgentIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectedAgents = allAgents.filter(a => selectedAgentIds.has(a.id))
+
+  const run = async () => {
+    if (!title.trim()) { setError('Add a task title first'); return }
+    if (selectedAgentIds.size === 0) { setError('Choose at least one agent'); return }
+    setSaving(true)
+    setError('')
+    try {
+      for (let i = 0; i < selectedAgents.length; i++) {
+        const agent = selectedAgents[i]
+        setProgress(`Creating task ${i + 1}/${selectedAgents.length} → ${agent.name}…`)
+        if (!projectAgentIds.has(agent.id)) {
+          await api.projects.assignAgent(projectId, agent.id)
+        }
+        await api.tasks.create({ project_id: projectId, agent_id: agent.id, title, description })
+      }
+      onDone()
+    } catch (e: any) { setError(e.message) }
+    finally { setSaving(false); setProgress('') }
+  }
+
+  const steps = [
+    { n: 1, label: 'Choose agents' },
+    { n: 2, label: 'Describe goal' },
+    { n: 3, label: 'Run' },
+  ]
+
+  return (
+    <div className="border border-slate-800 rounded-2xl bg-slate-900/40 overflow-hidden">
+      {/* Stepper header */}
+      <div className="flex border-b border-slate-800">
+        {steps.map((s, i) => (
+          <div
+            key={s.n}
+            className={`flex-1 flex items-center gap-2 px-4 py-3 text-sm ${
+              step === s.n ? 'bg-violet-900/20 text-violet-300' :
+              step > s.n ? 'text-slate-400' : 'text-slate-600'
+            } ${i > 0 ? 'border-l border-slate-800' : ''}`}
+          >
+            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+              step > s.n ? 'bg-emerald-700 text-emerald-200' :
+              step === s.n ? 'bg-violet-600 text-white' : 'bg-slate-800 text-slate-600'
+            }`}>
+              {step > s.n ? '✓' : s.n}
+            </span>
+            <span className="font-medium">{s.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="p-6 space-y-4">
+        {/* Step 1 — Choose agents */}
+        {step === 1 && (
+          <>
+            <p className="text-slate-400 text-sm">Who should work on this project? Select one or more agents.</p>
+
+            {allAgents.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-slate-500 text-sm mb-3">No agents yet.</p>
+                <a href="/settings?tab=agents" className="text-violet-400 hover:underline text-sm">Create an agent in Settings →</a>
+              </div>
+            ) : (
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {assignedAgents.length > 0 && (
+                  <p className="text-xs text-slate-600 uppercase tracking-wide px-2 py-1">Already on this project</p>
+                )}
+                {assignedAgents.map(a => (
+                  <label key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-800 cursor-pointer">
+                    <input type="checkbox" checked={selectedAgentIds.has(a.id)} onChange={() => toggleAgent(a.id)}
+                      className="rounded accent-violet-500" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white">{a.name}</p>
+                      {a.persona && <p className="text-xs text-slate-500 truncate">{a.persona}</p>}
+                    </div>
+                  </label>
+                ))}
+                {otherAgents.length > 0 && (
+                  <p className="text-xs text-slate-600 uppercase tracking-wide px-2 py-1 mt-2">All other agents</p>
+                )}
+                {otherAgents.map(a => (
+                  <label key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-800 cursor-pointer">
+                    <input type="checkbox" checked={selectedAgentIds.has(a.id)} onChange={() => toggleAgent(a.id)}
+                      className="rounded accent-violet-500" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white">{a.name}</p>
+                      {a.persona && <p className="text-xs text-slate-500 truncate">{a.persona}</p>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {teams.length > 0 && (
+              <div className="border-t border-slate-800 pt-3">
+                <p className="text-xs text-slate-500 mb-2">Or select an entire team:</p>
+                <div className="flex flex-wrap gap-2">
+                  {teams.map(t => (
+                    <button
+                      key={t.id}
+                      className="text-xs px-3 py-1.5 rounded-full border border-slate-700 text-slate-300 hover:border-violet-500 hover:text-violet-300 transition-colors"
+                      onClick={() => {
+                        const ids = new Set(selectedAgentIds)
+                        for (const a of t.agents ?? []) ids.add(a.id)
+                        setSelectedAgentIds(ids)
+                      }}
+                    >
+                      + {t.name} ({t.agents?.length ?? 0})
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-xs text-slate-500">
+                {selectedAgentIds.size} agent{selectedAgentIds.size !== 1 ? 's' : ''} selected
+              </p>
+              <Button onClick={() => setStep(2)} disabled={selectedAgentIds.size === 0}>
+                Next →
+              </Button>
+            </div>
+          </>
+        )}
+
+        {/* Step 2 — Describe goal */}
+        {step === 2 && (
+          <>
+            <p className="text-slate-400 text-sm">
+              What do you need done? This becomes the task that{' '}
+              <span className="text-white">{selectedAgents.map(a => a.name).join(', ')}</span>{' '}
+              will work on.
+            </p>
+            <div>
+              <Label htmlFor="gs-title">Task title</Label>
+              <Input
+                id="gs-title"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="e.g. Research OKR best practices for Q3"
+              />
+            </div>
+            <div>
+              <Label htmlFor="gs-desc">Instructions <span className="text-slate-500 font-normal">(optional)</span></Label>
+              <Textarea
+                id="gs-desc"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                rows={5}
+                placeholder="Detailed instructions, context, or goals for the agent…"
+              />
+            </div>
+            <div className="flex gap-3 justify-between pt-2">
+              <Button variant="secondary" onClick={() => setStep(1)}>← Back</Button>
+              <Button onClick={() => setStep(3)} disabled={!title.trim()}>Review →</Button>
+            </div>
+          </>
+        )}
+
+        {/* Step 3 — Review & Run */}
+        {step === 3 && (
+          <>
+            <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-3">
+              <div>
+                <p className="text-xs text-slate-500 mb-0.5">Task</p>
+                <p className="text-sm text-white font-medium">{title}</p>
+                {description && <p className="text-xs text-slate-400 mt-1 line-clamp-2">{description}</p>}
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1">Assigned to</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedAgents.map(a => (
+                    <span key={a.id} className="text-xs bg-violet-900/50 border border-violet-800/50 text-violet-300 px-2 py-0.5 rounded-full">
+                      {a.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {selectedAgents.length > 1 && (
+                <p className="text-xs text-slate-500">
+                  Creates {selectedAgents.length} tasks — one per agent — all running in parallel.
+                </p>
+              )}
+            </div>
+            {progress && <p className="text-sm text-violet-400">{progress}</p>}
+            {error && <p className="text-sm text-red-400">{error}</p>}
+            <div className="flex gap-3 justify-between pt-2">
+              <Button variant="secondary" onClick={() => setStep(2)} disabled={saving}>← Back</Button>
+              <Button onClick={run} disabled={saving}>
+                {saving ? 'Starting…' : selectedAgents.length > 1
+                  ? `Start ${selectedAgents.length} Tasks`
+                  : 'Start Task'
+                }
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---- Task Card ----
+
 function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onUpdate: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [stream, setStream] = useState('')
@@ -490,12 +727,19 @@ export function ProjectDetailPage() {
             </h2>
           </div>
           {tasks.length === 0 ? (
-            <EmptyState icon="◈" title="No tasks yet"
-              description="Create a task to assign work to an agent."
-              action={allAgents.length > 0
-                ? <Button size="sm" onClick={() => setShowTaskForm(true)}>New Task</Button>
-                : <p className="text-xs text-slate-500">Create an agent first</p>
-              } />
+            allAgents.length === 0 ? (
+              <EmptyState icon="◈" title="No agents yet"
+                description="Create an agent in Settings before you can run tasks."
+                action={<a href="/settings?tab=agents"><Button size="sm">Go to Settings →</Button></a>} />
+            ) : (
+              <GuidedSetup
+                projectId={project.id}
+                allAgents={allAgents}
+                projectAgents={agents}
+                teams={teams}
+                onDone={() => load()}
+              />
+            )
           ) : (
             <div className="space-y-2">
               {tasks.map(t => (

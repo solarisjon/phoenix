@@ -50,6 +50,7 @@ type ProjectRepo interface {
 // TaskRepo manages task records.
 type TaskRepo interface {
 	List(ctx context.Context, projectID string) ([]*model.Task, error)
+	ListAll(ctx context.Context) ([]*model.Task, error)
 	ListByStatus(ctx context.Context, status model.TaskStatus) ([]*model.Task, error)
 	ListByStatuses(ctx context.Context, statuses []model.TaskStatus) ([]*model.Task, error)
 	Get(ctx context.Context, id string) (*model.Task, error)

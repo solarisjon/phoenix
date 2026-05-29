@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { api, type Project, type Task, type CostsResponse, type Agent } from '@/lib/api'
+import { api, type Project, type Task, type CostsResponse, type Agent, type Team } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -313,6 +313,7 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
   const [recentTasks, setRecentTasks] = useState<Task[]>([])
   const [runningTasks, setRunningTasks] = useState<Task[]>([])
   const [attentionCount, setAttentionCount] = useState(0)
@@ -323,9 +324,10 @@ export function DashboardPage() {
 
   const load = useCallback(async () => {
     try {
-      const [projs, agts] = await Promise.all([api.projects.list(), api.agents.list()])
+      const [projs, agts, tms] = await Promise.all([api.projects.list(), api.agents.list(), api.teams.list()])
       setProjects(projs)
       setAgents(agts)
+      setTeams(tms)
 
       const [taskLists, running, attention, c] = await Promise.all([
         Promise.all(projs.map(p => api.tasks.list(p.id).catch(() => [] as Task[]))),
@@ -406,40 +408,55 @@ export function DashboardPage() {
       {costs && <CostCharts costs={costs} />}
 
       <div className="grid grid-cols-3 gap-6">
-        {/* Projects */}
+        {/* Teams quick-view */}
         <div className="col-span-1 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Projects</h2>
-            <Link to="/projects" className="text-xs text-violet-400 hover:text-violet-300">View all →</Link>
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Teams</h2>
+            <Link to="/teams" className="text-xs text-violet-400 hover:text-violet-300">View all →</Link>
           </div>
           {loading ? (
             <p className="text-slate-500 text-sm">Loading…</p>
-          ) : projects.length === 0 ? (
+          ) : teams.length === 0 ? (
             <Card>
               <CardBody className="py-8 text-center">
-                <p className="text-slate-500 text-sm mb-3">No projects yet</p>
-                <Link to="/projects" className="text-violet-400 text-xs hover:underline">Create one →</Link>
+                <p className="text-slate-500 text-sm mb-2">No teams yet</p>
+                <div className="flex flex-col gap-2 items-center">
+                  <Link to="/teams" className="text-violet-400 text-xs hover:underline">Create a team →</Link>
+                  <Link to="/teams" className="text-slate-500 text-xs hover:underline">or import a bundle</Link>
+                </div>
               </CardBody>
             </Card>
-          ) : projects.slice(0, 5).map(p => (
-            <Link key={p.id} to={`/projects/${p.id}`}>
-              <Card className="hover:border-slate-700 transition-colors cursor-pointer">
-                <CardBody className="py-3">
-                  <p className="text-sm font-medium text-white truncate">{p.name}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant={p.status === 'active' ? 'success' : 'muted'}>{p.status}</Badge>
-                    <span className="text-xs text-slate-600">{timeAgo(p.created_at)}</span>
-                  </div>
-                </CardBody>
-              </Card>
-            </Link>
-          ))}
+          ) : teams.slice(0, 5).map(team => {
+            const memberIds = new Set((team.agents ?? []).map(a => a.id))
+            const activeTasks = recentTasks.filter(t => memberIds.has(t.agent_id) && (t.status === 'running' || t.status === 'queued'))
+            return (
+              <Link key={team.id} to={`/teams/${team.id}`}>
+                <Card className="hover:border-slate-700 transition-colors cursor-pointer">
+                  <CardBody className="py-3">
+                    <div className="flex items-start justify-between">
+                      <p className="text-sm font-medium text-white truncate">{team.name}</p>
+                      {activeTasks.length > 0 && (
+                        <span className="flex items-center gap-1 text-xs text-violet-400 flex-shrink-0 ml-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+                          {activeTasks.length}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      {team.agents?.length ?? 0} member{(team.agents?.length ?? 0) !== 1 ? 's' : ''}
+                    </p>
+                  </CardBody>
+                </Card>
+              </Link>
+            )
+          })}
         </div>
 
         {/* Recent Tasks */}
         <div className="col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Recent Activity</h2>
+            <Link to="/tasks" className="text-xs text-violet-400 hover:text-violet-300">All tasks →</Link>
           </div>
           {loading ? (
             <p className="text-slate-500 text-sm">Loading…</p>
@@ -448,13 +465,13 @@ export function DashboardPage() {
               <CardBody className="py-12 text-center">
                 <div className="text-3xl mb-3">✦</div>
                 <p className="text-white font-medium mb-2">Ready to orchestrate</p>
-                <p className="text-slate-400 text-sm mb-4">Configure a provider, create an agent, then start a project.</p>
+                <p className="text-slate-400 text-sm mb-4">Import a team bundle or create a team, then start a project.</p>
                 <div className="flex gap-3 justify-center">
-                  <Link to="/providers" className="bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-                    Add Provider
+                  <Link to="/teams" className="bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                    Go to Teams
                   </Link>
-                  <Link to="/agents" className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-                    Create Agent
+                  <Link to="/settings" className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+                    Settings
                   </Link>
                 </div>
               </CardBody>
@@ -462,7 +479,10 @@ export function DashboardPage() {
           ) : (
             <Card>
               <CardHeader>
-                <p className="text-sm font-medium text-slate-300">Task Activity</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-300">Task Activity</p>
+                  <Link to="/tasks" className="text-xs text-violet-400 hover:text-violet-300">View all →</Link>
+                </div>
               </CardHeader>
               <div className="divide-y divide-slate-800">
                 {recentTasks.map(t => (

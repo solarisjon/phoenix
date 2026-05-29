@@ -9,9 +9,9 @@ const titles: Record<string, string> = {
   '/': 'Dashboard',
   '/inbox': 'Inbox',
   '/projects': 'Projects',
-  '/agents': 'Agents',
+  '/tasks': 'Tasks',
   '/teams': 'Teams',
-  '/providers': 'Providers',
+  '/settings': 'Settings',
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {

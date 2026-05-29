@@ -133,6 +133,11 @@ export const api = {
     delete: (id: string) => request<void>(`/teams/${id}`, { method: 'DELETE' }),
     addAgent: (id: string, agentId: string) => request<void>(`/teams/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/teams/${id}/agents/${agentId}`, { method: 'DELETE' }),
+    exportUrl: (id: string) => `/api/teams/${id}/export`,
+    import: (bundle: unknown, apiKeys: Record<string, string>) =>
+      request<{ team_id: string; team_name: string; agent_ids: string[]; provider_ids: string[]; skipped: string[] }>(
+        '/import/team', { method: 'POST', body: JSON.stringify({ bundle, api_keys: apiKeys }) }
+      ),
   },
   projects: {
     list: () => request<Project[]>('/projects'),
@@ -147,6 +152,7 @@ export const api = {
   },
   tasks: {
     list: (projectId: string) => request<Task[]>(`/tasks?project_id=${projectId}`),
+    listAll: () => request<Task[]>('/tasks'),
     get: (id: string) => request<Task>(`/tasks/${id}`),
     create: (data: Partial<Task>) => request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
