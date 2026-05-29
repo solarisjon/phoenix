@@ -183,3 +183,76 @@ header.bg-slate-950\/50 { background-color: var(--ph-surface) !important; }
   transition-duration: 0.15s;
   transition-timing-function: ease;
 }
+
+/* ---- Markdown output rendering ---- */
+.markdown-output {
+  color: var(--ph-text);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.markdown-output h1 { font-size: 1.25rem; font-weight: 700; margin: 1rem 0 0.5rem; color: var(--ph-text); }
+.markdown-output h2 { font-size: 1.1rem;  font-weight: 700; margin: 0.875rem 0 0.4rem; color: var(--ph-text); }
+.markdown-output h3 { font-size: 1rem;    font-weight: 600; margin: 0.75rem 0 0.35rem; color: var(--ph-text); }
+.markdown-output h4, .markdown-output h5, .markdown-output h6 { font-weight: 600; margin: 0.5rem 0 0.25rem; }
+.markdown-output p  { margin: 0.5rem 0; }
+.markdown-output ul, .markdown-output ol { padding-left: 1.25rem; margin: 0.5rem 0; }
+.markdown-output ul { list-style-type: disc; }
+.markdown-output ol { list-style-type: decimal; }
+.markdown-output li { margin: 0.2rem 0; }
+.markdown-output li > ul, .markdown-output li > ol { margin: 0.1rem 0; }
+.markdown-output strong { font-weight: 700; color: var(--ph-text); }
+.markdown-output em { font-style: italic; }
+.markdown-output code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8em;
+  background: var(--ph-input);
+  border: 1px solid var(--ph-border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+}
+.markdown-output pre {
+  background: var(--ph-bg);
+  border: 1px solid var(--ph-border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.markdown-output pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8rem;
+}
+.markdown-output blockquote {
+  border-left: 3px solid var(--ph-border);
+  padding-left: 0.75rem;
+  color: var(--ph-muted);
+  margin: 0.5rem 0;
+}
+.markdown-output hr {
+  border: none;
+  border-top: 1px solid var(--ph-border);
+  margin: 0.75rem 0;
+}
+.markdown-output table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0;
+  font-size: 0.8rem;
+}
+.markdown-output th, .markdown-output td {
+  border: 1px solid var(--ph-border);
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.markdown-output th { background: var(--ph-input); font-weight: 600; }
+
+/* Compact variant — smaller spacing for thread previews */
+.markdown-output.markdown-compact { font-size: 0.8rem; line-height: 1.5; }
+.markdown-output.markdown-compact h1,
+.markdown-output.markdown-compact h2,
+.markdown-output.markdown-compact h3 { font-size: 0.875rem; margin: 0.4rem 0 0.2rem; }
+.markdown-output.markdown-compact p  { margin: 0.25rem 0; }
+.markdown-output.markdown-compact ul,
+.markdown-output.markdown-compact ol { margin: 0.25rem 0; }

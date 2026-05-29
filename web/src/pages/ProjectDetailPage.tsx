@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { ProjectAutonomousView } from '@/components/project/ProjectAutonomousView'
 import { ProjectHumanView } from '@/components/project/ProjectHumanView'
+import { MarkdownOutput } from '@/components/ui/markdown-output'
 
 function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose }: {
   projectId: string
@@ -611,9 +612,9 @@ function TaskDetailModal({ task, agents, onClose, onUpdate }: {
           </div>
         )}
         {output && output !== '{}' && (
-          <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-950 rounded-lg p-3 max-h-96 overflow-y-auto">
-            {output}
-          </pre>
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 max-h-96 overflow-y-auto">
+            <MarkdownOutput content={output} />
+          </div>
         )}
         {task.status === 'failed' && (
           <Button size="sm" variant="secondary" onClick={retry} disabled={retrying}>

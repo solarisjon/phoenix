@@ -37,7 +37,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         refreshInbox()
       }
     })
-    return unsub
+    // Periodic re-sync in case WS missed an event (dismissed tasks, reconnects)
+    const poll = setInterval(refreshInbox, 30_000)
+    return () => { unsub(); clearInterval(poll) }
   }, [refreshInbox])
 
   return (

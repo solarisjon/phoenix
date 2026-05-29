@@ -48,8 +48,8 @@ export function Sidebar({ inboxCount }: { inboxCount: number }) {
               {label}
             </span>
             {label === 'Inbox' && inboxCount > 0 && (
-              <span className="bg-violet-600 text-white text-xs font-medium px-1.5 py-0.5 rounded-full">
-                {inboxCount}
+              <span className="bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
+                {inboxCount > 99 ? '99+' : inboxCount}
               </span>
             )}
           </NavLink>

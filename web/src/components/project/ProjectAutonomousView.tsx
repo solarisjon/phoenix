@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import type { Task, Agent, Project } from '../../lib/api'
+import { MarkdownOutput } from '../ui/markdown-output'
 
 interface Props {
   project: Project
@@ -52,12 +53,23 @@ function nextHeartbeatCountdown(tasks: Task[], agent: Agent): string | null {
 }
 
 export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTaskClick, onNewTask }: Props) {
-  const [dismissingId, setDismissingId] = useState<string | null>(null)
-
   const heartbeatAgents = agents.filter(a => (a.heartbeat_interval ?? 0) > 0)
   const primaryAgent = heartbeatAgents[0]
   const agentNames = agents.map(a => a.name).join(', ')
-  const countdown = primaryAgent ? nextHeartbeatCountdown(tasks, primaryAgent) : null
+
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
+  const [countdown, setCountdown] = useState<string | null>(
+    primaryAgent ? nextHeartbeatCountdown(tasks, primaryAgent) : null
+  )
+
+  // Refresh countdown every 10s and auto-refresh data every 30s
+  useEffect(() => {
+    const tick = setInterval(() => {
+      setCountdown(primaryAgent ? nextHeartbeatCountdown(tasks, primaryAgent) : null)
+    }, 10_000)
+    const dataRefresh = setInterval(onUpdate, 30_000)
+    return () => { clearInterval(tick); clearInterval(dataRefresh) }
+  }, [primaryAgent, tasks, onUpdate])
 
   // Stats
   const isHeartbeat = (t: Task) => t.title.startsWith('Heartbeat')
@@ -192,7 +204,9 @@ export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTask
               </div>
               {lastSessionPreview ? (
                 <>
-                  <p className="text-sm text-stone-600 leading-relaxed line-clamp-4">{lastSessionPreview}</p>
+                  <div className="line-clamp-6 overflow-hidden">
+                    <MarkdownOutput content={lastSessionPreview} compact />
+                  </div>
                   <button
                     onClick={() => onTaskClick(lastSession)}
                     className="text-xs text-indigo-600 hover:text-indigo-800 mt-2 block"

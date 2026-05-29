@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api } from '../../lib/api'
 import type { Task, Agent } from '../../lib/api'
+import { MarkdownOutput } from '../ui/markdown-output'
 
 interface Props {
   task: Task
@@ -93,9 +94,7 @@ export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
       {/* Output preview */}
       {outputText && (
         <div className="mx-4 mb-3 bg-stone-50 border-l-2 border-stone-200 rounded-r-lg px-3 py-2">
-          <p className="text-xs text-stone-500 whitespace-pre-wrap leading-relaxed">
-            {expanded ? outputText : preview}
-          </p>
+          <MarkdownOutput content={expanded ? outputText : preview} compact />
           {hasMore && (
             <button
               onClick={() => setExpanded(e => !e)}

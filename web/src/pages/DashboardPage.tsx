@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
+import { MarkdownOutput } from '@/components/ui/markdown-output'
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
@@ -127,7 +128,9 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
       )}
       <div>
         <p className="text-slate-500 text-xs mb-1">Output</p>
-        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-950 rounded-lg p-3 max-h-64 overflow-y-auto">{output || '(no output yet)'}</pre>
+        <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 max-h-64 overflow-y-auto">
+          {output ? <MarkdownOutput content={output} /> : <span className="text-xs text-slate-500">(no output yet)</span>}
+        </div>
       </div>
       <div className="flex gap-2 justify-end">
         <Link to={`/projects/${task.project_id}`} onClick={onClose}>
