@@ -48,6 +48,57 @@ func (r *StatsRepo) TotalCost(ctx context.Context) (float64, error) {
 	return total, nil
 }
 
+func (r *StatsRepo) CostByDay(ctx context.Context, days int) ([]*store.DailyCost, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT date(created_at) AS day, COALESCE(SUM(cost_usd), 0)
+		FROM tasks
+		WHERE created_at >= date('now', ?)
+		  AND cost_usd > 0
+		GROUP BY day
+		ORDER BY day ASC`,
+		fmt.Sprintf("-%d days", days))
+	if err != nil {
+		return nil, fmt.Errorf("cost by day: %w", err)
+	}
+	defer rows.Close()
+	var out []*store.DailyCost
+	for rows.Next() {
+		var d store.DailyCost
+		if err := rows.Scan(&d.Date, &d.Cost); err != nil {
+			return nil, fmt.Errorf("scan daily cost: %w", err)
+		}
+		out = append(out, &d)
+	}
+	return out, rows.Err()
+}
+
+func (r *StatsRepo) TaskCountByStatus(ctx context.Context) ([]*store.TaskCountByStatus, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT status, COUNT(*) FROM tasks GROUP BY status ORDER BY COUNT(*) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("task count by status: %w", err)
+	}
+	defer rows.Close()
+	var out []*store.TaskCountByStatus
+	for rows.Next() {
+		var s store.TaskCountByStatus
+		if err := rows.Scan(&s.Status, &s.Count); err != nil {
+			return nil, fmt.Errorf("scan task status count: %w", err)
+		}
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
+func (r *StatsRepo) TotalTaskCount(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks`).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("total task count: %w", err)
+	}
+	return n, nil
+}
+
 func scanCostSummaries(rows interface {
 	Next() bool
 	Scan(...any) error

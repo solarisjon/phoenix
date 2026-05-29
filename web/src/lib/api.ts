@@ -70,10 +70,23 @@ export interface CostSummary {
   total_cost_usd: number
 }
 
+export interface DailyCost {
+  date: string
+  cost_usd: number
+}
+
+export interface TaskStatusCount {
+  status: string
+  count: number
+}
+
 export interface CostsResponse {
   total_cost_usd: number
+  total_tasks: number
   by_agent: CostSummary[]
   by_project: CostSummary[]
+  by_day: DailyCost[]
+  by_status: TaskStatusCount[]
 }
 
 const BASE = '/api'

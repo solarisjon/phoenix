@@ -77,9 +77,24 @@ type CostSummary struct {
 	Total float64 `json:"total_cost_usd"`
 }
 
+// DailyCost holds the total cost for a single calendar day.
+type DailyCost struct {
+	Date string  `json:"date"` // YYYY-MM-DD
+	Cost float64 `json:"cost_usd"`
+}
+
+// TaskCountByStatus holds task counts grouped by status.
+type TaskCountByStatus struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+}
+
 // StatsRepo provides aggregated cost queries.
 type StatsRepo interface {
 	CostByAgent(ctx context.Context) ([]*CostSummary, error)
 	CostByProject(ctx context.Context) ([]*CostSummary, error)
 	TotalCost(ctx context.Context) (float64, error)
+	CostByDay(ctx context.Context, days int) ([]*DailyCost, error)
+	TaskCountByStatus(ctx context.Context) ([]*TaskCountByStatus, error)
+	TotalTaskCount(ctx context.Context) (int, error)
 }

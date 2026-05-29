@@ -7,6 +7,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
+import {
+  AreaChart, Area, BarChart, Bar,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
+} from 'recharts'
 
 function StatCard({ label, value, sub, accent, onClick, href }: {
   label: string; value: string; sub?: string; accent?: string
@@ -137,6 +141,174 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
   )
 }
 
+// ---- Cost charts ----
+
+const STATUS_COLORS: Record<string, string> = {
+  completed: '#10b981',
+  failed: '#ef4444',
+  running: '#8b5cf6',
+  queued: '#6366f1',
+  awaiting_approval: '#f59e0b',
+  pending: '#64748b',
+}
+
+function CostCharts({ costs }: { costs: CostsResponse }) {
+  const hasSpend = costs.total_cost_usd > 0
+  const hasHistory = costs.by_day && costs.by_day.length > 0
+  const hasAgents = costs.by_agent.some(a => a.total_cost_usd > 0)
+  const hasProjects = costs.by_project.some(p => p.total_cost_usd > 0)
+
+  // Format agent/project bar data — top 6 non-zero
+  const agentData = costs.by_agent
+    .filter(a => a.total_cost_usd > 0)
+    .slice(0, 6)
+    .map(a => ({ name: a.name.split(' ').slice(0, 2).join(' '), cost: a.total_cost_usd }))
+
+  const projectData = costs.by_project
+    .filter(p => p.total_cost_usd > 0)
+    .slice(0, 6)
+    .map(p => ({ name: p.name.length > 18 ? p.name.slice(0, 16) + '…' : p.name, cost: p.total_cost_usd }))
+
+  // Day-over-day sparkline
+  const dayData = (costs.by_day ?? []).map(d => ({
+    date: d.date.slice(5), // MM-DD
+    cost: d.cost_usd,
+  }))
+
+  const tooltipStyle = {
+    backgroundColor: '#1e293b',
+    border: '1px solid #334155',
+    borderRadius: '6px',
+    color: '#e2e8f0',
+    fontSize: '12px',
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Cost & Activity</h2>
+        <span className="text-xs text-slate-500">{costs.total_tasks} total tasks</span>
+      </div>
+
+      {/* Task status breakdown */}
+      {costs.by_status && costs.by_status.length > 0 && (
+        <Card>
+          <CardBody className="py-3">
+            <p className="text-xs text-slate-500 mb-3">Task breakdown</p>
+            <div className="flex gap-3 flex-wrap">
+              {costs.by_status.map(s => (
+                <div key={s.status} className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_COLORS[s.status] ?? '#64748b' }} />
+                  <span className="text-xs text-slate-400 capitalize">{s.status.replace('_', ' ')}</span>
+                  <span className="text-xs text-white font-medium">{s.count}</span>
+                </div>
+              ))}
+            </div>
+            {/* Proportional bar */}
+            <div className="flex h-1.5 rounded-full overflow-hidden mt-3 gap-px">
+              {costs.by_status.map(s => {
+                const pct = (s.count / costs.total_tasks) * 100
+                return (
+                  <div
+                    key={s.status}
+                    style={{ width: `${pct}%`, backgroundColor: STATUS_COLORS[s.status] ?? '#64748b' }}
+                    title={`${s.status}: ${s.count}`}
+                  />
+                )
+              })}
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {!hasSpend ? (
+        <Card>
+          <CardBody className="py-6 text-center">
+            <p className="text-slate-500 text-sm">No LLM spend recorded yet.</p>
+            <p className="text-slate-600 text-xs mt-1">Cost data appears once tasks run against an LLM provider with cost-per-token configured.</p>
+          </CardBody>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          {/* Spend over time */}
+          {hasHistory && (
+            <Card className="col-span-3">
+              <CardBody>
+                <p className="text-xs text-slate-500 mb-3">Spend over time (last 30 days)</p>
+                <ResponsiveContainer width="100%" height={120}>
+                  <AreaChart data={dayData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false}
+                      tickFormatter={v => `$${v.toFixed(3)}`} width={52} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      formatter={(v: number) => [`$${v.toFixed(4)}`, 'Cost']}
+                    />
+                    <Area type="monotone" dataKey="cost" stroke="#8b5cf6" strokeWidth={2}
+                      fill="url(#costGrad)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* By agent */}
+          {hasAgents && (
+            <Card className={hasProjects ? 'col-span-2' : 'col-span-3'}>
+              <CardBody>
+                <p className="text-xs text-slate-500 mb-3">Cost by agent</p>
+                <ResponsiveContainer width="100%" height={agentData.length * 36 + 16}>
+                  <BarChart data={agentData} layout="vertical" margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false}
+                      tickFormatter={v => `$${v.toFixed(3)}`} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }}
+                      tickLine={false} axisLine={false} width={110} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`$${v.toFixed(4)}`, 'Cost']} />
+                    <Bar dataKey="cost" radius={[0, 4, 4, 0]}>
+                      {agentData.map((_, i) => (
+                        <Cell key={i} fill={['#8b5cf6','#6366f1','#7c3aed','#4f46e5','#a855f7','#818cf8'][i % 6]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardBody>
+            </Card>
+          )}
+
+          {/* By project */}
+          {hasProjects && (
+            <Card className={hasAgents ? 'col-span-1' : 'col-span-3'}>
+              <CardBody>
+                <p className="text-xs text-slate-500 mb-3">Cost by project</p>
+                <ResponsiveContainer width="100%" height={projectData.length * 36 + 16}>
+                  <BarChart data={projectData} layout="vertical" margin={{ top: 0, right: 8, left: 8, bottom: 0 }}>
+                    <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickLine={false} axisLine={false}
+                      tickFormatter={v => `$${v.toFixed(3)}`} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }}
+                      tickLine={false} axisLine={false} width={90} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [`$${v.toFixed(4)}`, 'Cost']} />
+                    <Bar dataKey="cost" radius={[0, 4, 4, 0]}>
+                      {projectData.map((_, i) => (
+                        <Cell key={i} fill={['#10b981','#06b6d4','#14b8a6','#22d3ee','#34d399','#67e8f9'][i % 6]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardBody>
+            </Card>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
@@ -205,7 +377,11 @@ export function DashboardPage() {
           accent={attentionCount > 0 ? 'text-amber-400' : undefined}
           href={attentionCount > 0 ? '/inbox' : undefined}
         />
-        <StatCard label="Total Cost" value={costs ? formatCost(costs.total_cost_usd) : '—'} />
+        <StatCard
+          label="Total Cost"
+          value={costs ? formatCost(costs.total_cost_usd) : '—'}
+          sub={costs && costs.total_tasks > 0 ? `across ${costs.total_tasks} tasks` : undefined}
+        />
       </div>
 
       {/* Running tasks panel */}
@@ -225,6 +401,9 @@ export function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Cost charts */}
+      {costs && <CostCharts costs={costs} />}
 
       <div className="grid grid-cols-3 gap-6">
         {/* Projects */}
