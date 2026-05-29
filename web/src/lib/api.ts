@@ -17,6 +17,7 @@ export interface Agent {
   guardrails: string
   provider_id: string
   model_override: string
+  can_spawn_agents: boolean
   heartbeat_interval: number | null
   status: 'active' | 'paused' | 'disabled'
   created_at: string
@@ -120,6 +121,7 @@ export const api = {
     dismiss: (id: string) => request<Task>(`/tasks/${id}/dismiss`, { method: 'POST', body: '{}' }),
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    listRunning: () => request<Task[]>('/tasks/running'),
   },
   inbox: {
     list: () => request<Task[]>('/inbox'),

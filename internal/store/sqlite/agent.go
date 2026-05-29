@@ -16,7 +16,7 @@ func NewAgentRepo(db *DB) *AgentRepo { return &AgentRepo{db} }
 func (r *AgentRepo) List(ctx context.Context) ([]*model.Agent, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails,
-		       provider_id, model_override, heartbeat_interval, created_by, status, created_at
+		       provider_id, model_override, can_spawn_agents, heartbeat_interval, created_by, status, created_at
 		FROM agents ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -28,18 +28,22 @@ func (r *AgentRepo) List(ctx context.Context) ([]*model.Agent, error) {
 func (r *AgentRepo) Get(ctx context.Context, id string) (*model.Agent, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails,
-		       provider_id, model_override, heartbeat_interval, created_by, status, created_at
+		       provider_id, model_override, can_spawn_agents, heartbeat_interval, created_by, status, created_at
 		FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
 }
 
 func (r *AgentRepo) Create(ctx context.Context, a *model.Agent) error {
+	canSpawn := 0
+	if a.CanSpawnAgents {
+		canSpawn = 1
+	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO agents
-		  (id, name, persona, instructions, guardrails, provider_id, model_override, heartbeat_interval, created_by, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, name, persona, instructions, guardrails, provider_id, model_override, can_spawn_agents, heartbeat_interval, created_by, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Name, a.Persona, a.Instructions, a.Guardrails,
-		a.ProviderID, a.ModelOverride, nullInt(a.HeartbeatInterval), a.CreatedBy, string(a.Status))
+		a.ProviderID, a.ModelOverride, canSpawn, nullInt(a.HeartbeatInterval), a.CreatedBy, string(a.Status))
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -47,13 +51,17 @@ func (r *AgentRepo) Create(ctx context.Context, a *model.Agent) error {
 }
 
 func (r *AgentRepo) Update(ctx context.Context, a *model.Agent) error {
+	canSpawn := 0
+	if a.CanSpawnAgents {
+		canSpawn = 1
+	}
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE agents SET
 		  name = ?, persona = ?, instructions = ?, guardrails = ?,
-		  provider_id = ?, model_override = ?, heartbeat_interval = ?, status = ?
+		  provider_id = ?, model_override = ?, can_spawn_agents = ?, heartbeat_interval = ?, status = ?
 		WHERE id = ?`,
 		a.Name, a.Persona, a.Instructions, a.Guardrails,
-		a.ProviderID, a.ModelOverride, nullInt(a.HeartbeatInterval), string(a.Status), a.ID)
+		a.ProviderID, a.ModelOverride, canSpawn, nullInt(a.HeartbeatInterval), string(a.Status), a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
@@ -72,8 +80,9 @@ func scanAgent(row *sql.Row) (*model.Agent, error) {
 	var a model.Agent
 	var status string
 	var hb sql.NullInt64
+	var canSpawn int
 	err := row.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails,
-		&a.ProviderID, &a.ModelOverride, &hb, &a.CreatedBy, &status, &a.CreatedAt)
+		&a.ProviderID, &a.ModelOverride, &canSpawn, &hb, &a.CreatedBy, &status, &a.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -81,6 +90,7 @@ func scanAgent(row *sql.Row) (*model.Agent, error) {
 		return nil, fmt.Errorf("scan agent: %w", err)
 	}
 	a.Status = model.AgentStatus(status)
+	a.CanSpawnAgents = canSpawn != 0
 	if hb.Valid {
 		v := int(hb.Int64)
 		a.HeartbeatInterval = &v
@@ -94,11 +104,13 @@ func scanAgents(rows *sql.Rows) ([]*model.Agent, error) {
 		var a model.Agent
 		var status string
 		var hb sql.NullInt64
+		var canSpawn int
 		if err := rows.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails,
-			&a.ProviderID, &a.ModelOverride, &hb, &a.CreatedBy, &status, &a.CreatedAt); err != nil {
+			&a.ProviderID, &a.ModelOverride, &canSpawn, &hb, &a.CreatedBy, &status, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan agent row: %w", err)
 		}
 		a.Status = model.AgentStatus(status)
+		a.CanSpawnAgents = canSpawn != 0
 		if hb.Valid {
 			v := int(hb.Int64)
 			a.HeartbeatInterval = &v

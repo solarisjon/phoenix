@@ -7,8 +7,18 @@
   - [FIXED] AI generate button on agent form — POST /api/agents/generate returns persona/instructions/guardrails from a description
   - [FIXED] dismiss tasks from inbox — POST /api/tasks/:id/dismiss hides from inbox without deleting
   - [FIXED] edit tasks from inbox — title + description editable on non-running tasks
-  - [TODO]  model picker dropdown — list available models per adapter kind (needs per-adapter list-models impl)
-  - NEEDS ATTENTION on dashboard should take you to the tasks needing attention ie the inbox
+  - [FIXED] Needs Attention stat card links to /inbox
+  - [FIXED] Tasks Running stat card opens live running-tasks panel (card grid with streamed output)
+  - [FIXED] Agent can_spawn_agents flag (off by default) — spawn endpoint + system prompt injection
+  - [TODO]  model picker dropdown — list available models per adapter kind
+  - [TODO]  project creation: allow specifying a working directory / folder for the project
+  - [TODO]  README — professional project documentation
+  - [TODO]  database backup/restore — export and reimport the SQLite DB
+  - [TODO]  import/export agents and teams — share agent configs between instances
+  - [TODO]  UI theming
+  - [TODO]  agent teams — group agents into a named team, assign team to project
+  - [TODO]  heartbeat scheduling — honour agent heartbeat_interval to trigger periodic tasks
+  - [TODO]  project deletion (currently only archive is supported)
 
 
 

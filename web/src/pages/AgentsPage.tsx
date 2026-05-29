@@ -76,6 +76,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [guardrails, setGuardrails] = useState(initial?.guardrails ?? '')
   const [providerID, setProviderID] = useState(initial?.provider_id ?? providers[0]?.id ?? '')
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
+  const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -89,7 +90,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, status }
+      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -146,6 +147,26 @@ function AgentForm({ initial, providers, onSave, onClose }: {
                 ? 'e.g. claude-sonnet-4-5  or  llm-proxy/claude-opus-4'
                 : 'e.g. gpt-4o  or  claude-opus-4-5  (blank = provider default)'
             } />
+        </div>
+
+        {/* Spawn agents toggle */}
+        <div className="border-t border-slate-800 pt-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={canSpawnAgents}
+              onChange={e => setCanSpawnAgents(e.target.checked)}
+              className="mt-0.5 rounded"
+            />
+            <div>
+              <p className="text-sm text-slate-200 font-medium">Allow agent to spawn tasks for other agents</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                When enabled, this agent's system prompt includes instructions to call
+                <code className="bg-slate-800 px-1 rounded mx-1 text-slate-400">POST /api/agents/spawn</code>
+                to delegate work. Off by default.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Persona / Instructions / Guardrails with generate button */}

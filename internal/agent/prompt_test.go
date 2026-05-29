@@ -13,7 +13,8 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 		Instructions: "Always be concise.",
 		Guardrails:   "Never fabricate data.",
 	}
-	prompt := assembleSystemPrompt(a)
+	task := &model.Task{ID: "t1", ProjectID: "p1"}
+	prompt := assembleSystemPrompt(a, task)
 
 	for _, want := range []string{"## Persona", "You are an expert.", "## Instructions", "Always be concise.", "## Guardrails", "Never fabricate data."} {
 		if !strings.Contains(prompt, want) {
@@ -24,7 +25,8 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 
 func TestAssembleSystemPrompt_EmptyFields(t *testing.T) {
 	a := &model.Agent{Persona: "Only persona"}
-	prompt := assembleSystemPrompt(a)
+	task := &model.Task{ID: "t1", ProjectID: "p1"}
+	prompt := assembleSystemPrompt(a, task)
 	if strings.Contains(prompt, "## Instructions") {
 		t.Error("should not include Instructions section when empty")
 	}

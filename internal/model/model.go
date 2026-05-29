@@ -75,7 +75,8 @@ type Agent struct {
 	Instructions      string      `json:"instructions"`
 	Guardrails        string      `json:"guardrails"`
 	ProviderID        string      `json:"provider_id"`
-	ModelOverride     string      `json:"model_override"`    // if set, overrides the provider's default model
+	ModelOverride     string      `json:"model_override"`     // if set, overrides the provider's default model
+	CanSpawnAgents    bool        `json:"can_spawn_agents"`   // if true, agent may create tasks for other agents
 	HeartbeatInterval *int        `json:"heartbeat_interval"` // seconds, nil = manual only
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`

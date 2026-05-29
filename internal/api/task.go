@@ -32,6 +32,23 @@ func (r createTaskRequest) validate() string {
 	return ""
 }
 
+// listRunningTasks returns all tasks currently running or queued, across all projects.
+func (s *Server) listRunningTasks(w http.ResponseWriter, r *http.Request) {
+	statuses := []model.TaskStatus{
+		model.TaskStatusRunning,
+		model.TaskStatusQueued,
+	}
+	list, err := s.tasks.ListByStatuses(r.Context(), statuses)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if list == nil {
+		list = []*model.Task{}
+	}
+	respond(w, http.StatusOK, list)
+}
+
 // listAttentionTasks returns all tasks needing human attention:
 // failed and awaiting_approval, across all projects, newest first.
 func (s *Server) listAttentionTasks(w http.ResponseWriter, r *http.Request) {

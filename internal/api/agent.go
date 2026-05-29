@@ -21,6 +21,7 @@ type createAgentRequest struct {
 	Guardrails        string `json:"guardrails"`
 	ProviderID        string `json:"provider_id"`
 	ModelOverride     string `json:"model_override"`
+	CanSpawnAgents    bool   `json:"can_spawn_agents"`
 	HeartbeatInterval *int   `json:"heartbeat_interval"`
 	Status            string `json:"status"`
 }
@@ -107,6 +108,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		Guardrails:        req.Guardrails,
 		ProviderID:        req.ProviderID,
 		ModelOverride:     req.ModelOverride,
+		CanSpawnAgents:    req.CanSpawnAgents,
 		HeartbeatInterval: req.HeartbeatInterval,
 		CreatedBy:         user.ID,
 		Status:            status,
@@ -159,6 +161,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.Guardrails = req.Guardrails
 	existing.ProviderID = req.ProviderID
 	existing.ModelOverride = req.ModelOverride
+	existing.CanSpawnAgents = req.CanSpawnAgents
 	existing.HeartbeatInterval = req.HeartbeatInterval
 	if req.Status != "" {
 		existing.Status = model.AgentStatus(req.Status)
@@ -254,6 +257,81 @@ Agent description: %s`, req.Description)
 		return
 	}
 	respond(w, http.StatusOK, result)
+}
+
+// spawnTask allows an agent (identified by source_agent_id) to create a task
+// for another agent. The source agent must have can_spawn_agents=true.
+// This is the programmatic hook; agents call this via their system prompt instructions.
+func (s *Server) spawnTask(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SourceAgentID string `json:"source_agent_id"`
+		TargetAgentID string `json:"target_agent_id"`
+		ProjectID     string `json:"project_id"`
+		Title         string `json:"title"`
+		Description   string `json:"description"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.SourceAgentID) == "" {
+		respondErr(w, http.StatusBadRequest, "source_agent_id is required")
+		return
+	}
+	if strings.TrimSpace(req.TargetAgentID) == "" {
+		respondErr(w, http.StatusBadRequest, "target_agent_id is required")
+		return
+	}
+	if strings.TrimSpace(req.ProjectID) == "" {
+		respondErr(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		respondErr(w, http.StatusBadRequest, "title is required")
+		return
+	}
+
+	// Verify source agent exists and has spawn permission.
+	src, err := s.agents.Get(r.Context(), req.SourceAgentID)
+	if err != nil || src == nil {
+		respondErr(w, http.StatusBadRequest, "source agent not found")
+		return
+	}
+	if !src.CanSpawnAgents {
+		respondErr(w, http.StatusForbidden, "source agent is not permitted to spawn tasks")
+		return
+	}
+
+	// Verify target agent exists.
+	tgt, err := s.agents.Get(r.Context(), req.TargetAgentID)
+	if err != nil || tgt == nil {
+		respondErr(w, http.StatusBadRequest, "target agent not found")
+		return
+	}
+
+	t := &model.Task{
+		ID:          uuid.New().String(),
+		ProjectID:   req.ProjectID,
+		AgentID:     req.TargetAgentID,
+		Title:       strings.TrimSpace(req.Title),
+		Description: fmt.Sprintf("[Spawned by agent: %s]\n\n%s", src.Name, req.Description),
+		Status:      model.TaskStatusPending,
+		Input:       "{}",
+		Output:      "{}",
+		CreatedAt:   time.Now(),
+	}
+	if err := s.tasks.Create(r.Context(), t); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if err := s.runner.RunTask(r.Context(), t.ID); err != nil {
+		respond(w, http.StatusCreated, t)
+		return
+	}
+	updated, _ := s.tasks.Get(r.Context(), t.ID)
+	if updated != nil {
+		t = updated
+	}
+	respond(w, http.StatusCreated, t)
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {

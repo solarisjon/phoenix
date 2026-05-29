@@ -84,6 +84,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/agents", s.listAgents)
 		r.Post("/agents", s.createAgent)
 		r.Post("/agents/generate", s.generateAgent)
+		r.Post("/agents/spawn", s.spawnTask)
 		r.Get("/agents/{id}", s.getAgent)
 		r.Put("/agents/{id}", s.updateAgent)
 		r.Delete("/agents/{id}", s.deleteAgent)
@@ -101,6 +102,7 @@ func (s *Server) buildRouter() http.Handler {
 		// Tasks
 		r.Get("/tasks", s.listTasks)
 		r.Post("/tasks", s.createTask)
+		r.Get("/tasks/running", s.listRunningTasks)
 		r.Get("/tasks/attention", s.listAttentionTasks)
 		r.Get("/tasks/{id}", s.getTask)
 		r.Put("/tasks/{id}", s.updateTask)

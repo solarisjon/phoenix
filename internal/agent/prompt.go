@@ -14,15 +14,15 @@ import (
 // Prior conversation turns from the task input are included as context.
 func AssembleRequest(a *model.Agent, t *model.Task) provider.TaskRequest {
 	return provider.TaskRequest{
-		SystemPrompt: assembleSystemPrompt(a),
+		SystemPrompt: assembleSystemPrompt(a, t),
 		Prompt:       assembleUserPrompt(t),
 		Context:      nil, // Phase 1: single-turn. Multi-turn added in later phases.
 	}
 }
 
-// assembleSystemPrompt combines persona, instructions, and guardrails into a
-// single system prompt string.
-func assembleSystemPrompt(a *model.Agent) string {
+// assembleSystemPrompt combines persona, instructions, guardrails, and optional
+// spawn-agent instructions into a single system prompt string.
+func assembleSystemPrompt(a *model.Agent, t *model.Task) string {
 	var b strings.Builder
 
 	if a.Persona != "" {
@@ -40,6 +40,24 @@ func assembleSystemPrompt(a *model.Agent) string {
 	if a.Guardrails != "" {
 		b.WriteString("## Guardrails\n")
 		b.WriteString(a.Guardrails)
+		b.WriteString("\n\n")
+	}
+
+	if a.CanSpawnAgents {
+		b.WriteString("## Agent Spawning\n")
+		b.WriteString(fmt.Sprintf(`You are permitted to delegate work to other agents by calling the Phoenix API.`+"\n"+
+			`To spawn a task for another agent, make an HTTP POST to http://localhost:8080/api/agents/spawn with JSON body:`+"\n\n"+
+			"```json\n"+
+			"{\n"+
+			`  "source_agent_id": "%s",`+"\n"+
+			`  "target_agent_id": "<agent-id>",`+"\n"+
+			`  "project_id": "%s",`+"\n"+
+			`  "title": "<task title>",`+"\n"+
+			`  "description": "<detailed instructions for the target agent>"`+"\n"+
+			"}\n"+
+			"```\n"+
+			`The API returns the created task. Only spawn tasks when explicitly needed to complete your work.`,
+			a.ID, t.ProjectID))
 		b.WriteString("\n")
 	}
 

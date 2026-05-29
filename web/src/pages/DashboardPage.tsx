@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, type Project, type Task, type CostsResponse, type Agent } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
@@ -8,13 +8,63 @@ import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 
-function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+function StatCard({ label, value, sub, accent, onClick, href }: {
+  label: string; value: string; sub?: string; accent?: string
+  onClick?: () => void; href?: string
+}) {
+  const inner = (
+    <CardBody className="py-5">
+      <p className="text-slate-400 text-xs uppercase tracking-wide mb-1">{label}</p>
+      <p className={`text-3xl font-bold ${accent ?? 'text-white'}`}>{value}</p>
+      {sub && <p className={`text-xs mt-1 ${onClick || href ? 'text-violet-400' : 'text-slate-500'}`}>{sub}</p>}
+    </CardBody>
+  )
+  if (href) return <Link to={href}><Card className="hover:border-slate-600 transition-colors cursor-pointer">{inner}</Card></Link>
+  if (onClick) return <button className="w-full text-left" onClick={onClick}><Card className="hover:border-slate-600 transition-colors cursor-pointer">{inner}</Card></button>
+  return <Card>{inner}</Card>
+}
+
+// Running task card — shows live streamed content
+function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent[]; projects: Project[] }) {
+  const [stream, setStream] = useState('')
+  const agent = agents.find(a => a.id === task.agent_id)
+  const project = projects.find(p => p.id === task.project_id)
+
+  useEffect(() => {
+    const unsub = phoenixWS.on((ev) => {
+      if (ev.type === 'task.output_stream') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) setStream(prev => prev + p.chunk)
+      }
+    })
+    return unsub
+  }, [task.id])
+
+  const preview = stream || parseOutput(task.output)
+
   return (
-    <Card>
-      <CardBody className="py-5">
-        <p className="text-slate-400 text-xs uppercase tracking-wide mb-1">{label}</p>
-        <p className={`text-3xl font-bold ${accent ?? 'text-white'}`}>{value}</p>
-        {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
+    <Card className="border-violet-900/40">
+      <CardBody className="py-3 px-4">
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse flex-shrink-0" />
+              <p className="text-sm font-medium text-white truncate">{task.title}</p>
+            </div>
+            <p className="text-xs text-slate-500">
+              {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline">{project.name}</Link> : ''}
+              {project && agent ? ' · ' : ''}
+              {agent?.name ?? ''}
+            </p>
+          </div>
+          <Badge variant="info">{task.status}</Badge>
+        </div>
+        {preview && (
+          <pre className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-20 overflow-hidden whitespace-pre-wrap line-clamp-4">
+            {preview}
+          </pre>
+        )}
+        <p className="text-xs text-slate-600 mt-1.5">{timeAgo(task.created_at)}</p>
       </CardBody>
     </Card>
   )
@@ -88,13 +138,16 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
 }
 
 export function DashboardPage() {
+  const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [recentTasks, setRecentTasks] = useState<Task[]>([])
+  const [runningTasks, setRunningTasks] = useState<Task[]>([])
   const [attentionCount, setAttentionCount] = useState(0)
   const [costs, setCosts] = useState<CostsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [showRunning, setShowRunning] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -102,9 +155,9 @@ export function DashboardPage() {
       setProjects(projs)
       setAgents(agts)
 
-      // Load recent tasks across all projects + attention count in parallel
-      const [taskLists, attention, c] = await Promise.all([
+      const [taskLists, running, attention, c] = await Promise.all([
         Promise.all(projs.map(p => api.tasks.list(p.id).catch(() => [] as Task[]))),
+        api.tasks.listRunning().catch(() => [] as Task[]),
         api.inbox.listAttention().catch(() => [] as Task[]),
         api.stats.costs().catch(() => null),
       ])
@@ -113,6 +166,7 @@ export function DashboardPage() {
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       ).slice(0, 15)
       setRecentTasks(all)
+      setRunningTasks(running)
       setAttentionCount(attention.length)
       setCosts(c)
     } finally { setLoading(false) }
@@ -126,7 +180,7 @@ export function DashboardPage() {
     return unsub
   }, [load])
 
-  const runningCount = recentTasks.filter(t => t.status === 'running' || t.status === 'queued').length
+  const runningCount = runningTasks.length
 
   return (
     <div className="space-y-6">
@@ -138,15 +192,39 @@ export function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Active Projects" value={String(projects.filter(p => p.status === 'active').length)} />
-        <StatCard label="Tasks Running" value={String(runningCount)} />
+        <StatCard
+          label="Tasks Running"
+          value={String(runningCount)}
+          sub={runningCount > 0 ? 'View live →' : undefined}
+          onClick={runningCount > 0 ? () => setShowRunning(true) : undefined}
+        />
         <StatCard
           label="Needs Attention"
           value={String(attentionCount)}
-          sub={attentionCount > 0 ? 'Check inbox' : undefined}
+          sub={attentionCount > 0 ? 'Go to inbox →' : undefined}
           accent={attentionCount > 0 ? 'text-amber-400' : undefined}
+          href={attentionCount > 0 ? '/inbox' : undefined}
         />
         <StatCard label="Total Cost" value={costs ? formatCost(costs.total_cost_usd) : '—'} />
       </div>
+
+      {/* Running tasks panel */}
+      {showRunning && runningTasks.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
+              Live Tasks ({runningTasks.length})
+            </h2>
+            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={() => setShowRunning(false)}>Hide ✕</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {runningTasks.map(t => (
+              <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-6">
         {/* Projects */}
@@ -183,11 +261,6 @@ export function DashboardPage() {
         <div className="col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Recent Activity</h2>
-            {attentionCount > 0 && (
-              <Link to="/inbox" className="text-xs text-amber-400 hover:text-amber-300">
-                {attentionCount} need{attentionCount === 1 ? 's' : ''} attention →
-              </Link>
-            )}
           </div>
           {loading ? (
             <p className="text-slate-500 text-sm">Loading…</p>
