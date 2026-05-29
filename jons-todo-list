@@ -18,7 +18,7 @@
   - [FIXED] README — 372-line professional README with full setup, API reference, architecture
   - [FIXED] Agent teams — teams + team_agents tables, CRUD UI, assign whole team to project in one click
   - [FIXED] cost graphs — area chart (spend over time), bar charts (by agent, by project), task status breakdown bar
-  - [TODO]  import/export agents and teams — share agent configs as JSON
+  - [FIXED] import/export teams — team bundle JSON (agents+providers template, no secrets); import wizard with provider key entry; export button on team detail page
   - [TODO]  database backup endpoint — GET /api/admin/backup streams the SQLite file
   - [FIXED] UI theming — 5 themes (Dark, Midnight, Forest, Ember, Light), live switcher in sidebar footer, persisted to localStorage
   - [TODO]  model picker dropdown — list available models per adapter kind
