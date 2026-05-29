@@ -44,7 +44,7 @@ func testServer(t *testing.T) *Server {
 	runner := agent.New(agentRepo, taskRepo, projRepo, reg, nil)
 	t.Cleanup(runner.Shutdown)
 
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, runner, reg)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, runner, reg, nil)
 }
 
 type mockProv struct{}

@@ -11,6 +11,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
+	"github.com/solarisjon/phoenix/internal/store/sqlite"
 )
 
 // Server holds all dependencies and exposes the HTTP handler.
@@ -26,6 +27,7 @@ type Server struct {
 	registry  *registry.Registry
 	hub       *Hub
 	router    http.Handler
+	admin     *sqlite.AdminRepo
 }
 
 // New creates a Server and registers all routes.
@@ -39,6 +41,7 @@ func New(
 	teams store.TeamRepo,
 	runner *agent.Runner,
 	reg *registry.Registry,
+	admin *sqlite.AdminRepo,
 ) *Server {
 	s := &Server{
 		providers: providers,
@@ -51,6 +54,7 @@ func New(
 		runner:    runner,
 		registry:  reg,
 		hub:       NewHub(),
+		admin:     admin,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -136,6 +140,9 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Stats
 		r.Get("/stats/costs", s.getCosts)
+
+		// Admin
+		r.Get("/admin/backup", s.backupDB)
 
 		// WebSocket
 		r.Get("/ws", s.handleWS)

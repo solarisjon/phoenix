@@ -18,6 +18,7 @@ var migrationsFS embed.FS
 // DB wraps a *sql.DB with Phoenix-specific helpers.
 type DB struct {
 	*sql.DB
+	Path string // filesystem path to the SQLite file
 }
 
 // Open opens (or creates) the SQLite database at the given path and
@@ -36,7 +37,7 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 
-	wrapped := &DB{db}
+	wrapped := &DB{DB: db, Path: path}
 	if err := wrapped.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
