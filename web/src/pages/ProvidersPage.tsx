@@ -36,6 +36,7 @@ interface CodingAgentConfig {
   thinking: string       // pi only
   tools: string          // pi only
   no_session: boolean    // pi only
+  yolo: boolean          // crush only
   max_budget_usd: number // claudecode only
   extra_args: string[]
 }
@@ -102,6 +103,7 @@ function CodingAgentFields({ cfg, onChange }: {
     opencode: 'opencode  or  /opt/homebrew/bin/opencode',
     pi: 'pi  or  /opt/homebrew/bin/pi',
     claudecode: 'claude  or  /opt/homebrew/bin/claude',
+    crush: 'crush  or  /opt/homebrew/bin/crush',
   }
 
   return (
@@ -113,6 +115,7 @@ function CodingAgentFields({ cfg, onChange }: {
           <option value="opencode">opencode</option>
           <option value="pi">pi</option>
           <option value="claudecode">Claude Code (claude)</option>
+          <option value="crush">Crush</option>
         </Select>
       </div>
 
@@ -138,6 +141,7 @@ function CodingAgentFields({ cfg, onChange }: {
           placeholder={
             cfg.kind === 'opencode' ? 'llm-proxy/claude-sonnet-4.6' :
             cfg.kind === 'pi'       ? 'llm-proxy/claude-sonnet-4.6  or  sonnet' :
+            cfg.kind === 'crush'    ? 'anthropic/claude-sonnet-4-5  or  sonnet' :
                                       'claude-opus-4-5  or  sonnet'
           } />
         <p className="text-xs text-slate-600 mt-1">Leave blank to use the agent's default model</p>
@@ -178,6 +182,21 @@ function CodingAgentFields({ cfg, onChange }: {
               className="rounded" />
             No session (ephemeral — recommended for Phoenix-managed tasks)
           </label>
+        </div>
+      )}
+
+      {/* crush-specific */}
+      {cfg.kind === 'crush' && (
+        <div>
+          <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+            <input type="checkbox" checked={!!cfg.yolo} onChange={setBool('yolo') as any}
+              className="rounded" />
+            Yolo mode — auto-approve all tool use (equivalent to --yolo)
+          </label>
+          <p className="text-xs text-slate-600 mt-1">
+            System prompt is delivered via AGENTS.md in the working directory.
+            Crush picks this up automatically at startup.
+          </p>
         </div>
       )}
 
@@ -222,6 +241,7 @@ const defaultCoding: CodingAgentConfig = {
   thinking: '',
   tools: '',
   no_session: true,
+  yolo: false,
   max_budget_usd: 0,
   extra_args: [],
 }
