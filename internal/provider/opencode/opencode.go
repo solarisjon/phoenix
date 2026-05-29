@@ -117,6 +117,9 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 
 	ch := make(chan provider.StreamChunk, 64)
 
+	// Send PID as the first chunk so the runner can record it for crash recovery.
+	pid := cmd.Process.Pid
+
 	go func() {
 		defer close(ch)
 		defer func() {
@@ -129,6 +132,8 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 			}
 		}()
 
+		// First chunk carries the PID; no content.
+		ch <- provider.StreamChunk{PID: pid}
 		a.parseStream(ctx, stdout, ch)
 	}()
 

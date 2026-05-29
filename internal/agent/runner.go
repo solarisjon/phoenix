@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,10 @@ type StreamEvent struct {
 // EventHandler is called with each StreamEvent during task execution.
 // Implementations must be non-blocking (e.g. send to a buffered channel).
 type EventHandler func(StreamEvent)
+
+// DefaultTaskTimeout is the maximum time a single task may run before
+// being forcibly cancelled and marked failed.
+const DefaultTaskTimeout = 30 * time.Minute
 
 // Runner manages agent task execution. Each task runs in its own goroutine.
 // All active goroutines are tracked so they can be cancelled on shutdown.
@@ -96,7 +101,7 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	taskCtx, cancel := context.WithCancel(r.bgCtx)
+	taskCtx, cancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
 	r.mu.Lock()
 	r.cancels[taskID] = cancel
 	r.mu.Unlock()
@@ -131,7 +136,7 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	taskCtx, cancel := context.WithCancel(r.bgCtx)
+	taskCtx, cancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
 	r.mu.Lock()
 	r.cancels[taskID] = cancel
 	r.mu.Unlock()
@@ -207,6 +212,8 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	// Transition to Running.
 	now := time.Now()
 	task.StartedAt = &now
+	timeoutAt := now.Add(DefaultTaskTimeout)
+	task.TimeoutAt = &timeoutAt
 	if err := r.setStatus(ctx, task, model.TaskStatusRunning, nil); err != nil {
 		log.Printf("runner: set running status: %v", err)
 		return
@@ -231,6 +238,14 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 			r.failTask(ctx, task, chunk.Error)
 			return
 		}
+		// Capture subprocess PID on the first chunk and persist it so
+		// we can kill the process if Phoenix restarts mid-task.
+		if chunk.PID != 0 && task.RunnerPID == 0 {
+			task.RunnerPID = chunk.PID
+			if updateErr := r.tasks.Update(ctx, task); updateErr != nil {
+				log.Printf("runner: persist pid: %v", updateErr)
+			}
+		}
 		if chunk.Content != "" {
 			outputBuilder = append(outputBuilder, chunk.Content)
 			r.emit(StreamEvent{
@@ -245,6 +260,13 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	fullOutput := ""
 	for _, s := range outputBuilder {
 		fullOutput += s
+	}
+
+	// Treat empty output as a failure — the provider ran but produced nothing.
+	// This catches hung/stalled subprocess runs that exit cleanly but silently.
+	if strings.TrimSpace(fullOutput) == "" {
+		r.failTask(ctx, task, fmt.Errorf("provider returned empty output (0 tokens) — the model may have timed out, hit a token limit, or failed silently; retry to try again"))
+		return
 	}
 
 	// Use EstimateCost as a proxy for cost calculation since we can't
@@ -275,6 +297,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	task.Output = string(outputJSON)
 	task.CostUSD = totalCost
 	task.CompletedAt = &completedAt
+	task.RunnerPID = 0 // subprocess is done
 
 	finalStatus := model.TaskStatusCompleted
 	if err := r.setStatus(ctx, task, finalStatus, nil); err != nil {
@@ -295,6 +318,7 @@ func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
 
 	errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
 	task.Output = string(errJSON)
+	task.RunnerPID = 0 // subprocess is done or killed
 
 	completedAt := time.Now()
 	task.CompletedAt = &completedAt

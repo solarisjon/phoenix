@@ -123,6 +123,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 	}
 
 	ch := make(chan provider.StreamChunk, 64)
+	pid := cmd.Process.Pid
 
 	go func() {
 		defer close(ch)
@@ -132,6 +133,8 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 				log.Printf("pi: process exited: %v", err)
 			}
 		}()
+		// First chunk carries the PID; no content.
+		ch <- provider.StreamChunk{PID: pid}
 		a.parseStream(ctx, stdout, ch)
 	}()
 

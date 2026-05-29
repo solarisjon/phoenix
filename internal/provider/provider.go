@@ -41,6 +41,7 @@ type StreamChunk struct {
 	Content string // Partial text content.
 	Done    bool   // True on the final chunk.
 	Error   error  // Non-nil if the stream encountered an error.
+	PID     int    // OS process ID of the subprocess (sent once, on stream start). 0 if not applicable.
 }
 
 // CostEstimate is a best-effort cost prediction before execution.

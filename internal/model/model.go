@@ -113,6 +113,8 @@ type Task struct {
 	Output       string     `json:"output"`       // JSON blob
 	CostUSD      float64    `json:"cost_usd"`
 	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
+	RunnerPID    int        `json:"runner_pid"`   // OS PID of the subprocess, 0 if not running
+	TimeoutAt    *time.Time `json:"timeout_at"`   // when the task will be force-killed
 	CreatedAt    time.Time  `json:"created_at"`
 	StartedAt    *time.Time `json:"started_at"`
 	CompletedAt  *time.Time `json:"completed_at"`

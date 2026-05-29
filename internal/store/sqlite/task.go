@@ -14,11 +14,14 @@ type TaskRepo struct{ db *DB }
 
 func NewTaskRepo(db *DB) *TaskRepo { return &TaskRepo{db} }
 
+const taskSelectCols = ` id, project_id, agent_id, parent_task_id, title, description,
+	status, input, output, cost_usd, dismissed,
+	runner_pid, timeout_at,
+	created_at, started_at, completed_at `
+
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, project_id, agent_id, parent_task_id, title, description,
-		       status, input, output, cost_usd, dismissed, created_at, started_at, completed_at
-		FROM tasks WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE project_id = ? ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -27,10 +30,8 @@ func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, e
 }
 
 func (r *TaskRepo) ListAll(ctx context.Context) ([]*model.Task, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, project_id, agent_id, parent_task_id, title, description,
-		       status, input, output, cost_usd, dismissed, created_at, started_at, completed_at
-		FROM tasks WHERE dismissed = 0 ORDER BY created_at DESC`)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE dismissed = 0 ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list all tasks: %w", err)
 	}
@@ -49,9 +50,8 @@ func (r *TaskRepo) ListByStatuses(ctx context.Context, statuses []model.TaskStat
 		args[i] = string(s)
 	}
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, project_id, agent_id, parent_task_id, title, description,
-		        status, input, output, cost_usd, dismissed, created_at, started_at, completed_at
-		 FROM tasks WHERE status IN (`+placeholders+`) AND dismissed = 0 ORDER BY created_at DESC`, args...)
+		`SELECT`+taskSelectCols+`FROM tasks WHERE status IN (`+placeholders+`) AND dismissed = 0 ORDER BY created_at DESC`,
+		args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks by statuses: %w", err)
 	}
@@ -60,10 +60,9 @@ func (r *TaskRepo) ListByStatuses(ctx context.Context, statuses []model.TaskStat
 }
 
 func (r *TaskRepo) ListByStatus(ctx context.Context, status model.TaskStatus) ([]*model.Task, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, project_id, agent_id, parent_task_id, title, description,
-		       status, input, output, cost_usd, dismissed, created_at, started_at, completed_at
-		FROM tasks WHERE status = ? AND dismissed = 0 ORDER BY created_at ASC`, string(status))
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE status = ? AND dismissed = 0 ORDER BY created_at ASC`,
+		string(status))
 	if err != nil {
 		return nil, fmt.Errorf("list tasks by status: %w", err)
 	}
@@ -72,10 +71,8 @@ func (r *TaskRepo) ListByStatus(ctx context.Context, status model.TaskStatus) ([
 }
 
 func (r *TaskRepo) Get(ctx context.Context, id string) (*model.Task, error) {
-	row := r.db.QueryRowContext(ctx, `
-		SELECT id, project_id, agent_id, parent_task_id, title, description,
-		       status, input, output, cost_usd, dismissed, created_at, started_at, completed_at
-		FROM tasks WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE id = ?`, id)
 	return scanTask(row)
 }
 
@@ -100,9 +97,11 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE tasks SET
 		  status = ?, output = ?, cost_usd = ?, dismissed = ?,
+		  runner_pid = ?, timeout_at = ?,
 		  started_at = ?, completed_at = ?
 		WHERE id = ?`,
 		string(t.Status), t.Output, t.CostUSD, dismissed,
+		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
@@ -118,19 +117,23 @@ func (r *TaskRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ---- Scanning helpers ----
+
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
 	var status string
 	var parentID sql.NullString
-	var startedAt, completedAt sql.NullTime
 	var dismissed int
+	var runnerPID sql.NullInt64
+	var timeoutAt, startedAt, completedAt sql.NullTime
+
 	err := row.Scan(
 		&t.ID, &t.ProjectID, &t.AgentID, &parentID,
 		&t.Title, &t.Description, &status,
 		&t.Input, &t.Output, &t.CostUSD, &dismissed,
+		&runnerPID, &timeoutAt,
 		&t.CreatedAt, &startedAt, &completedAt,
 	)
-	t.Dismissed = dismissed != 0
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -138,8 +141,15 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		return nil, fmt.Errorf("scan task: %w", err)
 	}
 	t.Status = model.TaskStatus(status)
+	t.Dismissed = dismissed != 0
 	if parentID.Valid {
 		t.ParentTaskID = &parentID.String
+	}
+	if runnerPID.Valid {
+		t.RunnerPID = int(runnerPID.Int64)
+	}
+	if timeoutAt.Valid {
+		t.TimeoutAt = &timeoutAt.Time
 	}
 	if startedAt.Valid {
 		t.StartedAt = &startedAt.Time
@@ -156,12 +166,15 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 		var t model.Task
 		var status string
 		var parentID sql.NullString
-		var startedAt, completedAt sql.NullTime
-			var dismissed int
+		var dismissed int
+		var runnerPID sql.NullInt64
+		var timeoutAt, startedAt, completedAt sql.NullTime
+
 		if err := rows.Scan(
 			&t.ID, &t.ProjectID, &t.AgentID, &parentID,
 			&t.Title, &t.Description, &status,
 			&t.Input, &t.Output, &t.CostUSD, &dismissed,
+			&runnerPID, &timeoutAt,
 			&t.CreatedAt, &startedAt, &completedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
@@ -170,6 +183,12 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 		t.Dismissed = dismissed != 0
 		if parentID.Valid {
 			t.ParentTaskID = &parentID.String
+		}
+		if runnerPID.Valid {
+			t.RunnerPID = int(runnerPID.Int64)
+		}
+		if timeoutAt.Valid {
+			t.TimeoutAt = &timeoutAt.Time
 		}
 		if startedAt.Valid {
 			t.StartedAt = &startedAt.Time

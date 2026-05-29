@@ -7,6 +7,7 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
@@ -94,14 +95,42 @@ func (db *DB) migrate() error {
 	return nil
 }
 
-// ResetOrphanedTasks marks any queued or running tasks as failed.
-// Called on startup because those tasks lost their runner goroutines when the
-// process exited. Without this, they block project deletion and confuse the UI.
+// ResetOrphanedTasks kills any subprocess PIDs recorded in running/queued tasks,
+// then marks those tasks as failed. Called on startup because tasks lose their
+// runner goroutines when the process exits; without this they block deletion
+// and confuse the UI.
 func (db *DB) ResetOrphanedTasks(ctx context.Context) error {
+	// Collect PIDs of subprocesses that may still be running.
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, runner_pid, status, title FROM tasks WHERE status IN ('queued','running') AND runner_pid > 0`)
+	if err != nil {
+		return fmt.Errorf("reset orphaned tasks: query pids: %w", err)
+	}
+	type orphan struct{ id, title, status string; pid int }
+	var orphans []orphan
+	for rows.Next() {
+		var o orphan
+		if err := rows.Scan(&o.id, &o.pid, &o.status, &o.title); err == nil {
+			orphans = append(orphans, o)
+		}
+	}
+	_ = rows.Close()
+
+	// Kill each subprocess. Best-effort — process may already be gone.
+	for _, o := range orphans {
+		if proc, err := os.FindProcess(o.pid); err == nil {
+			if killErr := proc.Kill(); killErr == nil {
+				log.Printf("startup: killed orphaned subprocess PID %d (task %s: %q)", o.pid, o.id, o.title)
+			}
+		}
+	}
+
+	// Mark all running/queued tasks as failed.
 	res, err := db.ExecContext(ctx, `
 		UPDATE tasks
 		SET status = 'failed',
-		    output = json_object('error', 'Task abandoned: server restarted while task was ' || status)
+		    runner_pid = 0,
+		    output = json_object('error', 'Task abandoned: Phoenix restarted while task was ' || status)
 		WHERE status IN ('queued', 'running')
 	`)
 	if err != nil {
@@ -112,6 +141,24 @@ func (db *DB) ResetOrphanedTasks(ctx context.Context) error {
 		log.Printf("startup: reset %d orphaned task(s) to failed", n)
 	}
 	return nil
+}
+
+// StartupHealthCheck logs a human-readable summary of system state on startup.
+// Helps diagnose issues without opening the UI.
+func (db *DB) StartupHealthCheck(ctx context.Context) {
+	var totalTasks, completedTasks, failedTasks, totalAgents, totalProjects int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks`).Scan(&totalTasks)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE status = 'completed'`).Scan(&completedTasks)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE status = 'failed' AND dismissed = 0`).Scan(&failedTasks)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE status = 'active'`).Scan(&totalAgents)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE status = 'active'`).Scan(&totalProjects)
+
+	log.Printf("health : %d active agent(s), %d active project(s)", totalAgents, totalProjects)
+	log.Printf("health : %d total task(s) — %d completed, %d failed (needs attention)",
+		totalTasks, completedTasks, failedTasks)
+	if failedTasks > 0 {
+		log.Printf("health : ⚠ %d task(s) need attention — open Inbox to review", failedTasks)
+	}
 }
 
 // Seed ensures a default user exists. Called once after migration.
