@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { ThemePicker } from '@/components/ui/theme-picker'
 
 const nav = [
   { label: 'Dashboard', href: '/', icon: '◈' },
@@ -56,8 +57,9 @@ export function Sidebar({ inboxCount }: { inboxCount: number }) {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-4 border-t border-slate-800">
-        <p className="text-xs text-slate-600">Phoenix v0.1 · Phase 1</p>
+      <div className="px-3 py-3 border-t border-slate-800 space-y-2">
+        <ThemePicker />
+        <p className="text-xs text-slate-600 px-2">Phoenix v0.1</p>
       </div>
     </aside>
   )

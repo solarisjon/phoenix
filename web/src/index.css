@@ -1,37 +1,185 @@
 @import "tailwindcss";
 
+/* ---- Phoenix theme tokens ---- */
+/* Each theme sets these on [data-theme="name"] (or :root for default).     */
+/* Components reference var(--ph-*) so a single attribute swap recolours   */
+/* the whole UI without touching component class names.                     */
+
+:root,
+[data-theme="dark"] {
+  /* Backgrounds */
+  --ph-bg:           #020817;   /* page background   slate-950 */
+  --ph-surface:      #0f172a;   /* sidebar, topbar   slate-900 */
+  --ph-card:         #0f172a;   /* card bg           slate-900 */
+  --ph-card-border:  #1e293b;   /* card border       slate-800 */
+  --ph-input:        #1e293b;   /* input bg          slate-800 */
+  --ph-hover:        #1e293b;   /* hover bg          slate-800 */
+  /* Text */
+  --ph-text:         #f1f5f9;   /* primary text      slate-100 */
+  --ph-text-muted:   #94a3b8;   /* secondary text    slate-400 */
+  --ph-text-faint:   #475569;   /* tertiary text     slate-600 */
+  /* Accent (primary actions, active nav, logo) */
+  --ph-accent:       #7c3aed;   /* violet-700 */
+  --ph-accent-light: #8b5cf6;   /* violet-500 */
+  --ph-accent-bg:    rgba(124,58,237,0.15);
+  --ph-accent-text:  #c4b5fd;   /* violet-300 */
+  /* Borders */
+  --ph-border:       #1e293b;   /* slate-800 */
+  --ph-border-mid:   #334155;   /* slate-700 */
+}
+
+[data-theme="midnight"] {
+  --ph-bg:           #000000;
+  --ph-surface:      #0a0a0f;
+  --ph-card:         #0d0d14;
+  --ph-card-border:  #1a1a2e;
+  --ph-input:        #1a1a2e;
+  --ph-hover:        #16213e;
+  --ph-text:         #e2e8f0;
+  --ph-text-muted:   #7f8ea3;
+  --ph-text-faint:   #3d4f63;
+  --ph-accent:       #2563eb;   /* blue-600 */
+  --ph-accent-light: #3b82f6;   /* blue-500 */
+  --ph-accent-bg:    rgba(37,99,235,0.15);
+  --ph-accent-text:  #93c5fd;   /* blue-300 */
+  --ph-border:       #1a1a2e;
+  --ph-border-mid:   #1e3a5f;
+}
+
+[data-theme="forest"] {
+  --ph-bg:           #030d07;
+  --ph-surface:      #071a0e;
+  --ph-card:         #071a0e;
+  --ph-card-border:  #0f2d1a;
+  --ph-input:        #0f2d1a;
+  --ph-hover:        #0f2d1a;
+  --ph-text:         #ecfdf5;
+  --ph-text-muted:   #6ee7b7;   /* emerald-300 */
+  --ph-text-faint:   #1f6635;
+  --ph-accent:       #059669;   /* emerald-600 */
+  --ph-accent-light: #10b981;   /* emerald-500 */
+  --ph-accent-bg:    rgba(5,150,105,0.15);
+  --ph-accent-text:  #6ee7b7;   /* emerald-300 */
+  --ph-border:       #0f2d1a;
+  --ph-border-mid:   #166534;
+}
+
+[data-theme="ember"] {
+  --ph-bg:           #0c0500;
+  --ph-surface:      #180b00;
+  --ph-card:         #1a0e00;
+  --ph-card-border:  #2d1a00;
+  --ph-input:        #2d1a00;
+  --ph-hover:        #2d1a00;
+  --ph-text:         #fef3e2;
+  --ph-text-muted:   #fb923c;   /* orange-400 */
+  --ph-text-faint:   #7c3000;
+  --ph-accent:       #ea580c;   /* orange-600 */
+  --ph-accent-light: #f97316;   /* orange-500 */
+  --ph-accent-bg:    rgba(234,88,12,0.15);
+  --ph-accent-text:  #fdba74;   /* orange-300 */
+  --ph-border:       #2d1a00;
+  --ph-border-mid:   #7c2d00;
+}
+
+[data-theme="light"] {
+  --ph-bg:           #f8fafc;   /* slate-50 */
+  --ph-surface:      #ffffff;
+  --ph-card:         #ffffff;
+  --ph-card-border:  #e2e8f0;   /* slate-200 */
+  --ph-input:        #f1f5f9;   /* slate-100 */
+  --ph-hover:        #f1f5f9;
+  --ph-text:         #0f172a;   /* slate-900 */
+  --ph-text-muted:   #475569;   /* slate-600 */
+  --ph-text-faint:   #94a3b8;   /* slate-400 */
+  --ph-accent:       #7c3aed;   /* violet-700 */
+  --ph-accent-light: #8b5cf6;   /* violet-500 */
+  --ph-accent-bg:    rgba(124,58,237,0.08);
+  --ph-accent-text:  #6d28d9;   /* violet-700 */
+  --ph-border:       #e2e8f0;
+  --ph-border-mid:   #cbd5e1;   /* slate-300 */
+}
+
+/* ---- Apply theme tokens to the UI ---- */
+/* We layer these on top of the Tailwind hardcoded classes so existing      */
+/* components pick up the theme without any JSX changes.                    */
+
 @layer base {
-  :root {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 6%;
-    --card-foreground: 213 31% 91%;
-    --popover: 224 71% 4%;
-    --popover-foreground: 215 20.2% 65.1%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 1.2%;
-    --secondary: 222.2 47.4% 11.2%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 223 47% 11%;
-    --muted-foreground: 215.4 16.3% 56.9%;
-    --accent: 216 34% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --ring: 263.4 70% 50.4%;
-    --radius: 0.5rem;
+  body {
+    background-color: var(--ph-bg);
+    color: var(--ph-text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 }
 
-@layer base {
-  * {
-    border-color: hsl(var(--border));
-  }
-  body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  }
+/* Themed surface areas */
+.ph-surface  { background-color: var(--ph-surface) !important; border-color: var(--ph-border) !important; }
+.ph-card     { background-color: var(--ph-card) !important;    border-color: var(--ph-card-border) !important; }
+.ph-input    { background-color: var(--ph-input) !important;   border-color: var(--ph-border-mid) !important; }
+.ph-accent   { background-color: var(--ph-accent) !important; }
+.ph-accent-t { color: var(--ph-accent-text) !important; }
+.ph-text     { color: var(--ph-text) !important; }
+.ph-muted    { color: var(--ph-text-muted) !important; }
+
+/* Override hardcoded Tailwind colours with theme tokens */
+/* These selectors match exactly what the components produce */
+
+/* Page background */
+.bg-slate-950  { background-color: var(--ph-bg) !important; }
+
+/* Sidebar / surface */
+aside.bg-slate-900,
+header.bg-slate-950\/50 { background-color: var(--ph-surface) !important; }
+
+/* Cards */
+.bg-slate-900  { background-color: var(--ph-card) !important; }
+.border-slate-800 { border-color: var(--ph-card-border) !important; }
+
+/* Inputs */
+.bg-slate-800  { background-color: var(--ph-input) !important; }
+.border-slate-700 { border-color: var(--ph-border-mid) !important; }
+
+/* Hover states */
+.hover\:bg-slate-800:hover  { background-color: var(--ph-hover) !important; }
+.hover\:bg-slate-700:hover  { background-color: var(--ph-border-mid) !important; }
+
+/* Primary text */
+.text-white   { color: var(--ph-text) !important; }
+.text-slate-100 { color: var(--ph-text) !important; }
+.text-slate-200 { color: var(--ph-text) !important; }
+.text-slate-300 { color: var(--ph-text-muted) !important; }
+.text-slate-400 { color: var(--ph-text-muted) !important; }
+.text-slate-500 { color: var(--ph-text-faint) !important; }
+.text-slate-600 { color: var(--ph-text-faint) !important; }
+
+/* Dividers */
+.divide-slate-800 > * + * { border-color: var(--ph-card-border) !important; }
+.border-b.border-slate-800 { border-color: var(--ph-card-border) !important; }
+.border-t.border-slate-800 { border-color: var(--ph-card-border) !important; }
+
+/* Accent (primary buttons, active nav, logo) */
+.bg-violet-600  { background-color: var(--ph-accent) !important; }
+.bg-violet-600\/20 { background-color: var(--ph-accent-bg) !important; }
+.hover\:bg-violet-500:hover { background-color: var(--ph-accent-light) !important; }
+.text-violet-300 { color: var(--ph-accent-text) !important; }
+.text-violet-400 { color: var(--ph-accent-light) !important; }
+.hover\:text-violet-300:hover { color: var(--ph-accent-text) !important; }
+.shadow-violet-900\/50 { box-shadow: 0 10px 15px -3px color-mix(in srgb, var(--ph-accent) 30%, transparent) !important; }
+.animate-pulse.bg-violet-500 { background-color: var(--ph-accent-light) !important; }
+.border-violet-900\/40 { border-color: color-mix(in srgb, var(--ph-accent) 40%, transparent) !important; }
+
+/* Secondary buttons */
+.bg-slate-700  { background-color: var(--ph-input) !important; }
+.hover\:bg-slate-600:hover { background-color: var(--ph-hover) !important; }
+
+/* Scroll / code blocks */
+.bg-slate-950  { background-color: var(--ph-bg) !important; }
+.font-mono.bg-slate-800 { background-color: var(--ph-input) !important; }
+
+/* Smooth transitions on theme change */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
 }
