@@ -40,8 +40,9 @@ func TestBuildArgs_MinimalConfig(t *testing.T) {
 	if !strings.Contains(joined, "--no-session") {
 		t.Errorf("missing --no-session in default config; args: %s", joined)
 	}
-	if args[len(args)-1] != "hello" {
-		t.Errorf("last arg = %q, want hello", args[len(args)-1])
+	// Prompt is delivered via stdin, not as a CLI arg.
+	if strings.Contains(joined, "hello") {
+		t.Errorf("prompt should not appear in args (stdin delivery), got: %s", joined)
 	}
 }
 

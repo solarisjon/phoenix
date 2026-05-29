@@ -93,9 +93,14 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		return nil, fmt.Errorf("crush: prepare workdir: %w", err)
 	}
 
-	args := a.buildArgs(req, workDir)
+	promptText := req.Prompt
+	useStdin := len(promptText) > maxArgPromptBytes
+	args := a.buildArgs(req, workDir, !useStdin)
 	cmd := exec.CommandContext(ctx, a.cfg.BinaryPath, args...)
 	cmd.Dir = workDir
+	if useStdin {
+		cmd.Stdin = strings.NewReader(promptText)
+	}
 	// Discard stderr — MCP init errors and skill warnings are not useful to the runner.
 	cmd.Stderr = io.Discard
 
@@ -237,8 +242,14 @@ func (a *Adapter) prepareWorkDir(req provider.TaskRequest) (workDir string, clea
 	return baseDir, cleanup, nil
 }
 
-// buildArgs constructs the crush run argument list.
-func (a *Adapter) buildArgs(req provider.TaskRequest, workDir string) []string {
+// maxArgPromptBytes is the threshold above which we write the prompt to stdin
+// instead of as a CLI argument, avoiding ARG_MAX issues with long follow-up
+// prompts that contain injected parent-task output.
+const maxArgPromptBytes = 8192
+
+// buildArgs constructs the crush run argument list. When includePrompt is
+// false the prompt is expected via stdin (for long prompts).
+func (a *Adapter) buildArgs(req provider.TaskRequest, workDir string, includePrompt bool) []string {
 	args := []string{"run", "--quiet"}
 
 	if a.cfg.Model != "" {
@@ -248,7 +259,9 @@ func (a *Adapter) buildArgs(req provider.TaskRequest, workDir string) []string {
 		args = append(args, "--cwd", workDir)
 	}
 	args = append(args, a.cfg.ExtraArgs...)
-	args = append(args, req.Prompt)
+	if includePrompt {
+		args = append(args, req.Prompt)
+	}
 	return args
 }
 

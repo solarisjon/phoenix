@@ -29,7 +29,7 @@ func TestNew_InvalidJSON(t *testing.T) {
 func TestBuildArgs_Minimal(t *testing.T) {
 	a, _ := New(`{}`)
 	req := provider.TaskRequest{Prompt: "hello"}
-	args := a.buildArgs(req, "")
+	args := a.buildArgs(req, "", true)
 	joined := strings.Join(args, " ")
 
 	if !strings.HasPrefix(joined, "run --quiet") {
@@ -48,7 +48,7 @@ func TestBuildArgs_Minimal(t *testing.T) {
 
 func TestBuildArgs_WithModel(t *testing.T) {
 	a, _ := New(`{"model":"anthropic/claude-sonnet-4-5"}`)
-	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "")
+	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "", true)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--model anthropic/claude-sonnet-4-5") {
 		t.Errorf("missing --model, got: %s", joined)
@@ -57,7 +57,7 @@ func TestBuildArgs_WithModel(t *testing.T) {
 
 func TestBuildArgs_WithWorkDir(t *testing.T) {
 	a, _ := New(`{}`)
-	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "/tmp/mydir")
+	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "/tmp/mydir", true)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--cwd /tmp/mydir") {
 		t.Errorf("missing --cwd, got: %s", joined)
@@ -66,7 +66,7 @@ func TestBuildArgs_WithWorkDir(t *testing.T) {
 
 func TestBuildArgs_ExtraArgs(t *testing.T) {
 	a, _ := New(`{"extra_args":["--debug","--small-model","haiku"]}`)
-	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "")
+	args := a.buildArgs(provider.TaskRequest{Prompt: "p"}, "", true)
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--debug") {
 		t.Errorf("missing extra args, got: %s", joined)

@@ -99,6 +99,11 @@ func (a *Adapter) Execute(ctx context.Context, req provider.TaskRequest) (provid
 
 // StreamExecute runs a task via pi and streams output chunks.
 func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (<-chan provider.StreamChunk, error) {
+	// Build the prompt and always deliver it via stdin. This avoids ARG_MAX
+	// limits that silently kill long prompts (e.g. follow-up chains with
+	// injected parent output). pi reads from stdin when no positional prompt
+	// argument is provided.
+	promptText := a.buildPrompt(req)
 	args := a.buildArgs(req)
 
 	cmd := exec.CommandContext(ctx, a.cfg.BinaryPath, args...)
@@ -108,6 +113,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 	case a.cfg.WorkingDir != "":
 		cmd.Dir = a.cfg.WorkingDir
 	}
+	cmd.Stdin = strings.NewReader(promptText)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -148,6 +154,8 @@ func (a *Adapter) EstimateCost(_ provider.TaskRequest) provider.CostEstimate {
 
 // ---- Internal helpers ----
 
+// buildArgs assembles the pi CLI arguments. The prompt is always delivered
+// via stdin, so no positional prompt argument is appended here.
 func (a *Adapter) buildArgs(req provider.TaskRequest) []string {
 	args := []string{"--print", "--mode", "json"}
 
@@ -176,7 +184,7 @@ func (a *Adapter) buildArgs(req provider.TaskRequest) []string {
 		args = append(args, "--no-session")
 	}
 	args = append(args, a.cfg.ExtraArgs...)
-	args = append(args, a.buildPrompt(req))
+	// Prompt is delivered via stdin — no positional argument appended.
 	return args
 }
 

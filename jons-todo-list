@@ -32,6 +32,9 @@
   - [TODO]  real-time inbox badge — live ⚠ N count on sidebar Inbox item via SSE/WS
   - [TODO]  markdown rendering in task output — render md in task detail modal instead of raw text
   - [TODO]  claudecode adapter smoke test — needs claude auth setup
+  - need a way to dismiss all entries in inbox
+  - show the number of running tasks dynamically in the UI
+  - add an adapter to handle ollama models 
 
 
 
