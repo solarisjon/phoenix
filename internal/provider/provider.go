@@ -21,6 +21,11 @@ type TaskRequest struct {
 
 	// Context holds prior conversation turns for multi-turn tasks.
 	Context []Message
+
+	// WorkingDir is an optional filesystem path for coding agents to use as
+	// the working directory when spawning their subprocess. Empty = default
+	// (adapter's own default, usually the process working directory).
+	WorkingDir string
 }
 
 // TaskResponse is the result returned by a provider after execution.

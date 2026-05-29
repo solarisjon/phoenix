@@ -217,6 +217,11 @@ export function ProjectDetailPage() {
           </div>
           <h1 className="text-2xl font-bold text-white">{project.name}</h1>
           {project.description && <p className="text-slate-400 text-sm mt-1">{project.description}</p>}
+          {project.working_dir && (
+            <p className="text-xs text-slate-500 font-mono mt-1" title={project.working_dir}>
+              📁 {project.working_dir}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {totalCost > 0 && (

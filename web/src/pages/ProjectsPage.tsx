@@ -14,6 +14,7 @@ function ProjectForm({ initial, onSave, onClose }: {
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
+  const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -21,8 +22,8 @@ function ProjectForm({ initial, onSave, onClose }: {
     if (!name.trim()) { setError('Name is required'); return }
     setSaving(true)
     try {
-      if (initial) await api.projects.update(initial.id, { name, description })
-      else await api.projects.create({ name, description })
+      if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir })
+      else await api.projects.create({ name, description, working_dir: workingDir })
       onSave()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -38,6 +39,12 @@ function ProjectForm({ initial, onSave, onClose }: {
         <Label htmlFor="desc">Description</Label>
         <Textarea id="desc" value={description} onChange={e => setDescription(e.target.value)} rows={3}
           placeholder="What is this project trying to achieve?" />
+      </div>
+      <div>
+        <Label htmlFor="wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>
+        <Input id="wdir" value={workingDir} onChange={e => setWorkingDir(e.target.value)}
+          placeholder="/path/to/project — passed to coding agents as their working directory" />
+        <p className="text-xs text-slate-500 mt-1">Leave blank to use the coding agent's default directory.</p>
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3 justify-end pt-2">
@@ -94,6 +101,11 @@ export function ProjectsPage() {
                     <Badge variant={p.status === 'active' ? 'success' : 'muted'}>{p.status}</Badge>
                   </div>
                   {p.description && <p className="text-sm text-slate-400 line-clamp-1">{p.description}</p>}
+                  {p.working_dir && (
+                    <p className="text-xs text-slate-500 font-mono mt-0.5 truncate" title={p.working_dir}>
+                      📁 {p.working_dir}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-600 mt-2">Created {timeAgo(p.created_at)}</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">

@@ -33,6 +33,7 @@ export interface Project {
   id: string
   name: string
   description: string
+  working_dir: string
   owner: string
   status: 'active' | 'archived'
   created_at: string

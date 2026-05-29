@@ -40,7 +40,7 @@ func testServer(t *testing.T) *Server {
 	reg := registry.NewRegistry(provRepo)
 	reg.InjectForTest("prov-test", &mockProv{})
 
-	runner := agent.New(agentRepo, taskRepo, reg, nil)
+	runner := agent.New(agentRepo, taskRepo, projRepo, reg, nil)
 	t.Cleanup(runner.Shutdown)
 
 	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, runner, reg)

@@ -85,12 +85,13 @@ type Agent struct {
 
 // Project is a workspace containing tasks assigned to agents.
 type Project struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Owner       string        `json:"owner"`
-	Status      ProjectStatus `json:"status"`
-	CreatedAt   time.Time     `json:"created_at"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description"`
+	WorkingDir   string        `json:"working_dir"`  // optional: filesystem path passed to coding agents
+	Owner        string        `json:"owner"`
+	Status       ProjectStatus `json:"status"`
+	CreatedAt    time.Time     `json:"created_at"`
 }
 
 // ProjectAgent links an agent to a project.

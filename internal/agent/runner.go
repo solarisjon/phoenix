@@ -34,6 +34,7 @@ type EventHandler func(StreamEvent)
 type Runner struct {
 	agents    store.AgentRepo
 	tasks     store.TaskRepo
+	projects  store.ProjectRepo
 	registry  *registry.Registry
 	onEvent   EventHandler
 	bgCtx     context.Context    // long-lived background context for task goroutines
@@ -47,6 +48,7 @@ type Runner struct {
 func New(
 	agents store.AgentRepo,
 	tasks store.TaskRepo,
+	projects store.ProjectRepo,
 	reg *registry.Registry,
 	onEvent EventHandler,
 ) *Runner {
@@ -54,6 +56,7 @@ func New(
 	return &Runner{
 		agents:   agents,
 		tasks:    tasks,
+		projects: projects,
 		registry: reg,
 		onEvent:  onEvent,
 		bgCtx:    bgCtx,
@@ -195,6 +198,12 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
+	// Load project to get working directory.
+	var workingDir string
+	if proj, err := r.projects.Get(ctx, task.ProjectID); err == nil && proj != nil {
+		workingDir = proj.WorkingDir
+	}
+
 	// Transition to Running.
 	now := time.Now()
 	task.StartedAt = &now
@@ -205,6 +214,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 
 	// Assemble prompt.
 	req := AssembleRequest(agent, task)
+	req.WorkingDir = workingDir
 
 	// Stream execution.
 	ch, err := prov.StreamExecute(ctx, req)

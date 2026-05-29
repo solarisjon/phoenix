@@ -14,6 +14,7 @@ import (
 type createProjectRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	WorkingDir  string `json:"working_dir"`
 	Status      string `json:"status"`
 }
 
@@ -84,6 +85,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		ID:          uuid.New().String(),
 		Name:        strings.TrimSpace(req.Name),
 		Description: req.Description,
+		WorkingDir:  strings.TrimSpace(req.WorkingDir),
 		Owner:       user.ID,
 		Status:      status,
 		CreatedAt:   time.Now(),
@@ -118,6 +120,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 
 	existing.Name = strings.TrimSpace(req.Name)
 	existing.Description = req.Description
+	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
 	if req.Status != "" {
 		existing.Status = model.ProjectStatus(req.Status)
 	}

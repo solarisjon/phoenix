@@ -95,7 +95,10 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 	args := a.buildArgs(prompt)
 
 	cmd := exec.CommandContext(ctx, a.cfg.BinaryPath, args...)
-	if a.cfg.WorkingDir != "" {
+	switch {
+	case req.WorkingDir != "":
+		cmd.Dir = req.WorkingDir
+	case a.cfg.WorkingDir != "":
 		cmd.Dir = a.cfg.WorkingDir
 	}
 

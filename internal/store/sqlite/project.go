@@ -15,7 +15,7 @@ func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
 func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, owner, status, created_at FROM projects ORDER BY created_at ASC`)
+		`SELECT id, name, description, working_dir, owner, status, created_at FROM projects ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -25,14 +25,14 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
 
 func (r *ProjectRepo) Get(ctx context.Context, id string) (*model.Project, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, owner, status, created_at FROM projects WHERE id = ?`, id)
+		`SELECT id, name, description, working_dir, owner, status, created_at FROM projects WHERE id = ?`, id)
 	return scanProject(row)
 }
 
 func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, owner, status) VALUES (?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.Owner, string(p.Status))
+		`INSERT INTO projects (id, name, description, working_dir, owner, status) VALUES (?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.WorkingDir, p.Owner, string(p.Status))
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -41,8 +41,8 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 
 func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, description = ?, status = ? WHERE id = ?`,
-		p.Name, p.Description, string(p.Status), p.ID)
+		`UPDATE projects SET name = ?, description = ?, working_dir = ?, status = ? WHERE id = ?`,
+		p.Name, p.Description, p.WorkingDir, string(p.Status), p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
@@ -95,7 +95,7 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 func scanProject(row *sql.Row) (*model.Project, error) {
 	var p model.Project
 	var status string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Owner, &status, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &p.Owner, &status, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -111,7 +111,7 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 	for rows.Next() {
 		var p model.Project
 		var status string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Owner, &status, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &p.Owner, &status, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
 		}
 		p.Status = model.ProjectStatus(status)
