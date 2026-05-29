@@ -27,9 +27,13 @@ interface LLMConfig {
 }
 
 interface CodingAgentConfig {
+  kind: string
   binary_path: string
-  args_template: string
-  working_directory: string
+  model: string
+  agent: string
+  working_dir: string
+  dangerously_skip_permissions: boolean
+  extra_args: string[]
 }
 
 function LLMFields({ cfg, onChange }: {
@@ -83,27 +87,43 @@ function CodingAgentFields({ cfg, onChange }: {
   cfg: CodingAgentConfig
   onChange: (c: CodingAgentConfig) => void
 }) {
-  const set = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const setStr = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     onChange({ ...cfg, [key]: e.target.value })
 
   return (
     <div className="space-y-4">
       <div>
-        <Label htmlFor="binary">Binary Path *</Label>
-        <Input id="binary" value={cfg.binary_path} onChange={set('binary_path')}
-          placeholder="/usr/local/bin/pi  or  ${PI_PATH}" />
-        <EnvHint />
+        <Label htmlFor="kind">Agent Kind</Label>
+        <Select id="kind" value={cfg.kind} onChange={setStr('kind') as any}>
+          <option value="opencode">opencode</option>
+        </Select>
+        <p className="text-xs text-slate-600 mt-1">More coding agents coming in future phases</p>
       </div>
       <div>
-        <Label htmlFor="args">Args Template</Label>
-        <Input id="args" value={cfg.args_template} onChange={set('args_template')}
-          placeholder="--prompt {prompt}" />
-        <p className="text-xs text-slate-600 mt-1">Use <code className="bg-slate-800 px-1 rounded text-slate-400">{'{prompt}'}</code> for task input injection</p>
+        <Label htmlFor="binary">Binary Path</Label>
+        <Input id="binary" value={cfg.binary_path} onChange={setStr('binary_path') as any}
+          placeholder="opencode  or  /usr/local/bin/opencode  or  ${OPENCODE_PATH}" />
+        <p className="text-xs text-slate-600 mt-1">Leave blank to use <code className="bg-slate-800 px-1 rounded text-slate-400">opencode</code> from PATH</p>
+        <EnvHint />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="oc-model">Model</Label>
+          <Input id="oc-model" value={cfg.model} onChange={setStr('model') as any}
+            placeholder="llm-proxy/claude-sonnet-4.6" />
+          <p className="text-xs text-slate-600 mt-1">Format: provider/model</p>
+        </div>
+        <div>
+          <Label htmlFor="oc-agent">Agent Config</Label>
+          <Input id="oc-agent" value={cfg.agent} onChange={setStr('agent') as any}
+            placeholder="my-agent" />
+          <p className="text-xs text-slate-600 mt-1">Named opencode agent (optional)</p>
+        </div>
       </div>
       <div>
         <Label htmlFor="workdir">Working Directory</Label>
-        <Input id="workdir" value={cfg.working_directory} onChange={set('working_directory')}
-          placeholder="/home/user/projects  or  ${WORKSPACE}" />
+        <Input id="workdir" value={cfg.working_dir} onChange={setStr('working_dir') as any}
+          placeholder="/home/user/project  or  ${WORKSPACE}" />
         <EnvHint />
       </div>
     </div>
@@ -120,9 +140,13 @@ const defaultLLM: LLMConfig = {
 }
 
 const defaultCoding: CodingAgentConfig = {
+  kind: 'opencode',
   binary_path: '',
-  args_template: '',
-  working_directory: '',
+  model: '',
+  agent: '',
+  working_dir: '',
+  dangerously_skip_permissions: false,
+  extra_args: [],
 }
 
 function parseConfig(type: string, configJSON: string): LLMConfig | CodingAgentConfig {
@@ -159,10 +183,8 @@ function ProviderForm({ initial, onSave, onClose }: {
       setError('Endpoint URL is required')
       return
     }
-    if (type === 'coding_agent' && !(cfg as CodingAgentConfig).binary_path.trim()) {
-      setError('Binary path is required')
-      return
-    }
+    // binary_path is optional for coding agents (defaults to PATH lookup)
+    void cfg
 
     setSaving(true)
     try {

@@ -3,12 +3,14 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/provider"
 	"github.com/solarisjon/phoenix/internal/provider/llm"
+	"github.com/solarisjon/phoenix/internal/provider/opencode"
 	"github.com/solarisjon/phoenix/internal/store"
 )
 
@@ -81,7 +83,19 @@ func buildProvider(rec *model.Provider) (provider.Provider, error) {
 	case model.ProviderTypeLLM:
 		return llm.New(expandedConfig)
 	case model.ProviderTypeCodingAgent:
-		return nil, fmt.Errorf("coding_agent provider not yet implemented")
+		// Dispatch on the "kind" field in config to support multiple coding agents.
+		var meta struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal([]byte(expandedConfig), &meta); err != nil {
+			return nil, fmt.Errorf("coding_agent config: parse kind: %w", err)
+		}
+		switch meta.Kind {
+		case "opencode", "":
+			return opencode.New(expandedConfig)
+		default:
+			return nil, fmt.Errorf("coding_agent: unknown kind %q", meta.Kind)
+		}
 	default:
 		return nil, fmt.Errorf("unknown provider type: %s", rec.Type)
 	}
