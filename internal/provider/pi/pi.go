@@ -54,9 +54,9 @@ type Config struct {
 	// NoTools disables all tools if true.
 	NoTools bool `json:"no_tools"`
 
-	// NoSession disables session persistence (ephemeral run).
-	// Defaults to true since Phoenix manages task state itself.
-	NoSession bool `json:"no_session"`
+	// AllowSession enables pi session persistence. Default false —
+	// Phoenix manages task state so each task runs fresh with no_session.
+	AllowSession bool `json:"allow_session"`
 
 	// ExtraArgs are passed verbatim to the pi CLI after all other flags.
 	ExtraArgs []string `json:"extra_args"`
@@ -170,8 +170,9 @@ func (a *Adapter) buildArgs(req provider.TaskRequest) []string {
 			args = append(args, "--exclude-tools", a.cfg.ExcludeTools)
 		}
 	}
-	// Default to no session persistence — Phoenix manages task state.
-	if a.cfg.NoSession {
+	// Always run without session persistence unless explicitly enabled.
+	// Phoenix manages task state; each task should start fresh.
+	if !a.cfg.AllowSession {
 		args = append(args, "--no-session")
 	}
 	args = append(args, a.cfg.ExtraArgs...)

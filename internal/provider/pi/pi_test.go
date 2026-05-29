@@ -36,8 +36,22 @@ func TestBuildArgs_MinimalConfig(t *testing.T) {
 	if !strings.Contains(joined, "--mode json") {
 		t.Error("missing --mode json")
 	}
+	// --no-session must be present by default so pi runs non-interactively
+	if !strings.Contains(joined, "--no-session") {
+		t.Errorf("missing --no-session in default config; args: %s", joined)
+	}
 	if args[len(args)-1] != "hello" {
 		t.Errorf("last arg = %q, want hello", args[len(args)-1])
+	}
+}
+
+func TestBuildArgs_AllowSession(t *testing.T) {
+	// When allow_session=true, --no-session must NOT be present
+	a, _ := New(`{"allow_session":true}`)
+	args := a.buildArgs(provider.TaskRequest{Prompt: "p"})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "--no-session") {
+		t.Errorf("--no-session present when allow_session=true; args: %s", joined)
 	}
 }
 
