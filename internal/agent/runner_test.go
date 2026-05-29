@@ -112,6 +112,20 @@ func (r *memTaskRepo) ListByStatus(_ context.Context, s model.TaskStatus) ([]*mo
 	}
 	return out, nil
 }
+
+func (r *memTaskRepo) ListByStatuses(_ context.Context, statuses []model.TaskStatus) ([]*model.Task, error) {
+	set := make(map[model.TaskStatus]bool, len(statuses))
+	for _, s := range statuses {
+		set[s] = true
+	}
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if set[t.Status] {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
 func (r *memTaskRepo) Get(_ context.Context, id string) (*model.Task, error) {
 	return r.tasks[id], nil
 }

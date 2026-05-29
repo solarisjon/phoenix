@@ -32,6 +32,24 @@ func (r createTaskRequest) validate() string {
 	return ""
 }
 
+// listAttentionTasks returns all tasks needing human attention:
+// failed and awaiting_approval, across all projects, newest first.
+func (s *Server) listAttentionTasks(w http.ResponseWriter, r *http.Request) {
+	statuses := []model.TaskStatus{
+		model.TaskStatusFailed,
+		model.TaskStatusAwaitingApproval,
+	}
+	list, err := s.tasks.ListByStatuses(r.Context(), statuses)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if list == nil {
+		list = []*model.Task{}
+	}
+	respond(w, http.StatusOK, list)
+}
+
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
@@ -170,6 +188,45 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, existing)
+}
+
+func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusPending {
+		respondErr(w, http.StatusConflict, "only failed or pending tasks can be retried")
+		return
+	}
+
+	// Reset state for a fresh run.
+	task.Status = model.TaskStatusPending
+	task.Output = "{}"
+	task.StartedAt = nil
+	task.CompletedAt = nil
+	task.CostUSD = 0
+	if err := s.tasks.Update(r.Context(), task); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	if err := s.runner.RunTask(r.Context(), task.ID); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	updated, _ := s.tasks.Get(r.Context(), task.ID)
+	if updated != nil {
+		task = updated
+	}
+	respond(w, http.StatusOK, task)
 }
 
 func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {

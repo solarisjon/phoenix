@@ -100,9 +100,11 @@ func (s *Server) buildRouter() http.Handler {
 		// Tasks
 		r.Get("/tasks", s.listTasks)
 		r.Post("/tasks", s.createTask)
+		r.Get("/tasks/attention", s.listAttentionTasks)
 		r.Get("/tasks/{id}", s.getTask)
 		r.Put("/tasks/{id}", s.updateTask)
 		r.Delete("/tasks/{id}", s.deleteTask)
+		r.Post("/tasks/{id}/retry", s.retryTask)
 
 		// Inbox
 		r.Get("/inbox", s.listInbox)

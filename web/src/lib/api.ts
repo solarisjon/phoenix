@@ -104,9 +104,12 @@ export const api = {
     get: (id: string) => request<Task>(`/tasks/${id}`),
     create: (data: Partial<Task>) => request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
+    retry: (id: string) => request<Task>(`/tasks/${id}/retry`, { method: 'POST', body: '{}' }),
   },
   inbox: {
     list: () => request<Task[]>('/inbox'),
+    // All tasks needing attention: failed + awaiting_approval, across all projects
+    listAttention: () => request<Task[]>('/tasks/attention'),
     approve: (taskId: string) => request<Task>(`/inbox/${taskId}/approve`, { method: 'POST', body: '{}' }),
     reject: (taskId: string) => request<Task>(`/inbox/${taskId}/reject`, { method: 'POST', body: '{}' }),
     revise: (taskId: string, feedback: string) => request<Task>(`/inbox/${taskId}/revise`, { method: 'POST', body: JSON.stringify({ feedback }) }),

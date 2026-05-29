@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/solarisjon/phoenix/internal/model"
 )
@@ -20,6 +21,27 @@ func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, e
 		FROM tasks WHERE project_id = ? ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+func (r *TaskRepo) ListByStatuses(ctx context.Context, statuses []model.TaskStatus) ([]*model.Task, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.Repeat("?,", len(statuses))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(statuses))
+	for i, s := range statuses {
+		args[i] = string(s)
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, project_id, agent_id, parent_task_id, title, description,
+		        status, input, output, cost_usd, created_at, started_at, completed_at
+		 FROM tasks WHERE status IN (`+placeholders+`) ORDER BY created_at DESC`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by statuses: %w", err)
 	}
 	defer rows.Close()
 	return scanTasks(rows)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api, type Project, type Agent, type Task } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
@@ -60,6 +60,7 @@ function TaskForm({ projectId, agents, onSave, onClose }: {
 function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onUpdate: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [stream, setStream] = useState('')
+  const [retrying, setRetrying] = useState(false)
   const agent = agents.find(a => a.id === task.agent_id)
 
   useEffect(() => {
@@ -76,6 +77,11 @@ function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onU
     })
     return unsub
   }, [task.id, task.status, onUpdate])
+
+  const retry = async () => {
+    setRetrying(true)
+    try { await api.tasks.retry(task.id); onUpdate() } finally { setRetrying(false) }
+  }
 
   const output = task.status === 'running' && stream ? stream : parseOutput(task.output)
   const showOutput = expanded && (output && output !== '{}')
@@ -98,6 +104,13 @@ function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onU
             <div className="flex items-center gap-1.5 mt-2">
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
               <span className="text-xs text-violet-400">Running…</span>
+            </div>
+          )}
+          {task.status === 'failed' && (
+            <div className="mt-2" onClick={e => e.stopPropagation()}>
+              <Button size="sm" variant="secondary" onClick={retry} disabled={retrying}>
+                {retrying ? 'Retrying…' : '↺ Retry'}
+              </Button>
             </div>
           )}
         </div>

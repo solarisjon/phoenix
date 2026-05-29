@@ -1,7 +1,11 @@
 # a running list of things to implement resolve etc
 #
-  - failed tasks need a retry option
-  - The inbox should show the state of all tasks that require attention or failed etc and be grouped by state and show task and project
+  - [FIXED] failed tasks need a retry option — POST /api/tasks/:id/retry, retry buttons on task cards, inbox, dashboard
+  - [FIXED] inbox now shows failed + awaiting_approval tasks, grouped by state, with project name + clickable project links
+  - [FIXED] dashboard task activity rows are clickable — opens detail modal with output + retry for failed tasks
+  - [TODO]  model picker dropdown — list available models per adapter kind
+  - [TODO]  agent config should allow a model override that takes precedence over the provider default
+
 
 ## coding agent adapter issues (in progress)
   - [FIXED] old binary was still running (07:32 build, pre-opencode support) — kill & restart required

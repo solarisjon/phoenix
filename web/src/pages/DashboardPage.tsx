@@ -1,42 +1,119 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Project, type Task, type CostsResponse } from '@/lib/api'
+import { api, type Project, type Task, type CostsResponse, type Agent } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { taskStatusVariant, taskStatusLabel, formatCost, timeAgo } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Modal } from '@/components/ui/modal'
+import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
   return (
     <Card>
       <CardBody className="py-5">
         <p className="text-slate-400 text-xs uppercase tracking-wide mb-1">{label}</p>
-        <p className="text-3xl font-bold text-white">{value}</p>
+        <p className={`text-3xl font-bold ${accent ?? 'text-white'}`}>{value}</p>
         {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
       </CardBody>
     </Card>
   )
 }
 
+function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
+  task: Task
+  agents: Agent[]
+  projects: Project[]
+  onRetry: () => void
+  onClose: () => void
+}) {
+  const agent = agents.find(a => a.id === task.agent_id)
+  const project = projects.find(p => p.id === task.project_id)
+  const output = parseOutput(task.output)
+  const [retrying, setRetrying] = useState(false)
+
+  const retry = async () => {
+    setRetrying(true)
+    try { await api.tasks.retry(task.id); onRetry() } finally { setRetrying(false) }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-slate-500 text-xs mb-0.5">Project</p>
+          <Link to={`/projects/${task.project_id}`} className="text-violet-400 hover:underline" onClick={onClose}>
+            {project?.name ?? 'Unknown'}
+          </Link>
+        </div>
+        <div>
+          <p className="text-slate-500 text-xs mb-0.5">Agent</p>
+          <p className="text-white">{agent?.name ?? 'Unknown'}</p>
+        </div>
+        <div>
+          <p className="text-slate-500 text-xs mb-0.5">Status</p>
+          <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
+        </div>
+        <div>
+          <p className="text-slate-500 text-xs mb-0.5">Created</p>
+          <p className="text-slate-300">{timeAgo(task.created_at)}</p>
+        </div>
+        {task.cost_usd > 0 && (
+          <div>
+            <p className="text-slate-500 text-xs mb-0.5">Cost</p>
+            <p className="text-slate-300">{formatCost(task.cost_usd)}</p>
+          </div>
+        )}
+      </div>
+      {task.description && (
+        <div>
+          <p className="text-slate-500 text-xs mb-1">Description</p>
+          <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-800 rounded-lg p-3 max-h-32 overflow-y-auto">{task.description}</pre>
+        </div>
+      )}
+      <div>
+        <p className="text-slate-500 text-xs mb-1">Output</p>
+        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-950 rounded-lg p-3 max-h-64 overflow-y-auto">{output || '(no output yet)'}</pre>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Link to={`/projects/${task.project_id}`} onClick={onClose}>
+          <Button variant="secondary" size="sm">View Project →</Button>
+        </Link>
+        {task.status === 'failed' && (
+          <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [recentTasks, setRecentTasks] = useState<Task[]>([])
+  const [attentionCount, setAttentionCount] = useState(0)
   const [costs, setCosts] = useState<CostsResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const projs = await api.projects.list()
+      const [projs, agts] = await Promise.all([api.projects.list(), api.agents.list()])
       setProjects(projs)
+      setAgents(agts)
 
-      // Load recent tasks across all projects
-      const taskLists = await Promise.all(projs.map(p => api.tasks.list(p.id).catch(() => [])))
+      // Load recent tasks across all projects + attention count in parallel
+      const [taskLists, attention, c] = await Promise.all([
+        Promise.all(projs.map(p => api.tasks.list(p.id).catch(() => [] as Task[]))),
+        api.inbox.listAttention().catch(() => [] as Task[]),
+        api.stats.costs().catch(() => null),
+      ])
+
       const all = taskLists.flat().sort((a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      ).slice(0, 10)
+      ).slice(0, 15)
       setRecentTasks(all)
-
-      const c = await api.stats.costs()
+      setAttentionCount(attention.length)
       setCosts(c)
     } finally { setLoading(false) }
   }, [])
@@ -50,7 +127,6 @@ export function DashboardPage() {
   }, [load])
 
   const runningCount = recentTasks.filter(t => t.status === 'running' || t.status === 'queued').length
-  const pendingApproval = recentTasks.filter(t => t.status === 'awaiting_approval').length
 
   return (
     <div className="space-y-6">
@@ -63,8 +139,12 @@ export function DashboardPage() {
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Active Projects" value={String(projects.filter(p => p.status === 'active').length)} />
         <StatCard label="Tasks Running" value={String(runningCount)} />
-        <StatCard label="Needs Approval" value={String(pendingApproval)}
-          sub={pendingApproval > 0 ? 'Check inbox' : undefined} />
+        <StatCard
+          label="Needs Attention"
+          value={String(attentionCount)}
+          sub={attentionCount > 0 ? 'Check inbox' : undefined}
+          accent={attentionCount > 0 ? 'text-amber-400' : undefined}
+        />
         <StatCard label="Total Cost" value={costs ? formatCost(costs.total_cost_usd) : '—'} />
       </div>
 
@@ -103,6 +183,11 @@ export function DashboardPage() {
         <div className="col-span-2 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Recent Activity</h2>
+            {attentionCount > 0 && (
+              <Link to="/inbox" className="text-xs text-amber-400 hover:text-amber-300">
+                {attentionCount} need{attentionCount === 1 ? 's' : ''} attention →
+              </Link>
+            )}
           </div>
           {loading ? (
             <p className="text-slate-500 text-sm">Loading…</p>
@@ -129,7 +214,11 @@ export function DashboardPage() {
               </CardHeader>
               <div className="divide-y divide-slate-800">
                 {recentTasks.map(t => (
-                  <div key={t.id} className="px-5 py-3 flex items-center gap-3">
+                  <button
+                    key={t.id}
+                    className="w-full px-5 py-3 flex items-center gap-3 hover:bg-slate-800/50 transition-colors text-left"
+                    onClick={() => setSelectedTask(t)}
+                  >
                     <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                       t.status === 'running' ? 'bg-violet-500 animate-pulse' :
                       t.status === 'completed' ? 'bg-emerald-500' :
@@ -138,17 +227,33 @@ export function DashboardPage() {
                     }`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-white truncate">{t.title}</p>
+                      <p className="text-xs text-slate-600 truncate">
+                        {projects.find(p => p.id === t.project_id)?.name ?? ''}
+                      </p>
                     </div>
                     <Badge variant={taskStatusVariant(t.status)}>{taskStatusLabel(t.status)}</Badge>
                     {t.cost_usd > 0 && <span className="text-xs text-slate-500 flex-shrink-0">{formatCost(t.cost_usd)}</span>}
                     <span className="text-xs text-slate-600 flex-shrink-0">{timeAgo(t.created_at)}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </Card>
           )}
         </div>
       </div>
+
+      {/* Task detail modal */}
+      {selectedTask && (
+        <Modal title={selectedTask.title} onClose={() => setSelectedTask(null)} className="max-w-2xl">
+          <TaskDetailModal
+            task={selectedTask}
+            agents={agents}
+            projects={projects}
+            onRetry={() => { setSelectedTask(null); load() }}
+            onClose={() => setSelectedTask(null)}
+          />
+        </Modal>
+      )}
     </div>
   )
 }
