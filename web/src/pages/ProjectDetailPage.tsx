@@ -250,30 +250,39 @@ export function ProjectDetailPage() {
       </div>
 
       {/* Delete confirmation modal */}
-      {showDeleteConfirm && (
-        <Modal title="Delete Project" onClose={() => { setShowDeleteConfirm(false); setDeleteError('') }}>
-          <div className="space-y-4">
-            <p className="text-slate-300 text-sm">
-              Are you sure you want to delete <span className="text-white font-semibold">{project.name}</span>?
-              This will permanently remove all tasks, agent assignments, and history for this project.
-            </p>
-            <p className="text-slate-400 text-xs">
-              Projects with running or queued tasks cannot be deleted — wait for them to finish first.
-            </p>
-            {deleteError && <p className="text-red-400 text-sm">{deleteError}</p>}
-            <div className="flex gap-3 justify-end">
-              <Button variant="secondary" onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }}>Cancel</Button>
-              <Button
-                className="bg-red-600 hover:bg-red-700 text-white"
-                onClick={deleteProject}
-                disabled={deleting}
-              >
-                {deleting ? 'Deleting…' : 'Delete Project'}
-              </Button>
+      {showDeleteConfirm && (() => {
+        const activeCount = tasks.filter(t => t.status === 'running' || t.status === 'queued').length
+        return (
+          <Modal title="Delete Project" onClose={() => { setShowDeleteConfirm(false); setDeleteError('') }}>
+            <div className="space-y-4">
+              <p className="text-slate-300 text-sm">
+                Are you sure you want to delete <span className="text-white font-semibold">{project.name}</span>?
+                This will permanently remove all {tasks.length} task{tasks.length !== 1 ? 's' : ''}, agent assignments, and history.
+              </p>
+              {activeCount > 0 && (
+                <div className="bg-amber-900/30 border border-amber-700/50 rounded p-3">
+                  <p className="text-amber-400 text-sm font-medium">⚠️ Cannot delete yet</p>
+                  <p className="text-amber-300/70 text-xs mt-1">
+                    {activeCount} task{activeCount !== 1 ? 's are' : ' is'} currently running or queued.
+                    Wait for them to finish or retry them to fail them first.
+                  </p>
+                </div>
+              )}
+              {deleteError && <p className="text-red-400 text-sm">{deleteError}</p>}
+              <div className="flex gap-3 justify-end">
+                <Button variant="secondary" onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }}>Cancel</Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-40"
+                  onClick={deleteProject}
+                  disabled={deleting || activeCount > 0}
+                >
+                  {deleting ? 'Deleting…' : 'Delete Project'}
+                </Button>
+              </div>
             </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        )
+      })()}
 
       <div className="grid grid-cols-3 gap-6">
         {/* Agents column */}

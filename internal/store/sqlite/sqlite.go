@@ -94,6 +94,26 @@ func (db *DB) migrate() error {
 	return nil
 }
 
+// ResetOrphanedTasks marks any queued or running tasks as failed.
+// Called on startup because those tasks lost their runner goroutines when the
+// process exited. Without this, they block project deletion and confuse the UI.
+func (db *DB) ResetOrphanedTasks(ctx context.Context) error {
+	res, err := db.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = 'failed',
+		    output = json_object('error', 'Task abandoned: server restarted while task was ' || status)
+		WHERE status IN ('queued', 'running')
+	`)
+	if err != nil {
+		return fmt.Errorf("reset orphaned tasks: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n > 0 {
+		log.Printf("startup: reset %d orphaned task(s) to failed", n)
+	}
+	return nil
+}
+
 // Seed ensures a default user exists. Called once after migration.
 func (db *DB) Seed(ctx context.Context) error {
 	var count int
