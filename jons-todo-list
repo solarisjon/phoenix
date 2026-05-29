@@ -15,11 +15,13 @@
   - [FIXED] Project deletion — safe delete with running-task guard, cascade removes tasks+assignments
   - [FIXED] Heartbeat scheduling — scheduler fires periodic tasks for agents with heartbeat_interval set
   - [TODO]  model picker dropdown — list available models per adapter kind
-  - [TODO]  README — professional project documentation
-  - [TODO]  database backup/restore — export and reimport the SQLite DB
-  - [TODO]  import/export agents and teams — share agent configs between instances
+  - [FIXED] README — 372-line professional README with full setup, API reference, architecture
+  - [FIXED] Agent teams — teams + team_agents tables, CRUD UI, assign whole team to project in one click
+  - [TODO]  cost graphs — spending over time and by agent/project on dashboard
+  - [TODO]  import/export agents and teams — share agent configs as JSON
+  - [TODO]  database backup endpoint — GET /api/admin/backup streams the SQLite file
   - [TODO]  UI theming
-  - [TODO]  agent teams — group agents into a named team, assign team to project
+  - [TODO]  model picker dropdown — list available models per adapter kind
   - need to think of a way managing heartbeat projects , projects may be static where there are created and a human adds tasks etc some of those tasks may need refining so we should allow for a completed task toi be refined. But also some tasks like manage a queue should wake and generate a persistent task on an agents queue so when they wake they can actioin it .. i am open to suggestions as to how best presnet these flows and make it intuitive as to whats going on whats pending and whats been completed
 
 
