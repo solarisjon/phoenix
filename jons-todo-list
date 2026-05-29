@@ -19,11 +19,19 @@
   - [FIXED] Agent teams — teams + team_agents tables, CRUD UI, assign whole team to project in one click
   - [FIXED] cost graphs — area chart (spend over time), bar charts (by agent, by project), task status breakdown bar
   - [FIXED] import/export teams — team bundle JSON (agents+providers template, no secrets); import wizard with provider key entry; export button on team detail page
-  - [TODO]  database backup endpoint — GET /api/admin/backup streams the SQLite file
+  - [FIXED] database backup endpoint — GET /api/admin/backup streams the SQLite file [TODO]
   - [FIXED] UI theming — 5 themes (Dark, Midnight, Forest, Ember, Light), live switcher in sidebar footer, persisted to localStorage
   - [TODO]  model picker dropdown — list available models per adapter kind
-  - need to think of a way managing heartbeat projects , projects may be static where there are created and a human adds tasks etc some of those tasks may need refining so we should allow for a completed task toi be refined. But also some tasks like manage a queue should wake and generate a persistent task on an agents queue so when they wake they can actioin it .. i am open to suggestions as to how best presnet these flows and make it intuitive as to whats going on whats pending and whats been completed
-  - light vs dark mode themes
+  - [FIXED] project modes — auto-adapting project page: autonomous (heartbeat stats scoreboard, last session, activity feed, attention panel) vs human-driven (task thread cards with reply-thread refinement, context carried forward)
+  - [FIXED] task follow-up refinement — POST /api/tasks/:id/followup; follow_up_of field; parent output auto-injected as context; nested thread in UI
+  - [FIXED] Light & Airy visual style applied to project views
+  - [FIXED] startup sanity: task timeout (30min), empty output detection, orphan PID kill on restart, StartupHealthCheck log summary
+  - [FIXED] pi adapter --no-session default fixed (was hanging in session mode); renamed NoSession->AllowSession
+  - [TODO]  database backup endpoint — GET /api/admin/backup streams the SQLite file
+  - [TODO]  model picker dropdown — list available models per adapter kind
+  - [TODO]  real-time inbox badge — live ⚠ N count on sidebar Inbox item via SSE/WS
+  - [TODO]  markdown rendering in task output — render md in task detail modal instead of raw text
+  - [TODO]  claudecode adapter smoke test — needs claude auth setup
 
 
 
@@ -38,7 +46,7 @@
   - [FIXED] UI CodingAgentFields updated — kind dropdown now has opencode / pi / Claude Code with per-kind fields
   - [FIXED] smoke test passed — pi adapter ran task, completed in ~3s, returned correct output
              route is POST /api/tasks with {project_id, agent_id, title, description} — run triggered automatically
-  - [TODO]  pi adapter: no_session defaults to false in DB records — update existing PI provider config or handle missing field gracefully
+  - [FIXED] pi adapter: no_session->allow_session, --no-session now default (was hanging without it)
   - [TODO]  claudecode adapter: needs smoke test once claude auth is set up
 
 
