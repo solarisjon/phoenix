@@ -88,14 +88,17 @@ export function ModelComboBox({
     fetchModels()
   }, [providerId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-fetch for directFetch when endpoint/baseUrl is present
+  // Auto-fetch for directFetch when endpoint/baseUrl is present.
+  // Only runs when there is no providerId — avoids wiping the providerId fetch.
   useEffect(() => {
+    if (providerId) return   // providerId fetch handles this
     if (!directFetch) { setModels([]); return }
     const hasTarget =
       (directFetch.kind === 'ollama' && directFetch.baseUrl) ||
       (directFetch.kind === 'llm'    && directFetch.endpoint)
     if (hasTarget) fetchModels()
   }, [ // eslint-disable-line react-hooks/exhaustive-deps
+    providerId,
     directFetch?.kind,
     directFetch?.kind === 'ollama' ? (directFetch as OllamaDirectConfig).baseUrl  : '',
     directFetch?.kind === 'llm'    ? (directFetch as LLMDirectConfig).endpoint    : '',
