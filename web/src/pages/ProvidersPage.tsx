@@ -66,16 +66,13 @@ function LLMFields({ cfg, onChange, providerId }: {
       </div>
       <div>
         <Label htmlFor="model">Model</Label>
-        {providerId ? (
-          <ModelComboBox
-            providerId={providerId}
-            value={cfg.model}
-            onChange={v => onChange({ ...cfg, model: v })}
-            placeholder="gpt-4o"
-          />
-        ) : (
-          <Input id="model" value={cfg.model} onChange={set('model')} placeholder="gpt-4o" />
-        )}
+        <ModelComboBox
+          providerId={providerId}
+          directFetch={!providerId && cfg.endpoint ? { kind: 'llm', endpoint: cfg.endpoint, authHeader: cfg.auth_header } : undefined}
+          value={cfg.model}
+          onChange={v => onChange({ ...cfg, model: v })}
+          placeholder="gpt-4o"
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -265,20 +262,13 @@ function OllamaFields({ cfg, onChange, providerId }: {
       </div>
       <div>
         <Label htmlFor="ol-model">Model *</Label>
-        {providerId ? (
-          <ModelComboBox
-            providerId={providerId}
-            value={cfg.model}
-            onChange={v => onChange({ ...cfg, model: v })}
-            placeholder="e.g. qwen3.5:latest, llama3.2:3b"
-          />
-        ) : (
-          <>
-            <Input id="ol-model" value={cfg.model} onChange={set('model')}
-              placeholder="e.g. qwen3.5:latest, llama3.2:3b, mistral:7b" />
-            <p className="text-xs text-slate-600 mt-1">Save the provider first to enable model picker. Run <code className="bg-slate-800 px-1 rounded text-slate-400">ollama list</code> to see installed models.</p>
-          </>
-        )}
+        <ModelComboBox
+          providerId={providerId}
+          directFetch={!providerId ? { kind: 'ollama', baseUrl: cfg.base_url || 'http://localhost:11434' } : undefined}
+          value={cfg.model}
+          onChange={v => onChange({ ...cfg, model: v })}
+          placeholder="e.g. qwen3.5:latest, llama3.2:3b"
+        />
       </div>
       <div>
         <Label htmlFor="ol-timeout">Timeout (seconds)</Label>
