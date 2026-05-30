@@ -1,158 +1,88 @@
 # Phoenix
 
-A self-hosted AI agent orchestration platform. Configure agents with personas, assign them to projects, and let them run tasks — backed by LLM endpoints or local coding agent tools like pi, opencode, or Claude Code.
+A self-hosted AI agent orchestration platform. Give agents personas, assign them to projects, run tasks — backed by local coding tools or any LLM endpoint.
 
-Single binary. No cloud dependency. SQLite database.
+**Single binary. SQLite. No cloud dependency.**
 
 ---
 
 ## What it does
 
-- **Agents** — give each AI agent a name, persona, instructions, and guardrails. Back them with an LLM endpoint or a local coding tool.
-- **Projects** — create project workspaces with an optional working directory. Assign one or more agents to each project.
-- **Tasks** — create tasks for agents within a project. Tasks run immediately, stream output live, and complete automatically.
-- **Inbox** — failed tasks and tasks awaiting human approval surface here. Retry, edit, dismiss, or approve from one place.
-- **Heartbeats** — agents with a heartbeat interval automatically receive a scheduled check-in task for each project they're assigned to.
-- **Agent spawning** — agents can delegate work to other agents via the spawn API.
-- **Cost tracking** — LLM token costs are tracked per task, per agent, per project.
+| Feature | Description |
+|---|---|
+| **Agents** | Persona + instructions + guardrails. Backed by an LLM or local coding tool. |
+| **Projects** | Workspaces with optional filesystem working directory. |
+| **Tasks** | Run immediately, stream output live, track cost. |
+| **Follow-up threads** | Chat-style refinement on any completed task — output carried forward as context. |
+| **Quick Tasks** | One-off tasks without a project (⌘K from anywhere). |
+| **Inbox** | Failed tasks, awaiting-approval tasks, and pending agent hire proposals in one place. |
+| **Heartbeats** | Agents with an interval auto-trigger scheduled check-in tasks per project. |
+| **Agent spawning** | Agents delegate work to other agents via the API. |
+| **Agent hiring** | Agents propose new hires → land in Inbox for human approval before any agent is created. |
+| **Teams** | Group agents into named teams; assign a whole team to a project at once. |
+| **Cost tracking** | Token costs tracked per task, per agent, per project. Area charts + bar charts on dashboard. |
+| **Themes** | 5 built-in themes (Dark, Midnight, Forest, Ember, Light), live switcher. |
+| **DB backup** | `GET /api/admin/backup` streams a consistent SQLite snapshot safe during live operation. |
 
 ---
 
 ## Quick start
 
-### 1. Prerequisites
+### Prerequisites
 
 - Go 1.21+
-- Node.js 18+ (for the frontend build)
-- At least one of:
-  - An LLM-compatible HTTP endpoint (OpenAI, Anthropic, LM Studio, LLM Proxy, etc.)
-  - A local coding agent: [`pi`](https://github.com/earendil-works/pi), [`opencode`](https://opencode.ai), or [`claude`](https://www.anthropic.com/claude-code)
+- Node.js 18+
+- At least one provider:
+  - An LLM-compatible HTTP endpoint (OpenAI, Anthropic, LM Studio, LLM Proxy…)
+  - **Ollama** for local models (qwen3, llama3, mistral, etc.)
+  - A local coding agent: [`pi`](https://github.com/earendil-works/pi), [`opencode`](https://opencode.ai), [`claude`](https://www.anthropic.com/claude-code), or [`crush`](https://github.com/charmbracelet/crush)
 
-### 2. Build
+### Build
 
 ```bash
 git clone https://github.com/solarisjon/phoenix
 cd phoenix
-
-# Build frontend then embed into Go binary
 cd web && npm install && npm run build && cd ..
 go build -o phoenix ./cmd/phoenix/
 ```
 
-Or with Make:
+Or:
 
 ```bash
 make build
 ```
 
-### 3. Run
+### Run
 
 ```bash
 ./phoenix
-# Phoenix listening on http://localhost:8080
+# → http://localhost:8080
 ```
 
-Open [http://localhost:8080](http://localhost:8080).
-
-Data is stored at `~/.local/share/phoenix/phoenix.db` (Linux/macOS) or `%LOCALAPPDATA%\phoenix\phoenix.db` (Windows). The database is created automatically on first run.
-
-Set `PHOENIX_PORT` to change the port:
+Data lives at `~/.local/share/phoenix/phoenix.db`. Created automatically on first run.
 
 ```bash
-PHOENIX_PORT=9000 ./phoenix
+PHOENIX_PORT=9000 ./phoenix   # custom port
 ```
 
 ---
 
-## First-time setup
+## Providers
 
-### Step 1 — Add a provider
+### Ollama (local models)
 
-Go to **Providers** and click **+ Add Provider**.
+Run models locally with [Ollama](https://ollama.com). No API key needed.
 
-**LLM endpoint** (e.g. LM Studio, LLM Proxy, OpenAI-compatible):
+1. Install Ollama and pull a model: `ollama pull qwen3.5:latest`
+2. Settings → Providers → Add Provider → **🧠 Ollama (local models)**
+3. Set model name (e.g. `qwen3.5:latest`, `llama3.2:3b`, `mistral:7b`)
 
-| Field | Example |
-|---|---|
-| Name | LLM Proxy |
-| Type | LLM |
-| Endpoint | `http://localhost:8080/v1/chat/completions` |
-| Auth Header | `Authorization: Bearer sk-...` |
-| Model | `claude-sonnet-4-5` |
-| Cost per 1M input tokens | `3.00` |
-| Cost per 1M output tokens | `15.00` |
+Thinking tokens (chain-of-thought from qwen3, deepseek-r1) are suppressed by default for clean output. Enable *Show thinking tokens* if you want to see the reasoning.
 
-**Coding agent** (pi, opencode, or Claude Code):
+### LLM endpoints
 
-| Field | pi | opencode | Claude Code |
-|---|---|---|---|
-| Name | PI | Opencode | Claude Code |
-| Type | Coding Agent | Coding Agent | Coding Agent |
-| Kind | pi | opencode | claudecode |
-| Binary Path | `/usr/local/bin/pi` | `/usr/local/bin/opencode` | `/usr/local/bin/claude` |
+Any OpenAI-compatible chat completions endpoint:
 
-Environment variables in config fields are expanded at runtime — use `${ANTHROPIC_API_KEY}` rather than pasting secrets into the database.
-
-### Step 2 — Create an agent
-
-Go to **Agents** and click **+ New Agent**.
-
-Fill in:
-- **Name** — how the agent appears in the UI
-- **Persona** — who the agent is (role, seniority, personality)
-- **Instructions** — what the agent does and how
-- **Guardrails** — what the agent must never do
-- **Provider** — which LLM or coding tool powers this agent
-- **Model Override** — optional, overrides the provider's default model for this specific agent
-
-Click **✦ Generate with AI** to have an LLM draft the persona, instructions, and guardrails from a plain-English description.
-
-Optional:
-- **Heartbeat Interval** — how often (in seconds) to automatically trigger a check-in task for each project the agent is assigned to. Leave blank for manual-only.
-- **Allow agent to spawn tasks for other agents** — enables the agent to delegate work via `POST /api/agents/spawn`.
-
-### Step 3 — Create a project
-
-Go to **Projects** and click **+ New Project**.
-
-- **Name** and **Description** — what the project is for
-- **Working Directory** — optional filesystem path passed to coding agents as their working directory (e.g. `/Users/you/my-repo`). Leave blank to use the coding agent's default.
-
-### Step 4 — Assign agents to the project
-
-Open the project → click **+ Assign Agent** → pick from your agents.
-
-### Step 5 — Create a task
-
-Inside the project, click **+ New Task**:
-- **Title** — brief task name
-- **Description** — full instructions for the agent
-- **Agent** — which assigned agent handles this task
-
-The task starts immediately. Watch output stream live in the task card.
-
----
-
-## UI overview
-
-| Page | What it shows |
-|---|---|
-| **Dashboard** | Active stats, live running tasks panel, recent activity. Click *Tasks Running* to expand the live panel; click *Needs Attention* to go to the inbox. |
-| **Inbox** | Failed tasks + tasks awaiting approval. Retry, dismiss, edit, approve, or reject. |
-| **Projects** | All projects. Click a project to open its workspace. |
-| **Project detail** | Assigned agents, task list with live streaming, cost summary. |
-| **Agents** | All agents with status and heartbeat indicator. Create, edit, delete. |
-| **Providers** | All configured LLM endpoints and coding agent tools. |
-
----
-
-## Provider types
-
-### LLM providers
-
-Calls any OpenAI-compatible chat completions endpoint. Streams response via SSE. Calculates cost from token counts and configured per-token rates.
-
-Config fields:
 ```json
 {
   "endpoint": "https://api.openai.com/v1/chat/completions",
@@ -163,207 +93,239 @@ Config fields:
 }
 ```
 
-### Coding agent providers
+Use `${ENV_VAR}` for secrets — they're expanded at runtime, never stored in plaintext.
 
-Spawns a local subprocess and streams its output. The agent's system prompt (persona + instructions + guardrails) and the task description are passed as arguments. Output is streamed in real time.
+### Coding agents
 
-Supported kinds:
+Spawn a local subprocess. The agent's system prompt and task description are passed to the tool, output streamed live.
 
-| Kind | Binary | Notes |
+| Kind | Binary | How it runs |
 |---|---|---|
-| `pi` | `pi` | Runs `pi --print --mode json`. Streams `text_delta` events. |
-| `opencode` | `opencode` | Runs `opencode run --format json`. Streams JSON text parts. |
-| `claudecode` | `claude` | Runs `claude --print --output-format stream-json --verbose`. |
+| `pi` | `pi` | `pi --print --mode json` via stdin |
+| `opencode` | `opencode` | `opencode run --format json` |
+| `claudecode` | `claude` | `claude --print --output-format stream-json --verbose` |
+| `crush` | `crush` | `crush run --quiet` via stdin; system prompt via `AGENTS.md` |
 
-The project's **Working Directory** overrides the provider-level `working_dir` when set, so you can have one coding agent provider serve multiple projects in different directories.
-
----
-
-## Agent system prompt
-
-Each agent's system prompt is assembled from:
-
-1. **Persona** — who the agent is
-2. **Instructions** — operational detail
-3. **Guardrails** — constraints and escalation rules
-4. **Spawn instructions** — injected automatically if *Allow agent to spawn tasks* is enabled
+The project **Working Directory** overrides the provider-level `working_dir`, so one coding agent provider can serve multiple projects in different repos.
 
 ---
 
-## Heartbeat scheduling
+## Agents
 
-If an agent has a **Heartbeat Interval** set:
+### Creating an agent
 
-- Phoenix automatically creates a `Heartbeat — YYYY-MM-DD HH:MM` task for that agent in every project it's assigned to, on the configured interval.
-- If the agent already has a running or queued task in a project, the heartbeat is skipped for that cycle.
-- Agent/project assignments are re-scanned every 60 seconds, so new assignments take effect within a minute.
-- Setting the interval to blank (null) stops future heartbeats.
+Settings → Agents → **+ New Agent**
+
+- **Name** — display name
+- **Persona** — who the agent is (role, seniority, style)
+- **Instructions** — what the agent does and how
+- **Guardrails** — hard constraints and escalation rules
+- **Provider** — which LLM or coding tool powers this agent
+- **Model Override** — overrides the provider's default model for this agent only
+
+Click **✦ Generate with AI** to draft persona/instructions/guardrails from a plain-English description.
+
+### Heartbeats
+
+Set a **Heartbeat Interval** (minimum 60s) and the agent automatically receives a scheduled check-in task for each project it's assigned to. If the agent already has a running or queued task, the heartbeat is skipped for that cycle.
+
+### Agent spawning
+
+Enable **Allow agent to spawn tasks for other agents**. The agent's system prompt gains instructions to call `POST /api/agents/spawn`, creating tasks for any other agent by ID.
+
+### Agent hiring
+
+Enable **Allow agent to hire new agents 🧑‍💼**. When the agent identifies a capability gap during a task, it can propose a new hire via `POST /api/agent-drafts`. The proposal lands in the **Inbox** for human review — name, persona, instructions, guardrails, and provider are all editable before approval. Approval creates a live agent; rejection dismisses the proposal. No agent is ever created without human sign-off.
 
 ---
 
-## Agent spawning
+## Projects
 
-An agent with **Allow agent to spawn tasks** enabled receives spawn instructions in its system prompt. It can create tasks for other agents by calling:
+Projects have an optional **Working Directory** passed to coding agents. Two modes are detected automatically:
 
-```http
-POST /api/agents/spawn
-{
-  "source_agent_id": "<this agent's ID>",
-  "target_agent_id": "<target agent's ID>",
-  "project_id": "<project ID>",
-  "title": "Task title",
-  "description": "What the target agent should do"
-}
-```
+- **Autonomous mode** — one or more assigned agents have a heartbeat interval. Shows an activity scoreboard, last session summary, and attention panel.
+- **Human-driven mode** — no heartbeat agents. Shows task thread cards with inline follow-up reply input.
 
-The source agent's ID and project ID are injected into its system prompt automatically — the agent only needs to know the target agent's ID.
+### Follow-up threads
+
+On any completed or failed task, type a follow-up message to refine the output. The previous output is automatically injected as context. Follow-ups chain indefinitely, forming a conversation thread. Available from every task detail modal across Dashboard, Tasks, Project, and Inbox pages.
+
+---
+
+## Teams
+
+Group agents into named teams. Assign a whole team to a project in one click. Export a team as a bundle (agents + provider templates, no secrets) and import it on another Phoenix instance via the 3-step import wizard.
+
+---
+
+## Quick Tasks
+
+Press **⌘K** (or click the ✦ button) from anywhere to run a one-off task without creating a project first. Quick Tasks run in an internal sandbox project and appear in the Tasks page.
+
+---
+
+## Inbox
+
+Three sections, highest priority first:
+
+1. **Pending Hires** (purple) — agent hire proposals awaiting approval. Edit, approve with provider selection, or reject.
+2. **Awaiting Approval** (amber) — tasks where an agent requested human sign-off. Approve, revise with feedback, or reject.
+3. **Failed** (red) — tasks that errored. Retry, edit, or dismiss.
+
+The Inbox badge on the sidebar counts all three categories in real time.
 
 ---
 
 ## API reference
 
-All endpoints are under `/api/`.
-
 ### Providers
-| Method | Path | Description |
+| Method | Path | |
 |---|---|---|
-| `GET` | `/api/providers` | List all providers |
-| `POST` | `/api/providers` | Create a provider |
-| `GET` | `/api/providers/:id` | Get a provider |
-| `PUT` | `/api/providers/:id` | Update a provider |
-| `DELETE` | `/api/providers/:id` | Delete a provider |
+| GET | `/api/providers` | List all |
+| POST | `/api/providers` | Create |
+| GET/PUT/DELETE | `/api/providers/:id` | Read / update / delete |
 
 ### Agents
-| Method | Path | Description |
+| Method | Path | |
 |---|---|---|
-| `GET` | `/api/agents` | List all agents |
-| `POST` | `/api/agents` | Create an agent |
-| `GET` | `/api/agents/:id` | Get an agent |
-| `PUT` | `/api/agents/:id` | Update an agent |
-| `DELETE` | `/api/agents/:id` | Delete an agent |
-| `POST` | `/api/agents/generate` | AI-generate persona/instructions/guardrails from a description |
-| `POST` | `/api/agents/spawn` | Create a task on behalf of an agent (requires `can_spawn_agents`) |
+| GET | `/api/agents` | List all |
+| POST | `/api/agents` | Create |
+| GET/PUT/DELETE | `/api/agents/:id` | Read / update / delete |
+| POST | `/api/agents/generate` | AI-generate persona/instructions/guardrails |
+| POST | `/api/agents/spawn` | Create a task on behalf of an agent |
+
+### Agent Drafts (hiring)
+| Method | Path | |
+|---|---|---|
+| GET | `/api/agent-drafts` | List pending hire proposals |
+| POST | `/api/agent-drafts` | Submit a hire proposal (agents call this) |
+| PUT | `/api/agent-drafts/:id` | Edit a draft |
+| POST | `/api/agent-drafts/:id/approve` | Approve → creates live agent |
+| POST | `/api/agent-drafts/:id/reject` | Reject |
+| POST | `/api/agent-drafts/:id/dismiss` | Dismiss without rejecting |
 
 ### Projects
-| Method | Path | Description |
+| Method | Path | |
 |---|---|---|
-| `GET` | `/api/projects` | List all projects |
-| `POST` | `/api/projects` | Create a project |
-| `GET` | `/api/projects/:id` | Get a project |
-| `PUT` | `/api/projects/:id` | Update a project |
-| `DELETE` | `/api/projects/:id` | Delete a project (blocked if tasks are running) |
-| `GET` | `/api/projects/:id/agents` | List agents assigned to a project |
-| `POST` | `/api/projects/:id/agents` | Assign an agent to a project |
-| `DELETE` | `/api/projects/:id/agents/:agentId` | Remove an agent from a project |
+| GET | `/api/projects` | List all |
+| POST | `/api/projects` | Create |
+| GET/PUT/DELETE | `/api/projects/:id` | Read / update / delete |
+| GET/POST | `/api/projects/:id/agents` | List / assign agents |
+| DELETE | `/api/projects/:id/agents/:agentId` | Remove agent |
 
 ### Tasks
-| Method | Path | Description |
+| Method | Path | |
 |---|---|---|
-| `GET` | `/api/tasks?project_id=` | List tasks for a project |
-| `POST` | `/api/tasks` | Create and immediately run a task |
-| `GET` | `/api/tasks/:id` | Get a task |
-| `PUT` | `/api/tasks/:id` | Edit task title/description (non-running tasks only) |
-| `DELETE` | `/api/tasks/:id` | Delete a task |
-| `POST` | `/api/tasks/:id/retry` | Reset a failed task and re-run it |
-| `POST` | `/api/tasks/:id/dismiss` | Soft-hide a task from the inbox |
-| `GET` | `/api/tasks/running` | All running + queued tasks across all projects |
-| `GET` | `/api/tasks/attention` | All failed + awaiting-approval tasks (undismissed) |
+| GET | `/api/tasks?project_id=` | List project tasks |
+| POST | `/api/tasks` | Create + run |
+| POST | `/api/tasks/quick` | Create quick task (no project) |
+| GET | `/api/tasks/running` | All running + queued (cross-project) |
+| GET | `/api/tasks/attention` | All failed + awaiting-approval (cross-project) |
+| GET/PUT/DELETE | `/api/tasks/:id` | Read / edit / delete |
+| POST | `/api/tasks/:id/retry` | Re-run a failed task |
+| POST | `/api/tasks/:id/dismiss` | Soft-hide from inbox |
+| POST | `/api/tasks/:id/followup` | Create a follow-up refinement task |
 
 ### Inbox / Approval
-| Method | Path | Description |
+| Method | Path | |
 |---|---|---|
-| `GET` | `/api/inbox` | Tasks awaiting approval |
-| `POST` | `/api/inbox/:taskId/approve` | Approve a task (resumes execution) |
-| `POST` | `/api/inbox/:taskId/reject` | Reject a task (marks failed) |
-| `POST` | `/api/inbox/:taskId/revise` | Send feedback and re-run |
+| GET | `/api/inbox` | Tasks awaiting approval |
+| POST | `/api/inbox/:taskId/approve` | Approve |
+| POST | `/api/inbox/:taskId/reject` | Reject |
+| POST | `/api/inbox/:taskId/revise` | Send feedback + re-run |
 
-### Stats
-| Method | Path | Description |
+### Teams
+| Method | Path | |
 |---|---|---|
-| `GET` | `/api/stats/costs` | Cost totals by agent and by project |
+| GET | `/api/teams` | List all |
+| POST | `/api/teams` | Create |
+| GET/PUT/DELETE | `/api/teams/:id` | Read / update / delete |
+| GET/POST | `/api/teams/:id/agents` | List / add agents |
+| DELETE | `/api/teams/:id/agents/:agentId` | Remove agent |
+| POST | `/api/teams/:id/assign/:projectId` | Assign whole team to project |
+| GET | `/api/teams/:id/export` | Export team bundle JSON |
+| POST | `/api/import/team` | Import a team bundle |
 
-### Real-time
-| | Path | Description |
+### Stats & Admin
+| Method | Path | |
 |---|---|---|
-| `WS` | `/api/ws` | WebSocket — receives `task.status_changed`, `task.output_stream`, `agent.status_changed` events |
+| GET | `/api/stats/costs` | Cost totals + charts data |
+| GET | `/api/admin/backup` | Stream a consistent SQLite snapshot |
+
+### WebSocket
+| | `/api/ws` | Events: `task.status_changed`, `task.output_stream`, `agent.status_changed`, `inbox.new_item`, `agent_draft.created` |
 
 ---
 
-## Data locations
+## Database & backup
 
-| Platform | Config | Database |
-|---|---|---|
-| Linux/macOS | `~/.config/phoenix/` | `~/.local/share/phoenix/phoenix.db` |
-| macOS (XDG override) | `$XDG_CONFIG_HOME/phoenix/` | `$XDG_DATA_HOME/phoenix/phoenix.db` |
-| Windows | `%APPDATA%\phoenix\` | `%LOCALAPPDATA%\phoenix\phoenix.db` |
+Single SQLite file at `~/.local/share/phoenix/phoenix.db`.
 
-### Backup
-
-The database is a single SQLite file. Back it up with:
-
+**Download a snapshot while running:**
+```
+Settings → System → Download Backup
+```
+or:
 ```bash
-cp ~/.local/share/phoenix/phoenix.db ~/.local/share/phoenix/phoenix.db.bak
+curl -o backup.db http://localhost:8080/api/admin/backup
 ```
 
-Or snapshot it while running (SQLite WAL mode is safe for online copies):
-
-```bash
-sqlite3 ~/.local/share/phoenix/phoenix.db ".backup backup.db"
-```
+Uses `VACUUM INTO` for a WAL-consolidated snapshot — safe during live operation.
 
 ---
 
 ## Development
 
 ```bash
-# Run tests
-make test
-# or
-go test ./...
+go test ./...          # run all tests
+make test              # same via Make
 
-# Frontend dev server (hot reload at :5173, proxies API to :8080)
-make dev-web
-
-# Backend with hot reload (requires `air`)
-make dev-go
-
-# Full production build
-make build
+cd web && npm run dev  # frontend dev server at :5173 (proxies API to :8080)
+make build             # full production build
 ```
 
-Project structure:
+### Project structure
 
 ```
-cmd/phoenix/          — entry point
+cmd/phoenix/           entry point
 internal/
-  api/                — HTTP handlers, WebSocket hub
-  agent/              — task runner, prompt assembly
-  scheduler/          — heartbeat ticker management
-  provider/           — Provider interface + adapters
-    llm/              — OpenAI-compatible HTTP adapter
-    opencode/         — opencode CLI adapter
-    pi/               — pi CLI adapter
-    claudecode/       — Claude Code CLI adapter
-    registry/         — builds Provider instances from DB records
-  store/              — repository interfaces
-    sqlite/           — SQLite implementations + embedded migrations
-  model/              — shared domain types
-  paths/              — XDG/platform-aware data directory resolution
-  frontend/           — embedded React dist
-web/                  — React + TypeScript + Vite + Tailwind frontend
-docs/                 — design specs and implementation notes
+  api/                 HTTP handlers + WebSocket hub
+  agent/               task runner + prompt assembly
+  scheduler/           heartbeat ticker management
+  provider/            Provider interface + adapters
+    llm/               OpenAI-compatible HTTP adapter
+    ollama/            Ollama local model adapter
+    opencode/          opencode CLI adapter
+    pi/                pi CLI adapter (stdin prompt delivery)
+    claudecode/        Claude Code CLI adapter
+    crush/             crush CLI adapter (AGENTS.md lifecycle)
+    registry/          builds Provider instances from DB records
+  store/               repository interfaces
+    sqlite/            SQLite implementations + embedded migrations
+  model/               shared domain types
+  paths/               XDG/platform-aware data directory resolution
+  frontend/            embedded React dist (web/dist)
+web/                   React + TypeScript + Vite + Tailwind
 ```
+
+### Migrations
+
+SQL files in `internal/store/sqlite/migrations/` are embedded and applied in order at startup. To add a migration, create `NNN_description.sql` — the number must be higher than the current highest.
 
 ---
 
 ## Roadmap
 
-- [ ] Agent teams — group agents, assign a whole team to a project at once
-- [ ] Cost graphs — spending over time, by agent, by project
-- [ ] Import/export agents — share agent configurations as JSON
-- [ ] Database backup endpoint — `GET /api/admin/backup` streams the SQLite file
-- [ ] UI theming
-- [ ] Multi-user authentication
+See [GitHub Issues](https://github.com/solarisjon/phoenix/issues) for the full tracked backlog.
+
+High-level upcoming work:
+- Model picker dropdown (list available models per adapter)
+- Task cancellation (kill a running task mid-stream)
+- Bulk inbox actions (dismiss all failed, clear all)
+- Running task count badge in nav
+- Cost estimates before running
+- Copilot CLI adapter
+- Multi-user authentication
 
 ---
 
