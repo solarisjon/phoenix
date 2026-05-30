@@ -89,6 +89,9 @@ export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
           {agentName} · {relativeTime(task.completed_at ?? task.created_at)}
           {task.cost_usd > 0 && ` · $${task.cost_usd.toFixed(3)}`}
         </div>
+        {task.source && (
+          <div className="text-xs text-stone-400 mt-0.5">↳ {task.source}</div>
+        )}
       </div>
 
       {/* Output preview */}

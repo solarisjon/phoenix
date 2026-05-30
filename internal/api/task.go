@@ -19,6 +19,7 @@ type createTaskRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Input       string `json:"input"`
+	Source      string `json:"source"` // free-text provenance, e.g. "Jira triage 2026-05-30"
 }
 
 func (r createTaskRequest) validate() string {
@@ -153,6 +154,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		AgentID:     req.AgentID,
 		Title:       strings.TrimSpace(req.Title),
 		Description: req.Description,
+		Source:      req.Source,
 		Status:      model.TaskStatusPending,
 		Input:       input,
 		Output:      "{}",

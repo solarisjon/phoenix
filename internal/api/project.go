@@ -15,12 +15,16 @@ type createProjectRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	WorkingDir  string `json:"working_dir"`
+	Kind        string `json:"kind"`
 	Status      string `json:"status"`
 }
 
 func (r createProjectRequest) validate() string {
 	if strings.TrimSpace(r.Name) == "" {
 		return "name is required"
+	}
+	if r.Kind != "" && r.Kind != string(model.ProjectKindProject) && r.Kind != string(model.ProjectKindMonitor) {
+		return "kind must be 'project' or 'monitor'"
 	}
 	if r.Status != "" &&
 		r.Status != string(model.ProjectStatusActive) &&
@@ -35,7 +39,8 @@ type assignAgentRequest struct {
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	list, err := s.projects.List(r.Context())
+	kind := r.URL.Query().Get("kind") // optional: "project" | "monitor"
+	list, err := s.projects.ListByKind(r.Context(), kind)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
@@ -80,12 +85,17 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if req.Status != "" {
 		status = model.ProjectStatus(req.Status)
 	}
+	kind := model.ProjectKindProject
+	if req.Kind != "" {
+		kind = model.ProjectKind(req.Kind)
+	}
 
 	p := &model.Project{
 		ID:          uuid.New().String(),
 		Name:        strings.TrimSpace(req.Name),
 		Description: req.Description,
 		WorkingDir:  strings.TrimSpace(req.WorkingDir),
+		Kind:        kind,
 		Owner:       user.ID,
 		Status:      status,
 		CreatedAt:   time.Now(),
@@ -121,6 +131,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.Name = strings.TrimSpace(req.Name)
 	existing.Description = req.Description
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
+	if req.Kind != "" {
+		existing.Kind = model.ProjectKind(req.Kind)
+	}
 	if req.Status != "" {
 		existing.Status = model.ProjectStatus(req.Status)
 	}

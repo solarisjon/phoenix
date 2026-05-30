@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-05-30  
+**Last updated:** 2026-05-30 (end of day)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -32,7 +32,7 @@ A self-hosted AI agent orchestration platform. Single Go binary, SQLite, React f
 ```
 cmd/phoenix/main.go                    # entry point; wires all repos, starts scheduler
 internal/
-  model/model.go                       # ALL domain types (Agent, Task, Project, Team, AgentDraft, …)
+  model/model.go                       # ALL domain types (Agent, Task, Project, Team, AgentDraft, SystemSettings…)
   store/store.go                       # repository interfaces
   store/sqlite/                        # SQLite impls + embedded migrations
     migrations/
@@ -44,18 +44,23 @@ internal/
       006_task_pid.sql                 # tasks.runner_pid, tasks.timeout_at
       007_task_followup.sql            # tasks.follow_up_of
       008_agent_hiring.sql             # agents.can_hire_agents + agent_drafts table
+      009_system_settings.sql          # system_settings key/value table (global guardrails)
+      010_task_source.sql              # tasks.source free-text provenance field
+      011_project_kind.sql             # projects.kind ('project' | 'monitor')
     agent.go, task.go, project.go, team.go, agent_draft.go, stats.go, admin.go, sqlite.go
+    system_settings.go                 # SystemSettingsRepo: Get/Save global guardrails
   api/
     server.go                          # router — ALL routes registered here
-    agent.go                           # CRUD + generate + spawnTask
+    agent.go                           # CRUD + generate + spawnTask (source field added)
     agent_draft.go                     # CRUD + approve + reject + dismiss
     task.go                            # CRUD + retry + dismiss + followup + quick + listRunning + listAttention
-    inbox.go                           # approve + reject + revise
+    inbox.go                           # approve + reject + revise + dismissAll
+    settings.go                        # GET/PUT /admin/settings + generate-guardrails
     provider.go, project.go, team.go, stats.go, admin.go
     hub.go / ws.go / events.go         # WebSocket
   agent/
     runner.go                          # goroutine lifecycle, task execution, PID tracking, timeout
-    prompt.go                          # system prompt assembly; InjectFollowUpContext(); hiring instructions
+    prompt.go                          # system prompt assembly; global guardrails injection; hiring instructions
   scheduler/
     scheduler.go                       # heartbeat ticker; scans every 60s; skips if agent busy
   provider/
@@ -74,25 +79,27 @@ web/src/
   lib/utils.ts                         # taskStatusVariant, parseOutput, formatCost, timeAgo
   components/
     layout/AppLayout.tsx               # inbox + running count badges; WS lifecycle
-    layout/Sidebar.tsx                 # nav with badges
-    project/ProjectAutonomousView.tsx  # heartbeat-agent project view
-    project/ProjectHumanView.tsx       # human-driven task thread view
-    project/TaskThreadCard.tsx         # task card with reply input
+    layout/Sidebar.tsx                 # nav: Dashboard, Inbox, Projects, Monitors, Tasks, Teams, Settings
+    project/ProjectHumanView.tsx       # human-driven task thread view (ProjectAutonomousView DELETED)
+    project/TaskThreadCard.tsx         # task card with reply input; shows task.source provenance label
     ui/follow-up-thread.tsx            # chat-bubble follow-up UI (used in all task modals)
     ui/markdown-output.tsx             # react-markdown with --ph-* var scoped CSS
     ui/quick-task.tsx                  # floating FAB + ⌘K modal
     ui/theme-picker.tsx                # theme switcher
   pages/
     DashboardPage.tsx, InboxPage.tsx, TasksPage.tsx
-    ProjectDetailPage.tsx, ProjectsPage.tsx
+    ProjectDetailPage.tsx              # always human view; no isAutonomous detection
+    ProjectsPage.tsx                   # lists kind=project only; edit form has kind toggle
+    MonitorsPage.tsx                   # NEW: lists kind=monitor; create monitor form
+    MonitorDetailPage.tsx              # NEW: run log, countdown, run-now button
     AgentsPage.tsx, ProvidersPage.tsx
-    SettingsPage.tsx (tabs: Agents | Providers | System)
+    SettingsPage.tsx                   # System tab: Global Guardrails section + DB backup
     TeamsPage.tsx, TeamDetailPage.tsx
 ```
 
 ---
 
-## Data Model — Current State (migrations 001–008)
+## Data Model — Current State (migrations 001–011)
 
 ### agents
 ```sql
@@ -106,14 +113,14 @@ created_by, status, created_at
 
 ### tasks
 ```sql
-id, project_id, agent_id, title, description, status, input, output,
-cost_usd, tokens_in, tokens_out,
+id, project_id, agent_id, parent_task_id, follow_up_of,
+title, description, status, input, output,
+cost_usd REAL DEFAULT 0,
 dismissed INTEGER DEFAULT 0,
 runner_pid INTEGER DEFAULT 0,
 timeout_at DATETIME,
-follow_up_of TEXT REFERENCES tasks(id),
-parent_task_id TEXT REFERENCES tasks(id),
-created_at, updated_at, completed_at
+source TEXT DEFAULT '',              -- free-text provenance (migration 010)
+created_at, started_at, completed_at
 ```
 
 ### agent_drafts
@@ -127,7 +134,16 @@ created_at, updated_at
 
 ### projects
 ```sql
-id, name, description, working_dir TEXT DEFAULT '', status, created_by, created_at, updated_at
+id, name, description,
+working_dir TEXT DEFAULT '',
+kind TEXT DEFAULT 'project' CHECK(kind IN ('project','monitor')),  -- migration 011
+owner, status, created_at
+```
+
+### system_settings (migration 009)
+```sql
+key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME
+-- rows: global_guardrails_enabled ('0'/'1'), global_guardrails (text)
 ```
 
 ### teams + team_agents + project_agents (from migration 005)
@@ -139,10 +155,11 @@ id, name, description, working_dir TEXT DEFAULT '', status, created_by, created_
 ```
 GET/POST           /api/providers
 GET/PUT/DELETE     /api/providers/:id
+GET                /api/providers/:id/models
 
 GET/POST           /api/agents
 POST               /api/agents/generate
-POST               /api/agents/spawn
+POST               /api/agents/spawn              # body: source field optional
 GET/PUT/DELETE     /api/agents/:id
 
 GET/POST           /api/agent-drafts
@@ -151,12 +168,13 @@ POST               /api/agent-drafts/:id/approve
 POST               /api/agent-drafts/:id/reject
 POST               /api/agent-drafts/:id/dismiss
 
-GET/POST           /api/projects
-GET/PUT/DELETE     /api/projects/:id
+GET/POST           /api/projects                  # GET: ?kind=project|monitor filter
+GET/PUT/DELETE     /api/projects/:id              # PUT: kind field accepted
 GET/POST           /api/projects/:id/agents
 DELETE             /api/projects/:id/agents/:agentId
+POST               /api/projects/:id/teams
 
-GET/POST           /api/tasks                    # ?project_id= filter
+GET/POST           /api/tasks                    # ?project_id= filter; POST: source field optional
 POST               /api/tasks/quick              # sandbox project
 GET                /api/tasks/running
 GET                /api/tasks/attention
@@ -166,6 +184,7 @@ POST               /api/tasks/:id/dismiss
 POST               /api/tasks/:id/followup
 
 GET                /api/inbox
+POST               /api/inbox/dismiss-all         # ?filter=failed|awaiting|all
 POST               /api/inbox/:taskId/approve
 POST               /api/inbox/:taskId/reject
 POST               /api/inbox/:taskId/revise
@@ -180,11 +199,13 @@ POST               /api/import/team
 
 GET                /api/stats/costs
 GET                /api/admin/backup
+GET/PUT            /api/admin/settings            # global guardrails
+POST               /api/admin/settings/generate-guardrails
 
 WS                 /api/ws
 ```
 
-**Route ordering:** static routes MUST be before `{id}` params in chi. `/tasks/quick`, `/tasks/running`, `/tasks/attention`, `/agents/generate`, `/agents/spawn` all registered before `/:id`.
+**Route ordering:** static routes MUST be before `{id}` params in chi. `/tasks/quick`, `/tasks/running`, `/tasks/attention`, `/agents/generate`, `/agents/spawn`, `/inbox/dismiss-all` all registered before `/:id` params.
 
 ---
 
@@ -214,7 +235,10 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 - **Agent hiring:** `can_hire_agents` agents get hiring instructions injected into system prompt; proposals go to `agent_drafts`, never directly create agents; approval creates Agent with `created_by="agent:<id>"`
 - **Quick Tasks sandbox:** fixed UUID `00000000-0000-0000-0000-000000000002`; `ensureSandboxProject()` is idempotent
 - **Backup:** `VACUUM INTO` for WAL-consolidated snapshot safe during live operation
-- **Project mode detection:** `isAutonomous = agents.some(a => (a.heartbeat_interval ?? 0) > 0)` — computed client-side
+- **Projects vs Monitors:** `projects.kind` field distinguishes human-driven workbenches (`'project'`) from autonomous heartbeat daemons (`'monitor'`). Projects always use `ProjectHumanView`. Monitors use `MonitorDetailPage` (run log). `ProjectAutonomousView` is deleted. `isAutonomous` flag is gone.
+- **Task source provenance:** `tasks.source` is a free-text string set by dispatching agents (e.g. Monitors) when creating tasks in other projects. Empty for human-created tasks. Displayed on task cards as `↳ <source>`.
+- **Global guardrails:** stored in `system_settings` table. When `global_guardrails_enabled=1`, the text is appended to every agent's system prompt under `## Platform-Wide Guardrails (mandatory)`. Loaded per-task in `runner.go`, injected in `prompt.go`. Takes precedence over per-agent guardrails.
+- **Bulk inbox dismiss:** `POST /api/inbox/dismiss-all?filter=failed|awaiting|all` marks matching tasks dismissed. Static route registered before `/:taskId`.
 - **Inbox badge:** counts failed + awaiting_approval tasks AND pending agent_drafts
 - **Model override:** patched into provider config JSON at runtime via `GetWithOverride()`, not cached
 - **Team export api_key:** always exported as empty string — never included in bundle
@@ -247,39 +271,47 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–008
+- Migrations applied: 001–011
 
 ---
 
 ## Next Steps (see GitHub Issues)
 
+Recently completed (2026-05-30):
+- ✓ Global guardrails (system_settings, Settings → System tab, AI-assist generation)
+- ✓ Bulk inbox dismiss (dismiss-all per section, top-level dismiss all)
+- ✓ Projects / Monitors split (kind field, new sidebar entry, MonitorsPage, MonitorDetailPage, task source provenance)
+
 Priority order from issues backlog:
 1. **#1** Task cancellation (SIGTERM via runner_pid)
-2. **#2** Bulk inbox dismiss all
-3. **#3** Running task count badge in nav
-4. **#4** Model picker dropdown (Ollama: GET /api/tags)
-5. **#15** Task queuing / per-agent concurrency limits
-6. **#5** Cost estimates before running
-7. **#10** Per-agent activity log
-8. **#6** Token usage detail in task modal
-9. **#9** System info panel in Settings
-10. **#11** Full-text task search
-11. **#14** claudecode smoke test (BLOCKED: needs claude auth)
-12. **#7** Copilot adapter (BLOCKED: needs copilot login)
-13. **#8** DB restore endpoint
-14. **#12** Multi-user auth (Phase 7)
-15. **#13** Mobile layout
+2. **#3** Running task count badge in nav
+3. **#4** Model picker dropdown (Ollama: GET /api/tags)
+4. **#15** Task queuing / per-agent concurrency limits
+5. **#5** Cost estimates before running
+6. **#10** Per-agent activity log
+7. **#6** Token usage detail in task modal
+8. **#9** System info panel in Settings
+9. **#11** Full-text task search
+10. **#14** claudecode smoke test (BLOCKED: needs claude auth)
+11. **#7** Copilot adapter (BLOCKED: needs copilot login)
+12. **#8** DB restore endpoint
+13. **#12** Multi-user auth (Phase 7)
+14. **#13** Mobile layout
 
 ---
 
 ## Gotchas
 
-- **Route ordering in chi:** static routes BEFORE parameterised routes or chi matches wrong handler
-- **Migration location:** `internal/store/sqlite/migrations/` ONLY (not repo root `migrations/`)  
+- **Route ordering in chi:** static routes BEFORE parameterised routes or chi matches wrong handler. `/inbox/dismiss-all` must be before `/inbox/:taskId`.
+- **Migration location:** `internal/store/sqlite/migrations/` ONLY (not repo root `migrations/`)
 - **Registry caching:** `registry.Get()` caches; `GetWithOverride()` bypasses; call `registry.Invalidate(id)` after provider update
 - **Server restart:** NOT hot-reloaded. Kill + rebuild + restart after any Go change
 - **pi stdin:** prompt delivered via stdin since 2026-05-30; `buildArgs()` no longer appends prompt arg
 - **crush --yolo:** flag does NOT exist in crush run; permissions via `~/.config/crush/crush.json` allowed_tools
 - **Ollama thinking:** `message.thinking` field in NDJSON chunks — skip by default, not part of `message.content`
-- **taskSelectCols const:** in `task.go` — must stay in sync with schema column count for scan to work
+- **taskSelectCols const:** in `task.go` — must stay in sync with schema column count for scan to work. `source` column added after `timeout_at`, before `created_at`.
 - **can_hire_agents vs can_spawn_agents:** independent flags; spawn = task for existing agent; hire = propose new agent via drafts
+- **ProjectAutonomousView is deleted:** do not reference it. Monitor detail view (`MonitorDetailPage`) is the replacement.
+- **isAutonomous flag is gone:** `ProjectDetailPage` always uses `ProjectHumanView`. Monitors are detected by `project.kind === 'monitor'`, not by agent heartbeat_interval.
+- **project.kind filter:** `GET /api/projects?kind=monitor` returns only monitors. Without the param, returns all (backwards compatible for scheduler, stats, etc.).
+- **AssembleRequest signature:** takes `(agent, task, globalGuardrails string)` — third arg added 2026-05-30. All callers must pass it.

@@ -41,11 +41,12 @@ func testServer(t *testing.T) *Server {
 	reg := registry.NewRegistry(provRepo)
 	reg.InjectForTest("prov-test", &mockProv{})
 
-	runner := agent.New(agentRepo, taskRepo, projRepo, reg, nil)
+	runner := agent.New(agentRepo, taskRepo, projRepo, nil, reg, nil)
 	t.Cleanup(runner.Shutdown)
 
 	agentDraftRepo := sqllite.NewAgentDraftRepo(db)
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, runner, reg, nil)
+	systemSettingsRepo := sqllite.NewSystemSettingsRepo(db)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, runner, reg, nil)
 }
 
 type mockProv struct{}

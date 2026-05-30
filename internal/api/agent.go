@@ -272,6 +272,7 @@ func (s *Server) spawnTask(w http.ResponseWriter, r *http.Request) {
 		ProjectID     string `json:"project_id"`
 		Title         string `json:"title"`
 		Description   string `json:"description"`
+		Source        string `json:"source"` // free-text provenance
 	}
 	if !decode(w, r, &req) {
 		return
@@ -317,6 +318,7 @@ func (s *Server) spawnTask(w http.ResponseWriter, r *http.Request) {
 		AgentID:     req.TargetAgentID,
 		Title:       strings.TrimSpace(req.Title),
 		Description: fmt.Sprintf("[Spawned by agent: %s]\n\n%s", src.Name, req.Description),
+		Source:      req.Source,
 		Status:      model.TaskStatusPending,
 		Input:       "{}",
 		Output:      "{}",

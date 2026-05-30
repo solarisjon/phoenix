@@ -431,13 +431,26 @@ function HireApprovalCard({ draft, providers, onAction }: {
 
 // ---- Group heading ----
 
-function GroupHeading({ label, count, color }: { label: string; count: number; color: string }) {
+function GroupHeading({ label, count, color, onDismissAll }: {
+  label: string
+  count: number
+  color: string
+  onDismissAll?: () => void
+}) {
   return (
-    <div className={`flex items-center gap-3 mb-3`}>
+    <div className="flex items-center gap-3 mb-3">
       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${color}`} />
       <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide">{label}</h2>
       <span className="text-xs text-slate-600 font-normal">({count})</span>
       <div className="flex-1 border-t border-slate-800" />
+      {onDismissAll && (
+        <button
+          onClick={onDismissAll}
+          className="text-xs text-slate-500 hover:text-slate-300 transition-colors shrink-0"
+        >
+          Dismiss all
+        </button>
+      )}
     </div>
   )
 }
@@ -487,17 +500,35 @@ export function InboxPage() {
   const awaiting = tasks.filter(t => t.status === 'awaiting_approval')
   const failed = tasks.filter(t => t.status === 'failed')
   const totalItems = awaiting.length + failed.length + drafts.length
+  const dismissibleCount = awaiting.length + failed.length
+
+  const dismissAll = async (filter: 'failed' | 'awaiting' | 'all') => {
+    const label = filter === 'all' ? 'all inbox items' : `all ${filter} tasks`
+    if (!confirm(`Dismiss ${label}? They will be hidden but not deleted.`)) return
+    await api.inbox.dismissAll(filter)
+    load()
+  }
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Inbox</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          {drafts.length > 0 && <><span className="text-purple-400">{drafts.length} pending hire{drafts.length !== 1 ? 's' : ''}</span>{(awaiting.length > 0 || failed.length > 0) ? ', ' : ''}</>}
-          {awaiting.length > 0 && <><span className="text-amber-400">{awaiting.length} awaiting approval</span>{failed.length > 0 ? ', ' : ''}</>}
-          {failed.length > 0 && <span className="text-red-400">{failed.length} failed</span>}
-          {totalItems === 0 && 'All clear — nothing needs your attention'}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Inbox</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            {drafts.length > 0 && <><span className="text-purple-400">{drafts.length} pending hire{drafts.length !== 1 ? 's' : ''}</span>{(awaiting.length > 0 || failed.length > 0) ? ', ' : ''}</>}
+            {awaiting.length > 0 && <><span className="text-amber-400">{awaiting.length} awaiting approval</span>{failed.length > 0 ? ', ' : ''}</>}
+            {failed.length > 0 && <span className="text-red-400">{failed.length} failed</span>}
+            {totalItems === 0 && 'All clear — nothing needs your attention'}
+          </p>
+        </div>
+        {dismissibleCount > 1 && (
+          <button
+            onClick={() => dismissAll('all')}
+            className="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 transition-colors shrink-0 mt-1"
+          >
+            Dismiss all ({dismissibleCount})
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -527,7 +558,8 @@ export function InboxPage() {
           {/* Awaiting approval */}
           {awaiting.length > 0 && (
             <section>
-              <GroupHeading label="Awaiting Approval" count={awaiting.length} color="bg-amber-500" />
+              <GroupHeading label="Awaiting Approval" count={awaiting.length} color="bg-amber-500"
+                onDismissAll={awaiting.length > 1 ? () => dismissAll('awaiting') : undefined} />
               <div className="space-y-3">
                 {awaiting.map(t => (
                   <InboxTaskCard
@@ -546,7 +578,8 @@ export function InboxPage() {
           {/* Failed */}
           {failed.length > 0 && (
             <section>
-              <GroupHeading label="Failed" count={failed.length} color="bg-red-500" />
+              <GroupHeading label="Failed" count={failed.length} color="bg-red-500"
+                onDismissAll={failed.length > 1 ? () => dismissAll('failed') : undefined} />
               <div className="space-y-3">
                 {failed.map(t => (
                   <InboxTaskCard

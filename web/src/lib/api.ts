@@ -44,6 +44,7 @@ export interface Project {
   name: string
   description: string
   working_dir: string
+  kind: 'project' | 'monitor'
   owner: string
   status: 'active' | 'archived'
   created_at: string
@@ -61,6 +62,7 @@ export interface Task {
   input: string
   output: string
   cost_usd: number
+  source: string
   dismissed: boolean
   created_at: string
   started_at: string | null
@@ -97,6 +99,11 @@ export interface AgentDraft {
   status: 'pending_approval' | 'approved' | 'rejected'
   dismissed: boolean
   created_at: string
+}
+
+export interface SystemSettings {
+  global_guardrails_enabled: boolean
+  global_guardrails: string
 }
 
 export interface CostsResponse {
@@ -160,7 +167,7 @@ export const api = {
       ),
   },
   projects: {
-    list: () => request<Project[]>('/projects'),
+    list: (kind?: 'project' | 'monitor') => request<Project[]>(kind ? `/projects?kind=${kind}` : '/projects'),
     get: (id: string) => request<Project>(`/projects/${id}`),
     create: (data: Partial<Project>) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Project>) => request<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -199,6 +206,8 @@ export const api = {
     approve: (taskId: string) => request<Task>(`/inbox/${taskId}/approve`, { method: 'POST', body: '{}' }),
     reject: (taskId: string) => request<Task>(`/inbox/${taskId}/reject`, { method: 'POST', body: '{}' }),
     revise: (taskId: string, feedback: string) => request<Task>(`/inbox/${taskId}/revise`, { method: 'POST', body: JSON.stringify({ feedback }) }),
+    dismissAll: (filter: 'failed' | 'awaiting' | 'all' = 'all') =>
+      request<{ dismissed: number }>(`/inbox/dismiss-all?filter=${filter}`, { method: 'POST', body: '{}' }),
   },
   agentDrafts: {
     list: () => request<AgentDraft[]>('/agent-drafts'),
@@ -210,5 +219,14 @@ export const api = {
   },
   stats: {
     costs: () => request<CostsResponse>('/stats/costs'),
+  },
+  admin: {
+    getSettings: () => request<SystemSettings>('/admin/settings'),
+    saveSettings: (data: SystemSettings) => request<SystemSettings>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }),
+    generateGlobalGuardrails: (description: string, providerId?: string) =>
+      request<{ guardrails: string }>('/admin/settings/generate-guardrails', {
+        method: 'POST',
+        body: JSON.stringify({ description, provider_id: providerId ?? '' }),
+      }),
   },
 }

@@ -16,19 +16,20 @@ import (
 
 // Server holds all dependencies and exposes the HTTP handler.
 type Server struct {
-	providers   store.ProviderRepo
-	agents      store.AgentRepo
-	projects    store.ProjectRepo
-	tasks       store.TaskRepo
-	stats       store.StatsRepo
-	users       store.UserRepo
-	teams       store.TeamRepo
-	agentDrafts store.AgentDraftRepo
-	runner      *agent.Runner
-	registry    *registry.Registry
-	hub         *Hub
-	router      http.Handler
-	admin       *sqlite.AdminRepo
+	providers      store.ProviderRepo
+	agents         store.AgentRepo
+	projects       store.ProjectRepo
+	tasks          store.TaskRepo
+	stats          store.StatsRepo
+	users          store.UserRepo
+	teams          store.TeamRepo
+	agentDrafts    store.AgentDraftRepo
+	systemSettings store.SystemSettingsRepo
+	runner         *agent.Runner
+	registry       *registry.Registry
+	hub            *Hub
+	router         http.Handler
+	admin          *sqlite.AdminRepo
 }
 
 // New creates a Server and registers all routes.
@@ -41,23 +42,25 @@ func New(
 	users store.UserRepo,
 	teams store.TeamRepo,
 	agentDrafts store.AgentDraftRepo,
+	systemSettings store.SystemSettingsRepo,
 	runner *agent.Runner,
 	reg *registry.Registry,
 	admin *sqlite.AdminRepo,
 ) *Server {
 	s := &Server{
-		providers:   providers,
-		agents:      agents,
-		projects:    projects,
-		tasks:       tasks,
-		stats:       stats,
-		users:       users,
-		teams:       teams,
-		agentDrafts: agentDrafts,
-		runner:      runner,
-		registry:    reg,
-		hub:         NewHub(),
-		admin:       admin,
+		providers:      providers,
+		agents:         agents,
+		projects:       projects,
+		tasks:          tasks,
+		stats:          stats,
+		users:          users,
+		teams:          teams,
+		agentDrafts:    agentDrafts,
+		systemSettings: systemSettings,
+		runner:         runner,
+		registry:       reg,
+		hub:            NewHub(),
+		admin:          admin,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -147,6 +150,7 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Inbox
 		r.Get("/inbox", s.listInbox)
+		r.Post("/inbox/dismiss-all", s.dismissAllInbox) // static before {taskId}
 		r.Post("/inbox/{taskId}/approve", s.approveTask)
 		r.Post("/inbox/{taskId}/reject", s.rejectTask)
 		r.Post("/inbox/{taskId}/revise", s.reviseTask)
@@ -154,8 +158,11 @@ func (s *Server) buildRouter() http.Handler {
 		// Stats
 		r.Get("/stats/costs", s.getCosts)
 
-		// Admin
+		// Admin / system settings
 		r.Get("/admin/backup", s.backupDB)
+		r.Get("/admin/settings", s.getSystemSettings)
+		r.Put("/admin/settings", s.updateSystemSettings)
+		r.Post("/admin/settings/generate-guardrails", s.generateGlobalGuardrails)
 
 		// WebSocket
 		r.Get("/ws", s.handleWS)

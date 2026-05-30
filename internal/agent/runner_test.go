@@ -155,6 +155,9 @@ func (r *memTaskRepo) Delete(_ context.Context, id string) error {
 type mockProjectRepo struct{}
 
 func (r *mockProjectRepo) List(_ context.Context) ([]*model.Project, error) { return nil, nil }
+func (r *mockProjectRepo) ListByKind(_ context.Context, _ string) ([]*model.Project, error) {
+	return nil, nil
+}
 func (r *mockProjectRepo) Get(_ context.Context, id string) (*model.Project, error) {
 	return &model.Project{ID: id, Name: "Test Project"}, nil
 }
@@ -216,7 +219,7 @@ func runnerWithMock(t *testing.T, prov *mockProvider, task *model.Task) (*Runner
 	// Pre-warm the registry cache with our mock provider.
 	reg.InjectForTest("prov-1", prov)
 
-	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, reg, nil)
+	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, reg, nil)
 	return runner, taskRepo
 }
 
@@ -354,7 +357,7 @@ func TestRunTask_StreamEvents(t *testing.T) {
 		mu.Unlock()
 	}
 
-	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, reg, handler)
+	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, reg, handler)
 	if err := runner.RunTask(context.Background(), task.ID); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}

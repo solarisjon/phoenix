@@ -15,6 +15,7 @@ function ProjectForm({ initial, onSave, onClose }: {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
+  const [kind, setKind] = useState<'project' | 'monitor'>(initial?.kind ?? 'project')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -22,8 +23,8 @@ function ProjectForm({ initial, onSave, onClose }: {
     if (!name.trim()) { setError('Name is required'); return }
     setSaving(true)
     try {
-      if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir })
-      else await api.projects.create({ name, description, working_dir: workingDir })
+      if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir, kind })
+      else await api.projects.create({ name, description, working_dir: workingDir, kind })
       onSave()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -46,6 +47,25 @@ function ProjectForm({ initial, onSave, onClose }: {
           placeholder="/path/to/project — passed to coding agents as their working directory" />
         <p className="text-xs text-slate-500 mt-1">Leave blank to use the coding agent's default directory.</p>
       </div>
+      {initial && (
+        <div>
+          <Label>Type</Label>
+          <div className="flex gap-2 mt-1">
+            {(['project', 'monitor'] as const).map(k => (
+              <button key={k} type="button"
+                onClick={() => setKind(k)}
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                  kind === k
+                    ? 'bg-violet-600/20 border-violet-500 text-violet-300'
+                    : 'border-slate-700 text-slate-400 hover:text-white'
+                }`}>
+                {k === 'project' ? '⊞ Project' : '⟳ Monitor'}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 mt-1">Change type to move this to the Monitors list.</p>
+        </div>
+      )}
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3 justify-end pt-2">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -62,7 +82,7 @@ export function ProjectsPage() {
   const [editing, setEditing] = useState<Project | undefined>()
 
   const load = async () => {
-    try { setProjects(await api.projects.list()) }
+    try { setProjects(await api.projects.list('project')) }
     finally { setLoading(false) }
   }
 

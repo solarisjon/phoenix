@@ -9,6 +9,45 @@ import (
 	"github.com/solarisjon/phoenix/internal/model"
 )
 
+// dismissAllInbox bulk-dismisses inbox tasks.
+// Accepts optional query param ?filter=failed|awaiting|all (default: all).
+// Returns {dismissed: N}.
+func (s *Server) dismissAllInbox(w http.ResponseWriter, r *http.Request) {
+	filter := r.URL.Query().Get("filter")
+	if filter == "" {
+		filter = "all"
+	}
+
+	var statuses []model.TaskStatus
+	switch filter {
+	case "failed":
+		statuses = []model.TaskStatus{model.TaskStatusFailed}
+	case "awaiting":
+		statuses = []model.TaskStatus{model.TaskStatusAwaitingApproval}
+	default: // "all"
+		statuses = []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusAwaitingApproval}
+	}
+
+	tasks, err := s.tasks.ListByStatuses(r.Context(), statuses)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	dismissed := 0
+	for _, t := range tasks {
+		if t.Dismissed {
+			continue
+		}
+		t.Dismissed = true
+		if err := s.tasks.Update(r.Context(), t); err == nil {
+			dismissed++
+		}
+	}
+
+	respond(w, http.StatusOK, map[string]int{"dismissed": dismissed})
+}
+
 type reviseRequest struct {
 	Feedback string `json:"feedback"`
 }

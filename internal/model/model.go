@@ -84,15 +84,24 @@ type Agent struct {
 	CreatedAt         time.Time   `json:"created_at"`
 }
 
+// ProjectKind distinguishes human-driven workbenches from autonomous daemons.
+type ProjectKind string
+
+const (
+	ProjectKindProject ProjectKind = "project" // human-driven workbench
+	ProjectKindMonitor ProjectKind = "monitor" // autonomous heartbeat daemon
+)
+
 // Project is a workspace containing tasks assigned to agents.
 type Project struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	Description  string        `json:"description"`
-	WorkingDir   string        `json:"working_dir"`  // optional: filesystem path passed to coding agents
-	Owner        string        `json:"owner"`
-	Status       ProjectStatus `json:"status"`
-	CreatedAt    time.Time     `json:"created_at"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	WorkingDir  string        `json:"working_dir"` // optional: filesystem path passed to coding agents
+	Kind        ProjectKind   `json:"kind"`        // "project" | "monitor"
+	Owner       string        `json:"owner"`
+	Status      ProjectStatus `json:"status"`
+	CreatedAt   time.Time     `json:"created_at"`
 }
 
 // ProjectAgent links an agent to a project.
@@ -114,6 +123,7 @@ type Task struct {
 	Input        string     `json:"input"`        // JSON blob
 	Output       string     `json:"output"`       // JSON blob
 	CostUSD      float64    `json:"cost_usd"`
+	Source       string     `json:"source"`       // free-text provenance, empty if human-created
 	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
 	RunnerPID    int        `json:"runner_pid"`   // OS PID of the subprocess, 0 if not running
 	TimeoutAt    *time.Time `json:"timeout_at"`   // when the task will be force-killed
@@ -157,6 +167,12 @@ type Broadcast struct {
 type BroadcastSubscription struct {
 	ProjectID string `json:"project_id"`
 	AgentID   string `json:"agent_id"`
+}
+
+// SystemSettings holds platform-wide configuration that overrides per-agent settings.
+type SystemSettings struct {
+	GlobalGuardrailsEnabled bool   `json:"global_guardrails_enabled"`
+	GlobalGuardrails        string `json:"global_guardrails"`
 }
 
 // AgentDraftStatus represents the lifecycle of a pending agent hire.

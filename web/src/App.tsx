@@ -10,6 +10,8 @@ import { TeamsPage } from '@/pages/TeamsPage'
 import { TeamDetailPage } from '@/pages/TeamDetailPage'
 import { TasksPage } from '@/pages/TasksPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { MonitorsPage } from '@/pages/MonitorsPage'
+import { MonitorDetailPage } from '@/pages/MonitorDetailPage'
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/monitors" element={<MonitorsPage />} />
+          <Route path="/monitors/:id" element={<MonitorDetailPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/teams/:id" element={<TeamDetailPage />} />

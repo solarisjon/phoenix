@@ -17,6 +17,7 @@ func NewTaskRepo(db *DB) *TaskRepo { return &TaskRepo{db} }
 const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of, title, description,
 	status, input, output, cost_usd, dismissed,
 	runner_pid, timeout_at,
+	source,
 	created_at, started_at, completed_at `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
@@ -79,10 +80,10 @@ func (r *TaskRepo) Get(ctx context.Context, id string) (*model.Task, error) {
 func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD)
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.Source)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -132,6 +133,7 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		&t.Title, &t.Description, &status,
 		&t.Input, &t.Output, &t.CostUSD, &dismissed,
 		&runnerPID, &timeoutAt,
+		&t.Source,
 		&t.CreatedAt, &startedAt, &completedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -178,6 +180,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 			&t.Title, &t.Description, &status,
 			&t.Input, &t.Output, &t.CostUSD, &dismissed,
 			&runnerPID, &timeoutAt,
+			&t.Source,
 			&t.CreatedAt, &startedAt, &completedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)

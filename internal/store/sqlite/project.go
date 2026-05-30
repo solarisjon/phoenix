@@ -13,9 +13,17 @@ type ProjectRepo struct{ db *DB }
 
 func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
-func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, working_dir, owner, status, created_at FROM projects ORDER BY created_at ASC`)
+// ListByKind returns projects filtered by kind. An empty kind returns all.
+func (r *ProjectRepo) ListByKind(ctx context.Context, kind string) ([]*model.Project, error) {
+	var rows *sql.Rows
+	var err error
+	if kind == "" {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT id, name, description, working_dir, kind, owner, status, created_at FROM projects ORDER BY created_at ASC`)
+	} else {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT id, name, description, working_dir, kind, owner, status, created_at FROM projects WHERE kind = ? ORDER BY created_at ASC`, kind)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -23,16 +31,24 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
 	return scanProjects(rows)
 }
 
+func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
+	return r.ListByKind(ctx, "")
+}
+
 func (r *ProjectRepo) Get(ctx context.Context, id string) (*model.Project, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, working_dir, owner, status, created_at FROM projects WHERE id = ?`, id)
+		`SELECT id, name, description, working_dir, kind, owner, status, created_at FROM projects WHERE id = ?`, id)
 	return scanProject(row)
 }
 
 func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
+	kind := string(p.Kind)
+	if kind == "" {
+		kind = string(model.ProjectKindProject)
+	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, working_dir, owner, status) VALUES (?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.WorkingDir, p.Owner, string(p.Status))
+		`INSERT INTO projects (id, name, description, working_dir, kind, owner, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.WorkingDir, kind, p.Owner, string(p.Status))
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -40,9 +56,13 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 }
 
 func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
+	kind := string(p.Kind)
+	if kind == "" {
+		kind = string(model.ProjectKindProject)
+	}
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, description = ?, working_dir = ?, status = ? WHERE id = ?`,
-		p.Name, p.Description, p.WorkingDir, string(p.Status), p.ID)
+		`UPDATE projects SET name = ?, description = ?, working_dir = ?, kind = ?, status = ? WHERE id = ?`,
+		p.Name, p.Description, p.WorkingDir, kind, string(p.Status), p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
@@ -94,8 +114,8 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 
 func scanProject(row *sql.Row) (*model.Project, error) {
 	var p model.Project
-	var status string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &p.Owner, &status, &p.CreatedAt)
+	var status, kind string
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.Owner, &status, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -103,6 +123,10 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 		return nil, fmt.Errorf("scan project: %w", err)
 	}
 	p.Status = model.ProjectStatus(status)
+	p.Kind = model.ProjectKind(kind)
+	if p.Kind == "" {
+		p.Kind = model.ProjectKindProject
+	}
 	return &p, nil
 }
 
@@ -110,11 +134,15 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 	var out []*model.Project
 	for rows.Next() {
 		var p model.Project
-		var status string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &p.Owner, &status, &p.CreatedAt); err != nil {
+		var status, kind string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.Owner, &status, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
 		}
 		p.Status = model.ProjectStatus(status)
+		p.Kind = model.ProjectKind(kind)
+		if p.Kind == "" {
+			p.Kind = model.ProjectKindProject
+		}
 		out = append(out, &p)
 	}
 	return out, rows.Err()

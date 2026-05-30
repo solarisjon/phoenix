@@ -6,6 +6,7 @@ const nav = [
   { label: 'Dashboard', href: '/', icon: '◈' },
   { label: 'Inbox', href: '/inbox', icon: '⊡' },
   { label: 'Projects', href: '/projects', icon: '⊞' },
+  { label: 'Monitors', href: '/monitors', icon: '⟳' },
   { label: 'Tasks', href: '/tasks', icon: '✦' },
   { label: 'Teams', href: '/teams', icon: '⬡⬡' },
   { label: 'Settings', href: '/settings', icon: '⚙' },

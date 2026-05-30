@@ -37,6 +37,7 @@ type AgentRepo interface {
 // ProjectRepo manages projects and project-agent assignments.
 type ProjectRepo interface {
 	List(ctx context.Context) ([]*model.Project, error)
+	ListByKind(ctx context.Context, kind string) ([]*model.Project, error)
 	Get(ctx context.Context, id string) (*model.Project, error)
 	Create(ctx context.Context, p *model.Project) error
 	Update(ctx context.Context, p *model.Project) error
@@ -97,6 +98,12 @@ type AgentDraftRepo interface {
 	Create(ctx context.Context, d *model.AgentDraft) error
 	Update(ctx context.Context, d *model.AgentDraft) error
 	Dismiss(ctx context.Context, id string) error
+}
+
+// SystemSettingsRepo manages platform-wide settings stored as key/value pairs.
+type SystemSettingsRepo interface {
+	Get(ctx context.Context) (*model.SystemSettings, error)
+	Save(ctx context.Context, s *model.SystemSettings) error
 }
 
 // StatsRepo provides aggregated cost queries.

@@ -9,7 +9,6 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
-import { ProjectAutonomousView } from '@/components/project/ProjectAutonomousView'
 import { ProjectHumanView } from '@/components/project/ProjectHumanView'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
@@ -686,8 +685,6 @@ export function ProjectDetailPage() {
   }
 
   const totalCost = tasks.reduce((s, t) => s + t.cost_usd, 0)
-  // Autonomous mode: any assigned agent has a heartbeat interval
-  const isAutonomous = agents.some(a => (a.heartbeat_interval ?? 0) > 0)
 
   if (loading) return <div className="text-slate-500 text-sm">Loading…</div>
   if (!project) return <div className="text-slate-500 text-sm">Project not found.</div>
@@ -709,9 +706,7 @@ export function ProjectDetailPage() {
             <span className="text-sm text-slate-400">Total: <span className="text-white font-medium">{formatCost(totalCost)}</span></span>
           )}
           <Button variant="secondary" size="sm" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
-          {!isAutonomous && (
-            <Button size="sm" onClick={() => setShowTaskForm(true)} disabled={allAgents.length === 0}>+ New Task</Button>
-          )}
+          <Button size="sm" onClick={() => setShowTaskForm(true)} disabled={allAgents.length === 0}>+ New Task</Button>
         </div>
       </div>
 
@@ -765,17 +760,8 @@ export function ProjectDetailPage() {
         {teamAssignMsg && <span className="text-xs text-green-400">✓ {teamAssignMsg}</span>}
       </div>
 
-      {/* Auto-adapting main view */}
-      {isAutonomous ? (
-        <ProjectAutonomousView
-          project={project}
-          tasks={tasks}
-          agents={allAgents}
-          onUpdate={load}
-          onTaskClick={setSelectedTask}
-          onNewTask={() => setShowTaskForm(true)}
-        />
-      ) : tasks.length === 0 && allAgents.length > 0 ? (
+      {/* Main view — always human-driven */}
+      {tasks.length === 0 && allAgents.length > 0 ? (
         <GuidedSetup
           projectId={project.id}
           allAgents={allAgents}

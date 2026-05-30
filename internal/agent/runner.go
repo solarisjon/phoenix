@@ -37,13 +37,14 @@ const DefaultTaskTimeout = 30 * time.Minute
 // Runner manages agent task execution. Each task runs in its own goroutine.
 // All active goroutines are tracked so they can be cancelled on shutdown.
 type Runner struct {
-	agents    store.AgentRepo
-	tasks     store.TaskRepo
-	projects  store.ProjectRepo
-	registry  *registry.Registry
-	onEvent   EventHandler
-	bgCtx     context.Context    // long-lived background context for task goroutines
-	bgCancel  context.CancelFunc // cancelled on Shutdown
+	agents   store.AgentRepo
+	tasks    store.TaskRepo
+	projects store.ProjectRepo
+	settings store.SystemSettingsRepo
+	registry *registry.Registry
+	onEvent  EventHandler
+	bgCtx    context.Context    // long-lived background context for task goroutines
+	bgCancel context.CancelFunc // cancelled on Shutdown
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // task ID → cancel
@@ -54,6 +55,7 @@ func New(
 	agents store.AgentRepo,
 	tasks store.TaskRepo,
 	projects store.ProjectRepo,
+	settings store.SystemSettingsRepo,
 	reg *registry.Registry,
 	onEvent EventHandler,
 ) *Runner {
@@ -62,6 +64,7 @@ func New(
 		agents:   agents,
 		tasks:    tasks,
 		projects: projects,
+		settings: settings,
 		registry: reg,
 		onEvent:  onEvent,
 		bgCtx:    bgCtx,
@@ -219,8 +222,16 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
+	// Load global guardrails (non-fatal if unavailable).
+	var globalGuardrails string
+	if r.settings != nil {
+		if sysSettings, err := r.settings.Get(ctx); err == nil && sysSettings.GlobalGuardrailsEnabled {
+			globalGuardrails = sysSettings.GlobalGuardrails
+		}
+	}
+
 	// Assemble prompt. For follow-up tasks, inject the parent output as context.
-	req := AssembleRequest(agent, task)
+	req := AssembleRequest(agent, task, globalGuardrails)
 	req.WorkingDir = workingDir
 	if task.FollowUpOf != nil {
 		parent, err := r.tasks.Get(ctx, *task.FollowUpOf)

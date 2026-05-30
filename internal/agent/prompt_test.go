@@ -14,7 +14,7 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 		Guardrails:   "Never fabricate data.",
 	}
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
-	prompt := assembleSystemPrompt(a, task)
+	prompt := assembleSystemPrompt(a, task, "")
 
 	for _, want := range []string{"## Persona", "You are an expert.", "## Instructions", "Always be concise.", "## Guardrails", "Never fabricate data."} {
 		if !strings.Contains(prompt, want) {
@@ -26,7 +26,7 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 func TestAssembleSystemPrompt_EmptyFields(t *testing.T) {
 	a := &model.Agent{Persona: "Only persona"}
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
-	prompt := assembleSystemPrompt(a, task)
+	prompt := assembleSystemPrompt(a, task, "")
 	if strings.Contains(prompt, "## Instructions") {
 		t.Error("should not include Instructions section when empty")
 	}
@@ -61,6 +61,26 @@ func TestAssembleUserPrompt_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestAssembleSystemPrompt_GlobalGuardrails(t *testing.T) {
+	a := &model.Agent{Persona: "Expert", Guardrails: "No hallucinations."}
+	task := &model.Task{ID: "t1", ProjectID: "p1"}
+	global := "• Never touch Jira\n• No git commits without approval"
+	prompt := assembleSystemPrompt(a, task, global)
+
+	if !strings.Contains(prompt, "Platform-Wide Guardrails") {
+		t.Error("global guardrails section header missing")
+	}
+	if !strings.Contains(prompt, "Never touch Jira") {
+		t.Error("global guardrails content missing")
+	}
+	// Global guardrails must appear AFTER per-agent guardrails
+	perAgentIdx := strings.Index(prompt, "No hallucinations.")
+	globalIdx := strings.Index(prompt, "Platform-Wide Guardrails")
+	if perAgentIdx < 0 || globalIdx < 0 || globalIdx < perAgentIdx {
+		t.Errorf("global guardrails should appear after per-agent guardrails (perAgent=%d, global=%d)", perAgentIdx, globalIdx)
+	}
+}
+
 func TestAssembleRequest(t *testing.T) {
 	a := &model.Agent{
 		Persona:      "Expert",
@@ -72,7 +92,7 @@ func TestAssembleRequest(t *testing.T) {
 		Description: "Do the thing.",
 		Input:       "{}",
 	}
-	req := AssembleRequest(a, task)
+	req := AssembleRequest(a, task, "")
 	if req.SystemPrompt == "" {
 		t.Error("SystemPrompt should not be empty")
 	}

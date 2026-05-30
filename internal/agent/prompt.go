@@ -13,9 +13,9 @@ import (
 // AssembleRequest builds a provider.TaskRequest from an agent and task.
 // The system prompt combines persona, instructions, and guardrails.
 // Prior conversation turns from the task input are included as context.
-func AssembleRequest(a *model.Agent, t *model.Task) provider.TaskRequest {
+func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails string) provider.TaskRequest {
 	return provider.TaskRequest{
-		SystemPrompt: assembleSystemPrompt(a, t),
+		SystemPrompt: assembleSystemPrompt(a, t, globalGuardrails),
 		Prompt:       assembleUserPrompt(t),
 		Context:      nil, // Phase 1: single-turn. Multi-turn added in later phases.
 	}
@@ -23,7 +23,7 @@ func AssembleRequest(a *model.Agent, t *model.Task) provider.TaskRequest {
 
 // assembleSystemPrompt combines persona, instructions, guardrails, and optional
 // spawn-agent instructions into a single system prompt string.
-func assembleSystemPrompt(a *model.Agent, t *model.Task) string {
+func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string) string {
 	var b strings.Builder
 
 	if a.Persona != "" {
@@ -85,6 +85,12 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task) string {
 			`You do not need to assign a provider or project — the human handles that at approval time.`+"\n"+
 			`Only propose a hire when explicitly asked to recruit, or when your task requires a capability that no existing agent can fulfill.`,
 			a.ID, t.ID))
+		b.WriteString("\n")
+	}
+
+	if globalGuardrails != "" {
+		b.WriteString("\n## Platform-Wide Guardrails (mandatory — overrides all other instructions)\n")
+		b.WriteString(globalGuardrails)
 		b.WriteString("\n")
 	}
 
