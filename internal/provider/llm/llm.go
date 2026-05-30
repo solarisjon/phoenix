@@ -238,6 +238,60 @@ func (a *Adapter) readSSEStream(ctx context.Context, body io.Reader, ch chan<- p
 	ch <- provider.StreamChunk{Done: true}
 }
 
+// ListModels queries the OpenAI-compatible /v1/models endpoint.
+// The endpoint is derived from cfg.Endpoint by stripping the path and
+// appending /v1/models, so it works for both /v1/chat/completions and
+// bare base-URL styles.
+// Implements provider.ModelLister.
+func (a *Adapter) ListModels(ctx context.Context) ([]string, error) {
+	// Derive base: strip known path suffixes to get the server root.
+	base := a.cfg.Endpoint
+	for _, suffix := range []string{"/v1/chat/completions", "/chat/completions", "/v1"} {
+		if strings.HasSuffix(base, suffix) {
+			base = base[:len(base)-len(suffix)]
+			break
+		}
+	}
+	base = strings.TrimRight(base, "/")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("llm: list models request: %w", err)
+	}
+	if a.cfg.AuthHeader != "" {
+		req.Header.Set("Authorization", a.cfg.AuthHeader)
+	}
+	for k, v := range a.cfg.ExtraHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("llm: list models: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("llm: list models: server returned %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("llm: decode models: %w", err)
+	}
+
+	ids := make([]string, 0, len(body.Data))
+	for _, m := range body.Data {
+		if m.ID != "" {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
 func (a *Adapter) calcCost(tokensIn, tokensOut int) float64 {
 	return float64(tokensIn)*a.cfg.CostPerInputToken +
 		float64(tokensOut)*a.cfg.CostPerOutputToken

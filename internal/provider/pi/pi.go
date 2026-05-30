@@ -152,6 +152,32 @@ func (a *Adapter) EstimateCost(_ provider.TaskRequest) provider.CostEstimate {
 	return provider.CostEstimate{}
 }
 
+// ListModels runs `pi --list-models` and parses the tabular output.
+// Output format: "provider  model  context  max-out  thinking  images"
+// Implements provider.ModelLister.
+func (a *Adapter) ListModels(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx, a.cfg.BinaryPath, "--list-models")
+	// pi writes the model table to stderr (same pipe as deprecation warnings).
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("pi: list-models: %w", err)
+	}
+
+	var models []string
+	for _, line := range strings.Split(string(out), "\n") {
+		// Skip header, blank lines, and deprecation warnings
+		if line == "" || strings.HasPrefix(line, "provider") || strings.HasPrefix(line, "Deprecation") {
+			continue
+		}
+		// Columns are whitespace-separated; model is the second column
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			models = append(models, fields[1])
+		}
+	}
+	return models, nil
+}
+
 // ---- Internal helpers ----
 
 // buildArgs assembles the pi CLI arguments. The prompt is always delivered

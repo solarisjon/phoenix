@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
+import { ModelComboBox } from '@/components/ui/model-combo-box'
 
 // ---- Generate modal ----
 
@@ -153,12 +154,13 @@ function AgentForm({ initial, providers, onSave, onClose }: {
               (overrides {selectedProvider?.name ?? 'provider'}'s default)
             </span>
           </Label>
-          <Input id="model-override" value={modelOverride} onChange={e => setModelOverride(e.target.value)}
-            placeholder={
-              selectedProvider?.type === 'coding_agent'
-                ? 'e.g. claude-sonnet-4-5  or  llm-proxy/claude-opus-4'
-                : 'e.g. gpt-4o  or  claude-opus-4-5  (blank = provider default)'
-            } />
+          <ModelComboBox
+            providerId={providerID}
+            value={modelOverride}
+            onChange={setModelOverride}
+            allowEmpty
+            placeholder="Select or type a model name (blank = provider default)"
+          />
         </div>
 
         {/* Heartbeat interval */}

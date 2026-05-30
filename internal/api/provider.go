@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/provider"
 )
 
 type createProviderRequest struct {
@@ -126,6 +127,42 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 	s.registry.Invalidate(id)
 
 	respond(w, http.StatusOK, existing)
+}
+
+// listProviderModels calls the provider's ListModels() if it supports it,
+// and returns {"models":[...]} or {"supported":false}.
+func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.providers.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	prov, err := s.registry.Get(r.Context(), id)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, "could not build provider: "+err.Error())
+		return
+	}
+
+	lister, ok := prov.(provider.ModelLister)
+	if !ok {
+		respond(w, http.StatusOK, map[string]any{"supported": false, "models": []string{}})
+		return
+	}
+
+	models, err := lister.ListModels(r.Context())
+	if err != nil {
+		// Return partial failure as a soft error — don't 500, let UI show free-text fallback
+		respond(w, http.StatusOK, map[string]any{"supported": true, "error": err.Error(), "models": []string{}})
+		return
+	}
+
+	respond(w, http.StatusOK, map[string]any{"supported": true, "models": models})
 }
 
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {

@@ -49,6 +49,12 @@ type CostEstimate struct {
 	EstimatedCostUSD float64
 }
 
+// ModelLister is an optional interface that providers can implement to
+// return the list of available models. Callers should type-assert before use.
+type ModelLister interface {
+	ListModels(ctx context.Context) ([]string, error)
+}
+
 // Provider is the common interface implemented by all provider adapters.
 type Provider interface {
 	// Execute runs a task to completion and returns the full response.

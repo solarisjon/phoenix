@@ -140,6 +140,35 @@ func (a *Adapter) EstimateCost(_ provider.TaskRequest) provider.CostEstimate {
 	return provider.CostEstimate{}
 }
 
+// ListModels queries the Ollama server for installed models.
+// Implements provider.ModelLister.
+func (a *Adapter) ListModels(ctx context.Context) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.BaseURL+"/api/tags", nil)
+	if err != nil {
+		return nil, fmt.Errorf("ollama: list models request: %w", err)
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama: list models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("ollama: decode models: %w", err)
+	}
+
+	names := make([]string, 0, len(body.Models))
+	for _, m := range body.Models {
+		names = append(names, m.Name)
+	}
+	return names, nil
+}
+
 // ---- Internal helpers ----
 
 // ollamaMessage is the wire format for Ollama chat messages.

@@ -127,6 +127,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   providers: {
     list: () => request<Provider[]>('/providers'),
+    listModels: (id: string) => request<{ supported: boolean; models: string[]; error?: string }>(`/providers/${id}/models`),
     get: (id: string) => request<Provider>(`/providers/${id}`),
     create: (data: Partial<Provider>) => request<Provider>('/providers', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Provider>) => request<Provider>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

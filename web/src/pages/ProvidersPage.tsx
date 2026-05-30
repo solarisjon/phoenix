@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { cn } from '@/lib/utils'
+import { ModelComboBox } from '@/components/ui/model-combo-box'
 
 // Env variable helper — renders a small hint and lets the user type ${ENV_VAR}
 function EnvHint() {
@@ -41,9 +42,10 @@ interface CodingAgentConfig {
   extra_args: string[]
 }
 
-function LLMFields({ cfg, onChange }: {
+function LLMFields({ cfg, onChange, providerId }: {
   cfg: LLMConfig
   onChange: (c: LLMConfig) => void
+  providerId?: string
 }) {
   const set = (key: keyof LLMConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...cfg, [key]: key.startsWith('cost') || key === 'timeout_seconds' ? Number(e.target.value) : e.target.value })
@@ -64,8 +66,16 @@ function LLMFields({ cfg, onChange }: {
       </div>
       <div>
         <Label htmlFor="model">Model</Label>
-        <Input id="model" value={cfg.model} onChange={set('model')}
-          placeholder="gpt-4o" />
+        {providerId ? (
+          <ModelComboBox
+            providerId={providerId}
+            value={cfg.model}
+            onChange={v => onChange({ ...cfg, model: v })}
+            placeholder="gpt-4o"
+          />
+        ) : (
+          <Input id="model" value={cfg.model} onChange={set('model')} placeholder="gpt-4o" />
+        )}
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -233,9 +243,10 @@ const defaultOllama: OllamaConfig = {
   timeout_seconds: 300,
 }
 
-function OllamaFields({ cfg, onChange }: {
+function OllamaFields({ cfg, onChange, providerId }: {
   cfg: OllamaConfig
   onChange: (c: OllamaConfig) => void
+  providerId?: string
 }) {
   const set = (key: keyof OllamaConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...cfg, [key]: e.target.value })
@@ -254,9 +265,20 @@ function OllamaFields({ cfg, onChange }: {
       </div>
       <div>
         <Label htmlFor="ol-model">Model *</Label>
-        <Input id="ol-model" value={cfg.model} onChange={set('model')}
-          placeholder="e.g. qwen3.5:latest, llama3.2:3b, mistral:7b" />
-        <p className="text-xs text-slate-600 mt-1">Must match an installed Ollama model. Run <code className="bg-slate-800 px-1 rounded text-slate-400">ollama list</code> to see available models.</p>
+        {providerId ? (
+          <ModelComboBox
+            providerId={providerId}
+            value={cfg.model}
+            onChange={v => onChange({ ...cfg, model: v })}
+            placeholder="e.g. qwen3.5:latest, llama3.2:3b"
+          />
+        ) : (
+          <>
+            <Input id="ol-model" value={cfg.model} onChange={set('model')}
+              placeholder="e.g. qwen3.5:latest, llama3.2:3b, mistral:7b" />
+            <p className="text-xs text-slate-600 mt-1">Save the provider first to enable model picker. Run <code className="bg-slate-800 px-1 rounded text-slate-400">ollama list</code> to see installed models.</p>
+          </>
+        )}
       </div>
       <div>
         <Label htmlFor="ol-timeout">Timeout (seconds)</Label>
@@ -386,8 +408,8 @@ function ProviderForm({ initial, onSave, onClose }: {
         <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">
           {uiType === 'llm' ? 'LLM Endpoint Configuration' : uiType === 'ollama' ? 'Ollama Configuration' : 'Coding Agent Configuration'}
         </p>
-        {uiType === 'llm' && <LLMFields cfg={llmCfg} onChange={setLlmCfg} />}
-        {uiType === 'ollama' && <OllamaFields cfg={ollamaCfg} onChange={setOllamaCfg} />}
+        {uiType === 'llm' && <LLMFields cfg={llmCfg} onChange={setLlmCfg} providerId={initial?.id} />}
+        {uiType === 'ollama' && <OllamaFields cfg={ollamaCfg} onChange={setOllamaCfg} providerId={initial?.id} />}
         {uiType === 'coding_agent' && <CodingAgentFields cfg={codingCfg} onChange={setCodingCfg} />}
       </div>
 
