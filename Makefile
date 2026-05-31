@@ -1,4 +1,4 @@
-.PHONY: build build-web build-go dev dev-go dev-web clean test
+.PHONY: build build-web build-go deploy dev dev-go dev-web clean test
 
 BINARY := phoenix
 WEB_DIR := web
@@ -21,6 +21,16 @@ build-go:
 	go build -o $(BINARY) ./cmd/phoenix/...
 	@echo "✓ Binary: ./$(BINARY)"
 
+
+## deploy: build everything, kill the running instance, and restart
+deploy: build
+	@echo "→ Stopping running phoenix..."
+	@pkill -f './phoenix' 2>/dev/null || true
+	@sleep 0.5
+	@echo "→ Starting phoenix..."
+	@nohup ./$(BINARY) >> /tmp/phoenix.log 2>&1 &
+	@sleep 1.5
+	@curl -sf http://localhost:8080/api/agents > /dev/null && echo "✓ Phoenix is up at http://localhost:8080" || echo "✗ Phoenix did not start — check /tmp/phoenix.log"
 
 ## dev: run frontend and backend dev servers concurrently
 dev:

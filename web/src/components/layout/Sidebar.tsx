@@ -10,6 +10,7 @@ const nav = [
   { label: 'Tasks', href: '/tasks', icon: '✦' },
   { label: 'Teams', href: '/teams', icon: '⬡⬡' },
   { label: 'Settings', href: '/settings', icon: '⚙' },
+  { label: 'Help', href: '/help', icon: '?' },
 ]
 
 export function Sidebar({ inboxCount }: { inboxCount: number }) {
@@ -18,9 +19,7 @@ export function Sidebar({ inboxCount }: { inboxCount: number }) {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center shadow-lg shadow-violet-900/50">
-            <span className="text-white font-bold text-sm">✦</span>
-          </div>
+          <img src="/phoenix.jpg" alt="Phoenix" className="w-8 h-8 rounded-lg object-cover" />
           <div>
             <p className="font-semibold text-white tracking-wide text-sm">Phoenix</p>
             <p className="text-xs text-slate-500">Agent Orchestrator</p>

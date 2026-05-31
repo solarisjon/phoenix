@@ -12,6 +12,7 @@ import { TasksPage } from '@/pages/TasksPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { MonitorsPage } from '@/pages/MonitorsPage'
 import { MonitorDetailPage } from '@/pages/MonitorDetailPage'
+import { HelpPage } from '@/pages/HelpPage'
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/teams/:id" element={<TeamDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/help" element={<HelpPage />} />
           {/* Legacy redirects so old bookmarks still work */}
           <Route path="/agents" element={<Navigate to="/settings?tab=agents" replace />} />
           <Route path="/providers" element={<Navigate to="/settings?tab=providers" replace />} />

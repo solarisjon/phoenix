@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, type Project, type Task, type CostsResponse, type Agent, type Team } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
@@ -35,6 +35,7 @@ function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent
   const [stream, setStream] = useState('')
   const agent = agents.find(a => a.id === task.agent_id)
   const project = projects.find(p => p.id === task.project_id)
+  const scrollRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
     const unsub = phoenixWS.on((ev) => {
@@ -45,6 +46,12 @@ function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent
     })
     return unsub
   }, [task.id])
+
+  // Auto-scroll to bottom as new chunks arrive
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [stream])
 
   const preview = stream || parseOutput(task.output)
 
@@ -66,7 +73,7 @@ function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent
           <Badge variant="info">{task.status}</Badge>
         </div>
         {preview && (
-          <pre className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-20 overflow-hidden whitespace-pre-wrap line-clamp-4">
+          <pre ref={scrollRef} className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">
             {preview}
           </pre>
         )}

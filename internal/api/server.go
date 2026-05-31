@@ -93,6 +93,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/providers/{id}", s.updateProvider)
 		r.Delete("/providers/{id}", s.deleteProvider)
 		r.Get("/providers/{id}/models", s.listProviderModels)
+		r.Post("/providers/{id}/resync", s.resyncProvider)
 
 		// Agents
 		r.Get("/agents", s.listAgents)

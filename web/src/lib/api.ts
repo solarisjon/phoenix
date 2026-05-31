@@ -139,6 +139,7 @@ export const api = {
     create: (data: Partial<Provider>) => request<Provider>('/providers', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Provider>) => request<Provider>(`/providers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
+    resync: (id: string) => request<{ status: string; message: string }>(`/providers/${id}/resync`, { method: 'POST' }),
   },
   agents: {
     list: () => request<Agent[]>('/agents'),

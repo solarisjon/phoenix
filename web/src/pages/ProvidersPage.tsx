@@ -424,6 +424,7 @@ export function ProvidersPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Provider | undefined>()
+  const [resyncedId, setResyncedId] = useState<string | null>(null)
 
   const load = async () => {
     try { setProviders(await api.providers.list()) }
@@ -437,6 +438,14 @@ export function ProvidersPage() {
     if (!confirm('Delete this provider? Any agents using it will stop working.')) return
     try { await api.providers.delete(id); load() }
     catch (e: any) { alert(e.message) }
+  }
+
+  const resync = async (id: string, name: string) => {
+    try {
+      await api.providers.resync(id)
+      setResyncedId(id)
+      setTimeout(() => setResyncedId(null), 2000)
+    } catch (e: any) { alert(`Resync failed: ${e.message}`) }
   }
 
   const endpointLabel = (p: Provider) => {
@@ -508,6 +517,13 @@ export function ProvidersPage() {
                   <p className="text-xs text-slate-500 font-mono truncate pl-11">{endpointLabel(p)}</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resync(p.id, p.name)}
+                  >
+                    {resyncedId === p.id ? '✓ Resynced' : '↺ Resync'}
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => { setEditing(p); setShowForm(true) }}>Edit</Button>
                   <Button variant="danger" size="sm" onClick={() => remove(p.id)}>Delete</Button>
                 </div>

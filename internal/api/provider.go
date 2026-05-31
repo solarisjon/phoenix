@@ -165,6 +165,21 @@ func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, map[string]any{"supported": true, "models": models})
 }
 
+func (s *Server) resyncProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := s.providers.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if existing == nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	s.registry.Invalidate(id)
+	respond(w, http.StatusOK, map[string]string{"status": "ok", "message": "provider cache cleared — next task will reload config from DB"})
+}
+
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.providers.Get(r.Context(), id)
