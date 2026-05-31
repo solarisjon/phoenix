@@ -5,6 +5,7 @@ import { phoenixWS } from '@/lib/ws'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
+import { Input, Textarea, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
@@ -111,6 +112,12 @@ export function MonitorDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [triggering, setTriggering] = useState(false)
   const [triggerError, setTriggerError] = useState('')
+  const [showEdit, setShowEdit] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editWorkingDir, setEditWorkingDir] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   const load = useCallback(async () => {
     if (!id) return
@@ -168,6 +175,36 @@ export function MonitorDetailPage() {
     }
   }
 
+  const openEdit = () => {
+    if (!monitor) return
+    setEditName(monitor.name)
+    setEditDesc(monitor.description ?? '')
+    setEditWorkingDir(monitor.working_dir ?? '')
+    setSaveError('')
+    setShowEdit(true)
+  }
+
+  const saveEdit = async () => {
+    if (!id || !monitor) return
+    if (!editName.trim()) { setSaveError('Name is required'); return }
+    setSaving(true)
+    setSaveError('')
+    try {
+      await api.projects.update(id, {
+        name: editName.trim(),
+        description: editDesc,
+        working_dir: editWorkingDir.trim(),
+        kind: 'monitor',
+      })
+      setShowEdit(false)
+      load()
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const deleteMonitor = async () => {
     if (!id) return
     setDeleting(true)
@@ -216,6 +253,7 @@ export function MonitorDetailPage() {
             >
               {triggering ? 'Triggering…' : '▶ Run now'}
             </Button>
+            <Button variant="secondary" size="sm" onClick={openEdit}>Edit</Button>
             <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
           </div>
         </div>
@@ -279,6 +317,31 @@ export function MonitorDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Edit modal */}
+      {showEdit && (
+        <Modal title="Edit Monitor" onClose={() => setShowEdit(false)}>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="edit-name">Name</Label>
+              <Input id="edit-name" value={editName} onChange={e => setEditName(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="edit-desc">Description</Label>
+              <Textarea id="edit-desc" value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={2} />
+            </div>
+            <div>
+              <Label htmlFor="edit-wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>
+              <Input id="edit-wdir" value={editWorkingDir} onChange={e => setEditWorkingDir(e.target.value)} placeholder="/path/to/project" />
+            </div>
+            {saveError && <p className="text-sm text-red-400">{saveError}</p>}
+            <div className="flex gap-3 justify-end pt-2">
+              <Button variant="secondary" onClick={() => setShowEdit(false)}>Cancel</Button>
+              <Button onClick={saveEdit} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Delete confirmation */}
       {showDeleteConfirm && (
