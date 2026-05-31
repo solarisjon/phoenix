@@ -10,6 +10,7 @@ import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { ProjectHumanView } from '@/components/project/ProjectHumanView'
+import { AgentsSection } from '@/components/shared/AgentsSection'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 
@@ -637,7 +638,6 @@ export function ProjectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [showTaskForm, setShowTaskForm] = useState(false)
-  const [showAssignAgent, setShowAssignAgent] = useState(false)
   const [showAssignTeam, setShowAssignTeam] = useState(false)
   const [teamAssignMsg, setTeamAssignMsg] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -664,12 +664,6 @@ export function ProjectDetailPage() {
   }, [id])
 
   useEffect(() => { load() }, [load])
-
-  const removeAgent = async (agentId: string) => {
-    if (!id) return
-    await api.projects.removeAgent(id, agentId)
-    load()
-  }
 
   const deleteProject = async () => {
     if (!id) return
@@ -745,19 +739,24 @@ export function ProjectDetailPage() {
         )
       })()}
 
-      {/* Agents sidebar (compact, always visible) */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-slate-500 uppercase tracking-wide">Agents:</span>
-        {agents.map(a => (
-          <span key={a.id} className="inline-flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-full px-3 py-1 text-xs text-slate-300">
-            <span className="w-1.5 h-1.5 rounded-full bg-violet-400" />
-            {a.name}
-            <button onClick={() => removeAgent(a.id)} className="text-slate-600 hover:text-slate-400 ml-1">×</button>
-          </span>
-        ))}
-        <button onClick={() => setShowAssignAgent(true)} className="text-xs text-slate-500 hover:text-violet-400 transition-colors">+ Agent</button>
-        <button onClick={() => setShowAssignTeam(true)} className="text-xs text-slate-500 hover:text-violet-400 transition-colors">+ Team</button>
-        {teamAssignMsg && <span className="text-xs text-green-400">✓ {teamAssignMsg}</span>}
+      {/* Agents — same pattern as Monitors page */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-slate-500 uppercase tracking-wide">Agents</p>
+          <button
+            onClick={() => setShowAssignTeam(true)}
+            className="text-xs text-slate-500 hover:text-violet-400 transition-colors"
+          >
+            + Add team
+          </button>
+        </div>
+        <AgentsSection
+          assigned={agents}
+          allAgents={allAgents}
+          onAdd={async (agentId) => { await api.projects.assignAgent(id!, agentId); load() }}
+          onRemove={async (agentId) => { await api.projects.removeAgent(id!, agentId); load() }}
+        />
+        {teamAssignMsg && <p className="text-xs text-green-400 mt-2">✓ {teamAssignMsg}</p>}
       </div>
 
       {/* Main view — always human-driven */}
@@ -796,13 +795,6 @@ export function ProjectDetailPage() {
         </Modal>
       )}
 
-      {showAssignAgent && (
-        <Modal title="Assign Agent" onClose={() => setShowAssignAgent(false)}>
-          <AssignAgentModal projectId={project.id} allAgents={allAgents} assigned={agents}
-            onSave={() => { setShowAssignAgent(false); load() }}
-            onClose={() => setShowAssignAgent(false)} />
-        </Modal>
-      )}
       {showAssignTeam && (
         <Modal title="Assign Team" onClose={() => setShowAssignTeam(false)}>
           <AssignTeamModal

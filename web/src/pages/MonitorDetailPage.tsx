@@ -9,6 +9,7 @@ import { Input, Textarea, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
+import { AgentsSection } from '@/components/shared/AgentsSection'
 
 // ---- Countdown clock ----
 
@@ -106,6 +107,7 @@ export function MonitorDetailPage() {
   const navigate = useNavigate()
   const [monitor, setMonitor] = useState<Project | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
+  const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -122,13 +124,15 @@ export function MonitorDetailPage() {
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const [proj, agts, tsks] = await Promise.all([
+      const [proj, agts, allAgts, tsks] = await Promise.all([
         api.projects.get(id),
         api.projects.listAgents(id),
+        api.agents.list(),
         api.tasks.list(id),
       ])
       setMonitor(proj)
       setAgents(agts)
+      setAllAgents(allAgts)
       setTasks(tsks)
     } finally {
       setLoading(false)
@@ -292,6 +296,18 @@ export function MonitorDetailPage() {
         {triggerError && (
           <p className="text-xs text-red-400 ml-8">{triggerError}</p>
         )}
+
+        {/* Agents — inline, same pattern as list page */}
+        <div className="border-t border-slate-800 pt-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Agents</p>
+          <AgentsSection
+            assigned={agents}
+            allAgents={allAgents}
+            showHeartbeat
+            onAdd={async (agentId) => { await api.projects.assignAgent(id!, agentId); load() }}
+            onRemove={async (agentId) => { await api.projects.removeAgent(id!, agentId); load() }}
+          />
+        </div>
       </div>
 
       {/* Run log */}
