@@ -133,6 +133,11 @@ func (s *Scheduler) sync() {
 			if proj.Status != model.ProjectStatusActive {
 				continue
 			}
+			// Only monitors participate in heartbeat scheduling.
+			// Regular projects are human-driven; ignore heartbeat_interval there.
+			if proj.Kind != model.ProjectKindMonitor {
+				continue
+			}
 			// Check if agent is assigned to this project.
 			assigned, err := s.projects.ListAgents(ctx, proj.ID)
 			if err != nil {

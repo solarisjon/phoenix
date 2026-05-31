@@ -13,11 +13,11 @@ func NewStatsRepo(db *DB) *StatsRepo { return &StatsRepo{db} }
 
 func (r *StatsRepo) CostByAgent(ctx context.Context) ([]*store.CostSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT a.id, a.name, COALESCE(SUM(t.cost_usd), 0)
+		SELECT a.id, a.name, COALESCE(SUM(t.cost_usd), 0), COUNT(t.id)
 		FROM agents a
-		LEFT JOIN tasks t ON t.agent_id = a.id
+		INNER JOIN tasks t ON t.agent_id = a.id
 		GROUP BY a.id, a.name
-		ORDER BY SUM(t.cost_usd) DESC`)
+		ORDER BY SUM(t.cost_usd) DESC, COUNT(t.id) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("cost by agent: %w", err)
 	}
@@ -27,11 +27,11 @@ func (r *StatsRepo) CostByAgent(ctx context.Context) ([]*store.CostSummary, erro
 
 func (r *StatsRepo) CostByProject(ctx context.Context) ([]*store.CostSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT p.id, p.name, COALESCE(SUM(t.cost_usd), 0)
+		SELECT p.id, p.name, COALESCE(SUM(t.cost_usd), 0), COUNT(t.id)
 		FROM projects p
-		LEFT JOIN tasks t ON t.project_id = p.id
+		INNER JOIN tasks t ON t.project_id = p.id
 		GROUP BY p.id, p.name
-		ORDER BY SUM(t.cost_usd) DESC`)
+		ORDER BY SUM(t.cost_usd) DESC, COUNT(t.id) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("cost by project: %w", err)
 	}
@@ -107,7 +107,7 @@ func scanCostSummaries(rows interface {
 	var out []*store.CostSummary
 	for rows.Next() {
 		var s store.CostSummary
-		if err := rows.Scan(&s.ID, &s.Name, &s.Total); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Total, &s.TaskCount); err != nil {
 			return nil, fmt.Errorf("scan cost summary: %w", err)
 		}
 		out = append(out, &s)

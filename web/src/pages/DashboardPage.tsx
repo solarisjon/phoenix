@@ -171,7 +171,9 @@ function fmt(usd: number): string {
 
 function CostSection({ costs }: { costs: CostsResponse }) {
   const hasSpend = costs.total_cost_usd > 0
-  const agentsWithCost = costs.by_agent.filter(a => a.total_cost_usd > 0)
+  // by_agent now uses INNER JOIN so only agents with tasks are returned.
+  // Sorted by cost desc, then task count desc — so $0 coding agents appear after paid ones.
+  const agentRows = costs.by_agent
   const projectsWithCost = costs.by_project.filter(p => p.total_cost_usd > 0)
 
   // Only show daily breakdown if there are multiple days
@@ -211,32 +213,41 @@ function CostSection({ costs }: { costs: CostsResponse }) {
         </Card>
       )}
 
-      {!hasSpend ? (
-        <p className="text-xs text-slate-600">
-          No LLM spend recorded — cost tracking only applies to providers with per-token pricing configured.
-        </p>
-      ) : (
-        <div className="grid grid-cols-2 gap-4">
-          {/* By agent */}
+      <div className="grid grid-cols-2 gap-4">
+          {/* By agent — includes $0-cost coding agents; shows task count alongside cost */}
           <Card>
             <CardBody>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Cost by agent</p>
-              <table className="w-full text-sm">
-                <tbody>
-                  {agentsWithCost.map(a => (
-                    <tr key={a.id} className="border-b border-slate-800 last:border-0">
-                      <td className="py-2 text-slate-300">{a.name}</td>
-                      <td className="py-2 text-right font-mono text-white">{fmt(a.total_cost_usd)}</td>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Activity by agent</p>
+              {agentRows.length === 0 ? (
+                <p className="text-xs text-slate-600">No agents have run tasks yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="pb-2 text-left text-xs text-slate-600 font-normal">Agent</th>
+                      <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tasks</th>
+                      <th className="pb-2 text-right text-xs text-slate-600 font-normal">Cost</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td className="pt-3 text-xs text-slate-500">Total</td>
-                    <td className="pt-3 text-right font-mono text-violet-400 font-semibold">{fmt(costs.total_cost_usd)}</td>
-                  </tr>
-                </tfoot>
-              </table>
+                  </thead>
+                  <tbody>
+                    {agentRows.map(a => (
+                      <tr key={a.id} className="border-b border-slate-800 last:border-0">
+                        <td className="py-2 text-slate-300">{a.name}</td>
+                        <td className="py-2 text-right text-slate-400">{a.task_count}</td>
+                        <td className="py-2 text-right font-mono text-white">{a.total_cost_usd > 0 ? fmt(a.total_cost_usd) : <span className="text-slate-600">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {hasSpend && (
+                    <tfoot>
+                      <tr>
+                        <td className="pt-3 text-xs text-slate-500" colSpan={2}>Total</td>
+                        <td className="pt-3 text-right font-mono text-violet-400 font-semibold">{fmt(costs.total_cost_usd)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              )}
             </CardBody>
           </Card>
 
@@ -278,7 +289,6 @@ function CostSection({ costs }: { costs: CostsResponse }) {
             </CardBody>
           </Card>
         </div>
-      )}
     </div>
   )
 }

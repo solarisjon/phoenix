@@ -73,6 +73,7 @@ export interface CostSummary {
   id: string
   name: string
   total_cost_usd: number
+  task_count: number
 }
 
 export interface DailyCost {

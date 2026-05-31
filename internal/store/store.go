@@ -74,9 +74,10 @@ type TeamRepo interface {
 
 // CostSummary holds aggregated cost data.
 type CostSummary struct {
-	ID    string  `json:"id"`
-	Name  string  `json:"name"`
-	Total float64 `json:"total_cost_usd"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Total     float64 `json:"total_cost_usd"`
+	TaskCount int     `json:"task_count"`
 }
 
 // DailyCost holds the total cost for a single calendar day.
