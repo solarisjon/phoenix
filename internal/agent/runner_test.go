@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -138,6 +139,18 @@ func (r *memTaskRepo) ListByAgent(_ context.Context, agentID string) ([]*model.T
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.AgentID == agentID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+func (r *memTaskRepo) Search(_ context.Context, query string) ([]*model.Task, error) {
+	var out []*model.Task
+	q := strings.ToLower(strings.Trim(query, `"`))
+	for _, t := range r.tasks {
+		if strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Description), q) ||
+			strings.Contains(strings.ToLower(t.Output), q) {
 			out = append(out, t)
 		}
 	}

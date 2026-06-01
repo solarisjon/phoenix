@@ -55,6 +55,7 @@ type TaskRepo interface {
 	ListByStatus(ctx context.Context, status model.TaskStatus) ([]*model.Task, error)
 	ListByStatuses(ctx context.Context, statuses []model.TaskStatus) ([]*model.Task, error)
 	ListByAgent(ctx context.Context, agentID string) ([]*model.Task, error)
+	Search(ctx context.Context, query string) ([]*model.Task, error)
 	Get(ctx context.Context, id string) (*model.Task, error)
 	Create(ctx context.Context, t *model.Task) error
 	Update(ctx context.Context, t *model.Task) error

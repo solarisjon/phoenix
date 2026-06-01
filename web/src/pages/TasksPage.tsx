@@ -113,9 +113,11 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
 
 export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
+  const [searchResults, setSearchResults] = useState<Task[] | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
+  const [searching, setSearching] = useState(false)
   const [filter, setFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -141,13 +143,31 @@ export function TasksPage() {
     return unsub
   }, [load])
 
-  const filtered = tasks.filter(t => {
+  // Debounced server-side search
+  useEffect(() => {
+    if (!search.trim()) {
+      setSearchResults(null)
+      return
+    }
+    setSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const results = await api.tasks.search(search.trim())
+        setSearchResults(results)
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  const baseList = searchResults ?? tasks
+  const filtered = baseList.filter(t => {
     if (filter !== 'all' && t.status !== filter) return false
-    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
 
-  // Count per status for filter badges
+  // Count per status for filter badges (always from full task list)
   const counts: Record<string, number> = {}
   for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
 
@@ -190,12 +210,20 @@ export function TasksPage() {
             )
           })}
         </div>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search tasks…"
-          className="flex-1 min-w-48 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
-        />
+        <div className="flex-1 min-w-48 relative">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search tasks…"
+            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
+          />
+          {searching && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">searching…</span>
+          )}
+          {searchResults && !searching && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</span>
+          )}
+        </div>
       </div>
 
       {/* Task list */}

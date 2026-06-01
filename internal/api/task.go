@@ -36,6 +36,36 @@ func (r createTaskRequest) validate() string {
 }
 
 // listRunningTasks returns all tasks currently running or queued, across all projects.
+func (s *Server) searchTasks(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		respond(w, http.StatusOK, []*model.Task{})
+		return
+	}
+	// Escape FTS5 special chars by wrapping each token in double-quotes.
+	// This lets users type plain words without FTS5 syntax errors.
+	safe := fts5Quote(q)
+	list, err := s.tasks.Search(r.Context(), safe)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if list == nil {
+		list = []*model.Task{}
+	}
+	respond(w, http.StatusOK, list)
+}
+
+// fts5Quote wraps each whitespace-delimited token in double-quotes so that
+// plain user input is treated as literal phrase search in FTS5.
+func fts5Quote(q string) string {
+	tokens := strings.Fields(q)
+	for i, t := range tokens {
+		tokens[i] = `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
+	}
+	return strings.Join(tokens, " ")
+}
+
 func (s *Server) listRunningTasks(w http.ResponseWriter, r *http.Request) {
 	statuses := []model.TaskStatus{
 		model.TaskStatusRunning,

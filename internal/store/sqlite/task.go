@@ -70,6 +70,19 @@ func (r *TaskRepo) ListByAgent(ctx context.Context, agentID string) ([]*model.Ta
 	return scanTasks(rows)
 }
 
+func (r *TaskRepo) Search(ctx context.Context, query string) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks
+         WHERE rowid IN (SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH ?)
+         ORDER BY created_at DESC
+         LIMIT 100`, query)
+	if err != nil {
+		return nil, fmt.Errorf("search tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 func (r *TaskRepo) ListByStatus(ctx context.Context, status model.TaskStatus) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT`+taskSelectCols+`FROM tasks WHERE status = ? AND dismissed = 0 ORDER BY created_at ASC`,
