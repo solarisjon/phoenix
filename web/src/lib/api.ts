@@ -200,6 +200,7 @@ export const api = {
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     listRunning: () => request<Task[]>('/tasks/running'),
+    cancel: (id: string) => request<void>(`/tasks/${id}/cancel`, { method: 'POST', body: '{}' }),
   },
   inbox: {
     list: () => request<Task[]>('/inbox'),

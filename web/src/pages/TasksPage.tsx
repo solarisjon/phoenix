@@ -31,10 +31,16 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
   const project = projects.find(p => p.id === task.project_id)
   const output = parseOutput(task.output)
   const [retrying, setRetrying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   const retry = async () => {
     setRetrying(true)
     try { await api.tasks.retry(task.id); onRetry() } finally { setRetrying(false) }
+  }
+
+  const cancel = async () => {
+    setCancelling(true)
+    try { await api.tasks.cancel(task.id); onRetry() } finally { setCancelling(false) }
   }
 
   return (
@@ -85,6 +91,11 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
         <Link to={`/projects/${task.project_id}`} onClick={onClose}>
           <Button variant="secondary" size="sm">View Project →</Button>
         </Link>
+        {(task.status === 'running' || task.status === 'queued') && (
+          <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : '✕ Cancel'}
+          </Button>
+        )}
         {task.status === 'failed' && (
           <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
         )}

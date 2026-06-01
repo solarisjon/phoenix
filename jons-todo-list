@@ -31,7 +31,7 @@
   - [FIXED] markdown rendering in task output — MarkdownOutput component; scoped CSS using --ph-* vars
   - [TODO]  dismiss all — "Clear all" / "Dismiss all failed" bulk action in Inbox
   - [TODO]  running task count in nav — live count badge on Tasks nav item (currently only Inbox has one)
-  - [TODO]  task cancellation — kill a running task mid-stream; send SIGTERM to runner_pid, mark failed
+  - [FIXED] task cancellation — kill a running task mid-stream; send SIGTERM to runner_pid, mark failed
 
 ## Scheduling & automation
   - [FIXED] Heartbeat scheduling — scheduler fires periodic tasks for agents with heartbeat_interval set

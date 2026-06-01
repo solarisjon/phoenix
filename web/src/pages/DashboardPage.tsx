@@ -28,8 +28,9 @@ function StatCard({ label, value, sub, accent, onClick, href }: {
 }
 
 // Running task card — shows live streamed content
-function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent[]; projects: Project[] }) {
+function RunningTaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: () => void }) {
   const [stream, setStream] = useState('')
+  const [cancelling, setCancelling] = useState(false)
   const agent = agents.find(a => a.id === task.agent_id)
   const project = projects.find(p => p.id === task.project_id)
   const scrollRef = useRef<HTMLPreElement>(null)
@@ -50,6 +51,11 @@ function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent
     if (el) el.scrollTop = el.scrollHeight
   }, [stream])
 
+  const handleCancel = async () => {
+    setCancelling(true)
+    try { await api.tasks.cancel(task.id); onCancel() } finally { setCancelling(false) }
+  }
+
   const preview = stream || parseOutput(task.output)
 
   return (
@@ -67,7 +73,17 @@ function RunningTaskCard({ task, agents, projects }: { task: Task; agents: Agent
               {agent?.name ?? ''}
             </p>
           </div>
-          <Badge variant="info">{task.status}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="info">{task.status}</Badge>
+            <button
+              onClick={handleCancel}
+              disabled={cancelling}
+              className="text-xs text-slate-500 hover:text-red-400 disabled:opacity-50 transition-colors"
+              title="Cancel task"
+            >
+              {cancelling ? '…' : '✕'}
+            </button>
+          </div>
         </div>
         {preview && (
           <pre ref={scrollRef} className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">
@@ -91,10 +107,16 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
   const project = projects.find(p => p.id === task.project_id)
   const output = parseOutput(task.output)
   const [retrying, setRetrying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   const retry = async () => {
     setRetrying(true)
     try { await api.tasks.retry(task.id); onRetry() } finally { setRetrying(false) }
+  }
+
+  const cancel = async () => {
+    setCancelling(true)
+    try { await api.tasks.cancel(task.id); onRetry() } finally { setCancelling(false) }
   }
 
   return (
@@ -141,6 +163,11 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
         <Link to={`/projects/${task.project_id}`} onClick={onClose}>
           <Button variant="secondary" size="sm">View Project →</Button>
         </Link>
+        {(task.status === 'running' || task.status === 'queued') && (
+          <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : '✕ Cancel'}
+          </Button>
+        )}
         {task.status === 'failed' && (
           <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
         )}
@@ -382,7 +409,7 @@ export function DashboardPage() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             {runningTasks.map(t => (
-              <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} />
+              <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={load} />
             ))}
           </div>
         </div>

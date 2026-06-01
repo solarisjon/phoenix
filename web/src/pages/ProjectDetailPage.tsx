@@ -413,6 +413,7 @@ function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onU
   const [expanded, setExpanded] = useState(false)
   const [stream, setStream] = useState('')
   const [retrying, setRetrying] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const agent = agents.find(a => a.id === task.agent_id)
 
   useEffect(() => {
@@ -435,6 +436,11 @@ function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onU
     try { await api.tasks.retry(task.id); onUpdate() } finally { setRetrying(false) }
   }
 
+  const cancel = async () => {
+    setCancelling(true)
+    try { await api.tasks.cancel(task.id); onUpdate() } finally { setCancelling(false) }
+  }
+
   const output = task.status === 'running' && stream ? stream : parseOutput(task.output)
   const showOutput = expanded && (output && output !== '{}')
 
@@ -452,10 +458,13 @@ function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onU
           <p className="text-xs text-slate-500">
             {agent?.name ?? 'Unknown'} · {timeAgo(task.created_at)}
           </p>
-          {task.status === 'running' && (
-            <div className="flex items-center gap-1.5 mt-2">
+          {(task.status === 'running' || task.status === 'queued') && (
+            <div className="flex items-center gap-2 mt-2" onClick={e => e.stopPropagation()}>
               <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              <span className="text-xs text-violet-400">Running…</span>
+              <span className="text-xs text-violet-400">{task.status === 'queued' ? 'Queued' : 'Running…'}</span>
+              <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling}>
+                {cancelling ? 'Cancelling…' : '✕ Cancel'}
+              </Button>
             </div>
           )}
           {task.status === 'failed' && (
