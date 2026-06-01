@@ -29,7 +29,7 @@
   - [FIXED] Tasks Running stat card opens live running-tasks panel
   - [FIXED] real-time inbox badge — amber badge, 99+ cap, 30s poll + WS events; includes pending agent_drafts
   - [FIXED] markdown rendering in task output — MarkdownOutput component; scoped CSS using --ph-* vars
-  - [TODO]  dismiss all — "Clear all" / "Dismiss all failed" bulk action in Inbox
+  - [FIXED] dismiss all — "Clear all" / "Dismiss all failed" bulk action in Inbox
   - [FIXED] running task count in nav — live count badge on Tasks nav item (currently only Inbox has one)
   - [FIXED] task cancellation — kill a running task mid-stream; send SIGTERM to runner_pid, mark failed
 

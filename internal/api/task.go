@@ -461,7 +461,6 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusNoContent, nil)
 }
 
-// cancelTask stops a running or queued task and marks it failed.
 func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := s.tasks.Get(r.Context(), id)
