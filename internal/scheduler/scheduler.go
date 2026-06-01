@@ -240,7 +240,7 @@ func (s *Scheduler) fire(ctx context.Context, spec heartbeatSpec) error {
 		ProjectID:   spec.project.ID,
 		AgentID:     spec.agent.ID,
 		Title:       fmt.Sprintf("Heartbeat — %s", now.Format("2006-01-02 15:04")),
-		Description: "Scheduled heartbeat check-in. Review any pending context, outstanding work items, and provide a status update.",
+		Description: spec.project.Description,
 		Status:      model.TaskStatusPending,
 		Input:       "{}",
 		Output:      "{}",

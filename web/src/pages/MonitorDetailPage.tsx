@@ -169,7 +169,7 @@ export function MonitorDetailPage() {
         project_id: id,
         agent_id: primaryAgent.id,
         title: `Manual run — ${new Date().toLocaleString()}`,
-        description: 'Manually triggered run.',
+        description: monitor.description ?? '',
       })
       load()
     } catch (e: unknown) {
