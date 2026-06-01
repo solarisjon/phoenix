@@ -115,7 +115,7 @@ func (r *TeamRepo) ListAgents(ctx context.Context, teamID string) ([]*model.Agen
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails,
 		       a.provider_id, a.model_override, a.can_spawn_agents, a.can_hire_agents,
-		       a.heartbeat_interval, a.created_by, a.status, a.created_at
+		       a.heartbeat_interval, a.max_concurrent, a.created_by, a.status, a.created_at
 		FROM agents a
 		JOIN team_agents ta ON ta.agent_id = a.id
 		WHERE ta.team_id = ?

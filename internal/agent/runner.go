@@ -50,8 +50,9 @@ type Runner struct {
 	bgCtx    context.Context    // long-lived background context for task goroutines
 	bgCancel context.CancelFunc // cancelled on Shutdown
 
-	mu      sync.Mutex
-	cancels map[string]context.CancelCauseFunc // task ID → cancel-with-cause
+	mu           sync.Mutex
+	cancels      map[string]context.CancelCauseFunc // task ID → cancel-with-cause
+	agentRunning map[string]int                     // agent ID → count of running goroutines
 }
 
 // New creates a Runner. onEvent may be nil (events are dropped).
@@ -65,15 +66,16 @@ func New(
 ) *Runner {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	return &Runner{
-		agents:   agents,
-		tasks:    tasks,
-		projects: projects,
-		settings: settings,
-		registry: reg,
-		onEvent:  onEvent,
-		bgCtx:    bgCtx,
-		bgCancel: bgCancel,
-		cancels:  make(map[string]context.CancelCauseFunc),
+		agents:       agents,
+		tasks:        tasks,
+		projects:     projects,
+		settings:     settings,
+		registry:     reg,
+		onEvent:      onEvent,
+		bgCtx:        bgCtx,
+		bgCancel:     bgCancel,
+		cancels:      make(map[string]context.CancelCauseFunc),
+		agentRunning: make(map[string]int),
 	}
 }
 
@@ -86,11 +88,10 @@ func (r *Runner) SetEventHandler(h EventHandler) {
 }
 
 // RunTask starts execution of the given task in a background goroutine.
-// It transitions the task to Queued immediately, then Running when the
-// goroutine starts. The task uses the runner's long-lived background context
-// so it is NOT cancelled when the originating HTTP request completes.
+// It transitions the task to Queued immediately. If the agent has capacity,
+// the task starts running right away; otherwise it stays queued until a
+// running task completes and drainQueue picks it up.
 func (r *Runner) RunTask(ctx context.Context, taskID string) error {
-	// Use ctx only for the initial DB lookup — task execution uses bgCtx.
 	task, err := r.tasks.Get(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("runner: get task: %w", err)
@@ -108,22 +109,18 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
-	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
-	r.mu.Lock()
-	r.cancels[taskID] = cancel
-	r.mu.Unlock()
+	agent, err := r.agents.Get(ctx, task.AgentID)
+	if err != nil || agent == nil {
+		return fmt.Errorf("runner: agent %s not found", task.AgentID)
+	}
 
-	go func() {
-		defer func() {
-			r.mu.Lock()
-			delete(r.cancels, taskID)
-			r.mu.Unlock()
-			cancel(nil)
-			timeoutCancel()
-		}()
-		r.execute(taskCtx, task)
-	}()
+	r.mu.Lock()
+	running := r.agentRunning[task.AgentID]
+	maxC := agent.MaxConcurrent
+	if maxC == 0 || running < maxC {
+		r.tryStartLocked(task)
+	}
+	r.mu.Unlock()
 
 	return nil
 }
@@ -145,34 +142,46 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
-	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
-	r.mu.Lock()
-	r.cancels[taskID] = cancel
-	r.mu.Unlock()
+	agent, err := r.agents.Get(ctx, task.AgentID)
+	if err != nil || agent == nil {
+		return fmt.Errorf("runner: agent %s not found for resume", task.AgentID)
+	}
 
-	go func() {
-		defer func() {
-			r.mu.Lock()
-			delete(r.cancels, taskID)
-			r.mu.Unlock()
-			cancel(nil)
-			timeoutCancel()
-		}()
-		r.execute(taskCtx, task)
-	}()
+	r.mu.Lock()
+	running := r.agentRunning[task.AgentID]
+	maxC := agent.MaxConcurrent
+	if maxC == 0 || running < maxC {
+		r.tryStartLocked(task)
+	}
+	r.mu.Unlock()
 
 	return nil
 }
 
-// CancelTask stops a running task. The task is marked failed with a
-// "cancelled by user" message. Safe to call if the task is not running.
+// CancelTask stops a running or queued task. Safe to call if the task is
+// not running — it will attempt to cancel a queued-but-not-started task via DB.
 func (r *Runner) CancelTask(taskID string) {
 	r.mu.Lock()
 	cancel, ok := r.cancels[taskID]
 	r.mu.Unlock()
 	if ok {
 		cancel(ErrTaskCancelledByUser)
+		return
+	}
+
+	// Task may be queued but not yet running (no goroutine). Cancel it in DB.
+	cancelled, err := r.tasks.CancelQueuedTask(r.bgCtx, taskID)
+	if err != nil {
+		log.Printf("runner: cancel queued task %s: %v", taskID, err)
+		return
+	}
+	if cancelled {
+		status := model.TaskStatusFailed
+		r.emit(StreamEvent{
+			TaskID:     taskID,
+			StatusDone: &status,
+			Err:        ErrTaskCancelledByUser,
+		})
 	}
 }
 
@@ -196,6 +205,59 @@ func (r *Runner) ActiveTasks() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// ---- Concurrency helpers ----
+
+// tryStartLocked starts a goroutine for task. Must be called with r.mu held.
+// Returns false without starting if the task is already tracked (concurrent call).
+func (r *Runner) tryStartLocked(task *model.Task) bool {
+	if _, already := r.cancels[task.ID]; already {
+		return false
+	}
+	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
+	r.cancels[task.ID] = cancel
+	r.agentRunning[task.AgentID]++
+	go func() {
+		defer func() {
+			r.mu.Lock()
+			delete(r.cancels, task.ID)
+			r.agentRunning[task.AgentID]--
+			r.mu.Unlock()
+			cancel(nil)
+			timeoutCancel()
+			r.drainQueue(task.AgentID)
+		}()
+		r.execute(taskCtx, task)
+	}()
+	return true
+}
+
+// drainQueue starts queued tasks for the agent while it has capacity.
+// Called outside the mutex from goroutine defers.
+func (r *Runner) drainQueue(agentID string) {
+	for {
+		next, err := r.tasks.NextQueuedTask(r.bgCtx, agentID)
+		if err != nil || next == nil {
+			return
+		}
+		agent, err := r.agents.Get(r.bgCtx, agentID)
+		if err != nil || agent == nil {
+			return
+		}
+		r.mu.Lock()
+		running := r.agentRunning[agentID]
+		maxC := agent.MaxConcurrent
+		canStart := maxC == 0 || running < maxC
+		if canStart {
+			r.tryStartLocked(next) // no-op if another caller already claimed it
+		}
+		r.mu.Unlock()
+		if !canStart {
+			return
+		}
+	}
 }
 
 // ---- Internal execution ----

@@ -90,6 +90,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [heartbeatInterval, setHeartbeatInterval] = useState<string>(
     initial?.heartbeat_interval != null ? String(initial.heartbeat_interval) : ''
   )
+  const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -104,7 +105,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     setSaving(true)
     try {
       const hbSecs = heartbeatInterval.trim() ? parseInt(heartbeatInterval, 10) : null
-      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, status }
+      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, max_concurrent: maxConcurrent, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -188,6 +189,29 @@ function AgentForm({ initial, providers, onSave, onClose }: {
           <p className="text-xs text-slate-500 mt-1">
             When set, the agent will automatically receive a scheduled check-in task at this interval for each project it's assigned to.
             Minimum 60 seconds. Leave blank for manual-only.
+          </p>
+        </div>
+
+        {/* Max concurrent tasks */}
+        <div className="border-t border-slate-800 pt-4">
+          <Label htmlFor="max-concurrent">Max Concurrent Tasks</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input
+              id="max-concurrent"
+              type="number"
+              min="0"
+              max="20"
+              step="1"
+              value={maxConcurrent}
+              onChange={e => setMaxConcurrent(Math.max(0, parseInt(e.target.value) || 0))}
+              className="w-24"
+            />
+            <span className="text-slate-500 text-sm">
+              {maxConcurrent === 0 ? '(unlimited)' : maxConcurrent === 1 ? 'task at a time' : 'tasks at a time'}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Limits how many tasks this agent runs simultaneously. Extra tasks queue until a slot opens. Set to 0 for unlimited.
           </p>
         </div>
 

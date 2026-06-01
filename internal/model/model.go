@@ -71,6 +71,7 @@ type Agent struct {
 	CanSpawnAgents    bool        `json:"can_spawn_agents"`   // if true, agent may create tasks for other agents
 	CanHireAgents     bool        `json:"can_hire_agents"`    // if true, agent may submit new agent hire proposals
 	HeartbeatInterval *int        `json:"heartbeat_interval"` // seconds, nil = manual only
+	MaxConcurrent     int         `json:"max_concurrent"`     // 0 = unlimited
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`
 	CreatedAt         time.Time   `json:"created_at"`

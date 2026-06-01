@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
 )
@@ -141,7 +142,30 @@ func (r *TaskRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// ---- Scanning helpers ----
+func (r *TaskRepo) NextQueuedTask(ctx context.Context, agentID string) (*model.Task, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1`,
+		agentID)
+	return scanTask(row)
+}
+
+func (r *TaskRepo) CancelQueuedTask(ctx context.Context, taskID string) (bool, error) {
+	now := time.Now()
+	errJSON := `{"error":"task cancelled by user"}`
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET status='failed', output=?, completed_at=? WHERE id=? AND status='queued'`,
+		errJSON, now, taskID)
+	if err != nil {
+		return false, fmt.Errorf("cancel queued task: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("cancel queued task rows: %w", err)
+	}
+	return n > 0, nil
+}
+
+
 
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task

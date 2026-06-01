@@ -171,6 +171,27 @@ func (r *memTaskRepo) Delete(_ context.Context, id string) error {
 	delete(r.tasks, id)
 	return nil
 }
+func (r *memTaskRepo) NextQueuedTask(_ context.Context, agentID string) (*model.Task, error) {
+	var oldest *model.Task
+	for _, t := range r.tasks {
+		if t.AgentID == agentID && t.Status == model.TaskStatusQueued {
+			if oldest == nil || t.CreatedAt.Before(oldest.CreatedAt) {
+				oldest = t
+			}
+		}
+	}
+	return oldest, nil
+}
+func (r *memTaskRepo) CancelQueuedTask(_ context.Context, taskID string) (bool, error) {
+	t, ok := r.tasks[taskID]
+	if !ok || t.Status != model.TaskStatusQueued {
+		return false, nil
+	}
+	t.Status = model.TaskStatusFailed
+	now := time.Now()
+	t.CompletedAt = &now
+	return true, nil
+}
 
 // ---- Mock project repo ----
 

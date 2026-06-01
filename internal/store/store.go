@@ -60,6 +60,12 @@ type TaskRepo interface {
 	Create(ctx context.Context, t *model.Task) error
 	Update(ctx context.Context, t *model.Task) error
 	Delete(ctx context.Context, id string) error
+
+	// NextQueuedTask returns the oldest queued task for the given agent, or nil if none.
+	NextQueuedTask(ctx context.Context, agentID string) (*model.Task, error)
+	// CancelQueuedTask atomically sets a task to failed only if it is still queued.
+	// Returns true if the task was cancelled, false if it was already in another state.
+	CancelQueuedTask(ctx context.Context, taskID string) (bool, error)
 }
 
 // TeamRepo manages agent teams.
