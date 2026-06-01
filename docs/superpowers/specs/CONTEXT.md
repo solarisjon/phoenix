@@ -277,26 +277,20 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 
 ## Next Steps (see GitHub Issues)
 
-Recently completed (2026-05-30):
-- ✓ Global guardrails (system_settings, Settings → System tab, AI-assist generation)
-- ✓ Bulk inbox dismiss (dismiss-all per section, top-level dismiss all)
-- ✓ Projects / Monitors split (kind field, new sidebar entry, MonitorsPage, MonitorDetailPage, task source provenance)
+Recently completed (2026-05-31):
+- ✓ Per-agent activity log (#10)
+- ✓ Full-text task search FTS5 (#11)
+- ✓ Cost estimate before running (#5)
+- ✓ Database restore endpoint (#8)
+- ✓ Model picker dropdown (#18)
+- ✓ Task queuing / per-agent concurrency limits (#15)
 
-Priority order from issues backlog:
-1. **#1** Task cancellation (SIGTERM via runner_pid)
-2. **#3** Running task count badge in nav
-3. **#4** Model picker dropdown (Ollama: GET /api/tags)
-4. **#15** Task queuing / per-agent concurrency limits
-5. **#5** Cost estimates before running
-6. **#10** Per-agent activity log
-7. **#6** Token usage detail in task modal
-8. **#9** System info panel in Settings
-9. **#11** Full-text task search
-10. **#14** claudecode smoke test (BLOCKED: needs claude auth)
-11. **#7** Copilot adapter (BLOCKED: needs copilot login)
-12. **#8** DB restore endpoint
-13. **#12** Multi-user auth (Phase 7)
-14. **#13** Mobile layout
+Open backlog — https://github.com/solarisjon/phoenix/issues:
+1. **#13** Mobile-friendly layout (sidebar collapses to bottom nav)
+2. **#19** Keyboard shortcuts (R=retry, D=dismiss, J/K navigate)
+3. **#12** Multi-user authentication (Phase 7 — large)
+4. **#14** claudecode smoke test (BLOCKED: needs claude auth)
+5. **#7**  Copilot adapter (BLOCKED: needs copilot login)
 
 ---
 

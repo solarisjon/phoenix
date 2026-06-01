@@ -1,76 +1,12 @@
-# Phoenix — running todo list
-# See docs/superpowers/specs/CONTEXT.md for full project context (read this first when resuming)
-# Markers: [FIXED] = done, [TODO] = pending, [BLOCKED] = needs external action
+# Phoenix — backlog
+# All work items are now tracked as GitHub issues.
+# https://github.com/solarisjon/phoenix/issues
 
-## Core loop & agent execution
-  - [FIXED] failed tasks need a retry option — POST /api/tasks/:id/retry, retry buttons on task cards, inbox, dashboard
-  - [FIXED] inbox now shows failed + awaiting_approval tasks, grouped by state, with project name + clickable project links
-  - [FIXED] dashboard task activity rows are clickable — opens detail modal with output + retry for failed tasks
-  - [FIXED] agent model_override field — per-agent model that overrides provider default at execution time
-  - [FIXED] AI generate button on agent form — POST /api/agents/generate returns persona/instructions/guardrails from a description
-  - [FIXED] dismiss tasks from inbox — POST /api/tasks/:id/dismiss hides from inbox without deleting
-  - [FIXED] edit tasks from inbox — title + description editable on non-running tasks
-  - [FIXED] Agent can_spawn_agents flag — spawn endpoint + system prompt injection
-  - [FIXED] startup sanity: task timeout (30min), empty output detection, orphan PID kill on restart, StartupHealthCheck log summary
-  - [FIXED] pi adapter --no-session default fixed; renamed NoSession->AllowSession
-  - [FIXED] task follow-up refinement — POST /api/tasks/:id/followup; follow_up_of field; parent output injected as context
-  - [FIXED] follow-up thread UI — chat-bubble layout in ALL task detail modals (Dashboard, Tasks, Project, Inbox)
-  - [FIXED] fix follow-up empty output bug — pi/crush prompts now delivered via stdin (not CLI arg) to avoid ARG_MAX truncation on long parent outputs
-  - [FIXED] Quick Tasks — POST /api/tasks/quick; sandbox project UUID; floating FAB + ⌘K modal
-  - [FIXED] Agent hiring — can_hire_agents flag, agent_drafts table, Inbox approval cards with edit/approve/reject/dismiss
-  - [FIXED] Ollama adapter — local model inference via /api/chat streaming; thinking token suppression; zero cost
+## Open
+# #13  Mobile-friendly layout (sidebar collapses to bottom nav on narrow screens)
+# #19  Keyboard shortcuts (R=retry, D=dismiss, J/K=navigate, Enter=open detail)
+# #12  Multi-user authentication (Phase 7 in design doc)
 
-## Project / UX
-  - [FIXED] Project working directory — per-project path passed as working dir to coding agents
-  - [FIXED] Project deletion — safe delete with running-task guard
-  - [FIXED] project modes — auto-adapting page: autonomous (heartbeat) vs human-driven (thread cards)
-  - [FIXED] Guided project setup — 3-step stepper for new projects
-  - [FIXED] Needs Attention stat card links to /inbox
-  - [FIXED] Tasks Running stat card opens live running-tasks panel
-  - [FIXED] real-time inbox badge — amber badge, 99+ cap, 30s poll + WS events; includes pending agent_drafts
-  - [FIXED] markdown rendering in task output — MarkdownOutput component; scoped CSS using --ph-* vars
-  - [FIXED] dismiss all — "Clear all" / "Dismiss all failed" bulk action in Inbox
-  - [FIXED] running task count in nav — live count badge on Tasks nav item (currently only Inbox has one)
-  - [FIXED] task cancellation — kill a running task mid-stream; send SIGTERM to runner_pid, mark failed
-
-## Scheduling & automation
-  - [FIXED] Heartbeat scheduling — scheduler fires periodic tasks for agents with heartbeat_interval set
-  - [FIXED] task queuing / concurrency limits — per-agent max_concurrent; excess tasks queue, drain on completion
-
-## Providers & adapters
-  - [FIXED] pi adapter (--mode json streaming, stdin prompt delivery)
-  - [FIXED] claudecode adapter (stream-json streaming)
-  - [FIXED] crush adapter (plain text stdout streaming, AGENTS.md lifecycle)
-  - [FIXED] Ollama adapter (local models, /api/chat NDJSON, thinking token suppression)
-  - [FIXED] model picker dropdown — list available models per adapter; ollama: GET /api/tags; pi: (none); opencode: from config
-  - [TODO]  copilot adapter — needs `copilot login` interactive setup first (BLOCKED: no ~/.copilot/ config exists)
-  - [TODO]  claudecode smoke test — needs claude auth setup (BLOCKED)
-
-## Analytics & data
-  - [FIXED] cost graphs — area chart, bar charts by agent/project, task status breakdown
-  - [FIXED] cost estimates before running — show EstimatedCostUSD in task creation form for LLM providers
-  - [FIXED] token usage detail — show tokens_in / tokens_out in task detail modal
-
-## Teams & collaboration
-  - [FIXED] Agent teams — teams + team_agents tables, CRUD UI, assign whole team to project
-  - [FIXED] team bundle export/import — JSON bundle (agents + providers template), import wizard with provider key entry
-  - [FIXED] Team Detail page — Members, Projects, Schedule, Export, Delete
-
-## Admin & ops
-  - [FIXED] database backup endpoint — GET /api/admin/backup streams VACUUM INTO snapshot
-  - [FIXED] UI theming — 5 themes, live switcher, persisted to localStorage
-  - [FIXED] README — professional docs with setup, API reference, architecture
-  - [FIXED] db.ResetOrphanedTasks() — marks queued/running tasks as failed on startup; kills orphaned PIDs
-  - [FIXED] database restore — POST /api/admin/restore accepts a backup file and replaces the DB
-  - [TODO]  multi-user auth — Phase 7 in design doc; currently single-user (user ID hardcoded)
-  - [FIXED] settings: system info panel — show version, uptime, DB size, task counts
-
-## Nice-to-have / polish
-  - [FIXED] agent activity log — per-agent history of all tasks it has run (currently only on project pages)
-  - [FIXED] task search — full-text search across task titles and output (SQLite FTS5)
-  - [TODO]  keyboard shortcuts — beyond ⌘K for quick tasks; e.g. R to retry, D to dismiss in inbox
-  - [TODO]  mobile-friendly layout — sidebar collapses to bottom nav on narrow screens
-
-## Blocked
-  - copilot adapter: run `copilot login` interactively; then build internal/provider/copilot/copilot.go
-  - claudecode smoke test: needs `claude` CLI authenticated
+## Blocked (need external setup)
+# #7   Copilot CLI adapter — needs `copilot login` interactive setup
+# #14  claudecode smoke test — needs `claude` CLI authenticated
