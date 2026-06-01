@@ -60,6 +60,16 @@ func (r *TaskRepo) ListByStatuses(ctx context.Context, statuses []model.TaskStat
 	return scanTasks(rows)
 }
 
+func (r *TaskRepo) ListByAgent(ctx context.Context, agentID string) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? ORDER BY created_at DESC`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by agent: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 func (r *TaskRepo) ListByStatus(ctx context.Context, status model.TaskStatus) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT`+taskSelectCols+`FROM tasks WHERE status = ? AND dismissed = 0 ORDER BY created_at ASC`,

@@ -5,6 +5,7 @@ import { InboxPage } from '@/pages/InboxPage'
 import { ProjectsPage } from '@/pages/ProjectsPage'
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
 import { AgentsPage } from '@/pages/AgentsPage'
+import { AgentActivityPage } from '@/pages/AgentActivityPage'
 import { ProvidersPage } from '@/pages/ProvidersPage'
 import { TeamsPage } from '@/pages/TeamsPage'
 import { TeamDetailPage } from '@/pages/TeamDetailPage'
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/help" element={<HelpPage />} />
           {/* Legacy redirects so old bookmarks still work */}
+          <Route path="/agents/:id/activity" element={<AgentActivityPage />} />
           <Route path="/agents" element={<Navigate to="/settings?tab=agents" replace />} />
           <Route path="/providers" element={<Navigate to="/settings?tab=providers" replace />} />
         </Routes>

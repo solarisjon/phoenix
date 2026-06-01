@@ -134,6 +134,15 @@ func (r *memTaskRepo) ListByStatuses(_ context.Context, statuses []model.TaskSta
 	}
 	return out, nil
 }
+func (r *memTaskRepo) ListByAgent(_ context.Context, agentID string) ([]*model.Task, error) {
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.AgentID == agentID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
 func (r *memTaskRepo) Get(_ context.Context, id string) (*model.Task, error) {
 	return r.tasks[id], nil
 }

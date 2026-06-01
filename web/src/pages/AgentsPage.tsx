@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { api, type Agent, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -353,6 +354,9 @@ export function AgentsPage() {
                     )}
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
+                    <Link to={`/agents/${a.id}/activity`}>
+                      <Button variant="ghost" size="sm">Activity</Button>
+                    </Link>
                     <Button variant="ghost" size="sm" onClick={() => { setEditing(a); setShowForm(true) }}>Edit</Button>
                     <Button variant="danger" size="sm" onClick={() => remove(a.id)}>Delete</Button>
                   </div>

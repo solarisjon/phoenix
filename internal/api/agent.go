@@ -356,3 +356,25 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, http.StatusNoContent, nil)
 }
+
+func (s *Server) listAgentTasks(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	agent, err := s.agents.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if agent == nil {
+		respondErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	tasks, err := s.tasks.ListByAgent(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if tasks == nil {
+		tasks = []*model.Task{}
+	}
+	respond(w, http.StatusOK, tasks)
+}
