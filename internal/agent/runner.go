@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -15,6 +16,9 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
 )
+
+// ErrTaskCancelledByUser is the cancel cause set when a task is stopped via the API.
+var ErrTaskCancelledByUser = errors.New("task cancelled by user")
 
 // StreamEvent is emitted during task execution and consumed by the WebSocket hub.
 type StreamEvent struct {
@@ -47,7 +51,7 @@ type Runner struct {
 	bgCancel context.CancelFunc // cancelled on Shutdown
 
 	mu      sync.Mutex
-	cancels map[string]context.CancelFunc // task ID → cancel
+	cancels map[string]context.CancelCauseFunc // task ID → cancel-with-cause
 }
 
 // New creates a Runner. onEvent may be nil (events are dropped).
@@ -69,7 +73,7 @@ func New(
 		onEvent:  onEvent,
 		bgCtx:    bgCtx,
 		bgCancel: bgCancel,
-		cancels:  make(map[string]context.CancelFunc),
+		cancels:  make(map[string]context.CancelCauseFunc),
 	}
 }
 
@@ -104,7 +108,8 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	taskCtx, cancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
 	r.mu.Lock()
 	r.cancels[taskID] = cancel
 	r.mu.Unlock()
@@ -114,7 +119,8 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 			r.mu.Lock()
 			delete(r.cancels, taskID)
 			r.mu.Unlock()
-			cancel()
+			cancel(nil)
+			timeoutCancel()
 		}()
 		r.execute(taskCtx, task)
 	}()
@@ -139,7 +145,8 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	taskCtx, cancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
 	r.mu.Lock()
 	r.cancels[taskID] = cancel
 	r.mu.Unlock()
@@ -149,7 +156,8 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 			r.mu.Lock()
 			delete(r.cancels, taskID)
 			r.mu.Unlock()
-			cancel()
+			cancel(nil)
+			timeoutCancel()
 		}()
 		r.execute(taskCtx, task)
 	}()
@@ -157,13 +165,14 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
-// CancelTask cancels a running task.
+// CancelTask stops a running task. The task is marked failed with a
+// "cancelled by user" message. Safe to call if the task is not running.
 func (r *Runner) CancelTask(taskID string) {
 	r.mu.Lock()
 	cancel, ok := r.cancels[taskID]
 	r.mu.Unlock()
 	if ok {
-		cancel()
+		cancel(ErrTaskCancelledByUser)
 	}
 }
 
@@ -249,10 +258,16 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 
 	var outputBuilder []string
 	var totalCost float64
+	var realTokensIn, realTokensOut int
 
 	for chunk := range ch {
 		if chunk.Error != nil {
-			r.failTask(ctx, task, chunk.Error)
+			// Translate context cancellation into a user-friendly message.
+			taskErr := chunk.Error
+			if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
+				taskErr = ErrTaskCancelledByUser
+			}
+			r.failTask(ctx, task, taskErr)
 			return
 		}
 		// Capture subprocess PID on the first chunk and persist it so
@@ -271,6 +286,14 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 				Chunk:   &chunk.Content,
 			})
 		}
+		// Capture real token counts when the provider reports them (e.g. Ollama
+		// sends these on the final Done chunk). Zero means not available.
+		if chunk.TokensIn > 0 {
+			realTokensIn = chunk.TokensIn
+		}
+		if chunk.TokensOut > 0 {
+			realTokensOut = chunk.TokensOut
+		}
 	}
 
 	// Collect full output.
@@ -286,16 +309,22 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
-	// Use EstimateCost as a proxy for cost calculation since we can't
-	// easily extract token counts from SSE streams in Phase 1.
-	// This avoids a second round-trip to the LLM.
-	charEstimate := len(req.SystemPrompt) + len(req.Prompt)
-	for _, m := range req.Context {
-		charEstimate += len(m.Content)
+	// Use real token counts when the provider reported them; fall back to a
+	// character-based estimate (1 token ≈ 4 chars) for CLI adapters and LLM
+	// SSE streams that don't include a usage payload.
+	tokensIn := realTokensIn
+	tokensOut := realTokensOut
+	if tokensIn == 0 {
+		charEstimate := len(req.SystemPrompt) + len(req.Prompt)
+		for _, m := range req.Context {
+			charEstimate += len(m.Content)
+		}
+		charEstimate += len(fullOutput)
+		tokensIn = charEstimate / 4
 	}
-	charEstimate += len(fullOutput)
-	tokensIn := charEstimate / 4
-	tokensOut := len(fullOutput) / 4
+	if tokensOut == 0 {
+		tokensOut = len(fullOutput) / 4
+	}
 	estimate := prov.EstimateCost(req)
 	if estimate.EstimatedCostUSD > 0 {
 		totalCost = estimate.EstimatedCostUSD
@@ -330,6 +359,9 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 }
 
 // failTask marks a task as failed and emits an error event.
+// It always uses the runner's long-lived background context for DB operations
+// so that a cancelled task context (e.g. user cancellation) doesn't prevent
+// the failure record from being persisted.
 func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
 	log.Printf("runner: task %s failed: %v", task.ID, err)
 
@@ -340,8 +372,17 @@ func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
 	completedAt := time.Now()
 	task.CompletedAt = &completedAt
 
+	// Use bgCtx so DB writes succeed even when the task context was cancelled.
+	// Fall back to a plain background context if the server is shutting down.
+	dbCtx := r.bgCtx
+	if dbCtx.Err() != nil {
+		var dbCancel context.CancelFunc
+		dbCtx, dbCancel = context.WithTimeout(context.Background(), 5*time.Second)
+		defer dbCancel()
+	}
+
 	status := model.TaskStatusFailed
-	if setErr := r.setStatus(ctx, task, status, nil); setErr != nil {
+	if setErr := r.setStatus(dbCtx, task, status, nil); setErr != nil {
 		log.Printf("runner: set failed status: %v", setErr)
 	}
 

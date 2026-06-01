@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -14,8 +16,10 @@ import (
 // until it disconnects or the server shuts down.
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Allow the Vite dev server origin during development.
-		OriginPatterns: []string{"*"},
+		// Allow localhost origins for local development (Vite dev server).
+		// In production the embedded frontend is same-origin so no pattern is
+		// needed, but listing loopback addresses explicitly is still correct.
+		OriginPatterns: allowedWSOrigins(),
 	})
 	if err != nil {
 		log.Printf("ws: accept: %v", err)
@@ -54,4 +58,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// allowedWSOrigins returns the list of origin patterns permitted for WebSocket
+// upgrades. Loopback addresses are always allowed for local development.
+// Additional origins can be appended via PHOENIX_CORS_ORIGIN (comma-separated).
+func allowedWSOrigins() []string {
+	patterns := []string{"localhost:*", "127.0.0.1:*"}
+	for _, e := range strings.Split(os.Getenv("PHOENIX_CORS_ORIGIN"), ",") {
+		if e = strings.TrimSpace(e); e != "" {
+			patterns = append(patterns, e)
+		}
+	}
+	return patterns
 }

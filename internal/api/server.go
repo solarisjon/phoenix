@@ -3,6 +3,9 @@ package api
 
 import (
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -138,6 +141,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/tasks/{id}", s.updateTask)
 		r.Delete("/tasks/{id}", s.deleteTask)
 		r.Post("/tasks/{id}/retry", s.retryTask)
+		r.Post("/tasks/{id}/cancel", s.cancelTask)
 		r.Post("/tasks/{id}/dismiss", s.dismissTask)
 		r.Post("/tasks/{id}/followup", s.followUpTask)
 
@@ -172,18 +176,44 @@ func (s *Server) buildRouter() http.Handler {
 	return r
 }
 
-// corsMiddleware adds permissive CORS headers for local development.
-// In production (same-origin, embedded frontend) these are not needed but
-// do no harm.
+// corsMiddleware adds CORS headers for localhost origins (development) and
+// any additional origin supplied via PHOENIX_CORS_ORIGIN. In production the
+// embedded frontend is same-origin and no CORS headers are needed, so requests
+// from unexpected origins are simply passed through without ACAO headers.
 func corsMiddleware(next http.Handler) http.Handler {
+	// Build the allowed-origin set from env (comma-separated, optional).
+	extra := strings.Split(os.Getenv("PHOENIX_CORS_ORIGIN"), ",")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := r.Header.Get("Origin")
+		if origin != "" && isAllowedOrigin(origin, extra) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Add("Vary", "Origin")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isAllowedOrigin returns true if origin is a localhost/loopback address or
+// matches one of the explicitly configured extra origins.
+func isAllowedOrigin(origin string, extra []string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname() // strips port
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	for _, e := range extra {
+		if e = strings.TrimSpace(e); e != "" && strings.EqualFold(e, origin) {
+			return true
+		}
+	}
+	return false
 }

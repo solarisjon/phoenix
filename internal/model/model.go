@@ -38,14 +38,6 @@ const (
 	ProviderTypeCodingAgent ProviderType = "coding_agent"
 )
 
-type TodoItemStatus string
-
-const (
-	TodoItemStatusPending   TodoItemStatus = "pending"
-	TodoItemStatusPickedUp  TodoItemStatus = "picked_up"
-	TodoItemStatusDone      TodoItemStatus = "done"
-)
-
 // ---- Domain Types ----
 
 // User represents a Phoenix user. Single-user for Phase 1 but FK-ready for multi-user.
@@ -140,33 +132,6 @@ type Team struct {
 	CreatedBy   string    `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at"`
 	Agents      []*Agent  `json:"agents,omitempty"` // populated on Get/List
-}
-
-// TodoItem is a queued work item for a target agent.
-type TodoItem struct {
-	ID            string         `json:"id"`
-	TargetAgentID string         `json:"target_agent_id"`
-	SourceAgentID *string        `json:"source_agent_id"` // nil = from user
-	ProjectID     string         `json:"project_id"`
-	Title         string         `json:"title"`
-	Payload       string         `json:"payload"` // JSON blob
-	Status        TodoItemStatus `json:"status"`
-	CreatedAt     time.Time      `json:"created_at"`
-}
-
-// Broadcast is a project-wide message published by an agent.
-type Broadcast struct {
-	ID            string    `json:"id"`
-	ProjectID     string    `json:"project_id"`
-	SourceAgentID string    `json:"source_agent_id"`
-	Message       string    `json:"message"`
-	CreatedAt     time.Time `json:"created_at"`
-}
-
-// BroadcastSubscription links an agent to a project for broadcast receipt.
-type BroadcastSubscription struct {
-	ProjectID string `json:"project_id"`
-	AgentID   string `json:"agent_id"`
 }
 
 // SystemSettings holds platform-wide configuration that overrides per-agent settings.

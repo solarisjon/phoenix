@@ -244,13 +244,14 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 			ch <- provider.StreamChunk{Content: chunk.Message.Thinking}
 		}
 
-		// Final chunk: record token counts in the done sentinel.
+		// Final chunk: emit done sentinel with real token counts from the
+		// Ollama response. The runner picks these up to store accurate usage.
 		if chunk.Done {
-			// StreamChunk has no token fields; we surface counts through
-			// a Done chunk. The runner accumulates them from TaskResponse
-			// via Execute() — nothing extra needed here.
-			_ = chunk.PromptEvalCount
-			_ = chunk.EvalCount
+			ch <- provider.StreamChunk{
+				Done:      true,
+				TokensIn:  chunk.PromptEvalCount,
+				TokensOut: chunk.EvalCount,
+			}
 			return
 		}
 	}

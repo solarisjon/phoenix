@@ -295,11 +295,15 @@ func (s *Server) ensureSandboxProject(ctx context.Context) error {
 	if existing != nil {
 		return nil // already exists
 	}
+	user, err := s.users.GetDefault(ctx)
+	if err != nil {
+		return fmt.Errorf("get default user for sandbox project: %w", err)
+	}
 	p := &model.Project{
 		ID:          sandboxProjectID,
 		Name:        "Quick Tasks",
 		Description: "One-off tasks not tied to a specific project.",
-		Owner:       "00000000-0000-0000-0000-000000000001",
+		Owner:       user.ID,
 		Status:      model.ProjectStatusActive,
 		CreatedAt:   time.Now(),
 	}
@@ -454,5 +458,25 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 		respondInternalErr(w, err)
 		return
 	}
+	respond(w, http.StatusNoContent, nil)
+}
+
+// cancelTask stops a running or queued task and marks it failed.
+func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.Status != model.TaskStatusRunning && task.Status != model.TaskStatusQueued {
+		respondErr(w, http.StatusConflict, "task is not running or queued")
+		return
+	}
+	s.runner.CancelTask(id)
 	respond(w, http.StatusNoContent, nil)
 }

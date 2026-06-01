@@ -388,12 +388,12 @@ func TestRunTask_StreamEvents(t *testing.T) {
 func TestActiveTasksAndShutdown(t *testing.T) {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	runner := &Runner{
-		cancels:  make(map[string]context.CancelFunc),
+		cancels:  make(map[string]context.CancelCauseFunc),
 		bgCtx:    bgCtx,
 		bgCancel: bgCancel,
 	}
 
-	ctx, cancel := context.WithCancel(bgCtx)
+	ctx, cancel := context.WithCancelCause(bgCtx)
 	runner.mu.Lock()
 	runner.cancels["task-x"] = cancel
 	runner.mu.Unlock()
