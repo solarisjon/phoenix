@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/provider"
 )
 
 type createProjectRequest struct {
@@ -250,4 +252,68 @@ func (s *Server) listProjectAgents(w http.ResponseWriter, r *http.Request) {
 		agents = []*model.Agent{}
 	}
 	respond(w, http.StatusOK, agents)
+}
+
+// generateProjectDescription uses an LLM to generate a description for a project/monitor.
+func (s *Server) generateProjectDescription(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name       string `json:"name"`
+		Hint       string `json:"hint"`        // optional extra context from the user
+		ProviderID string `json:"provider_id"` // optional; falls back to first LLM provider
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		respondErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	providerID := req.ProviderID
+	if providerID == "" {
+		providers, err := s.providers.List(r.Context())
+		if err != nil || len(providers) == 0 {
+			respondErr(w, http.StatusBadRequest, "no providers available for generation")
+			return
+		}
+		for _, p := range providers {
+			if p.Type == model.ProviderTypeLLM {
+				providerID = p.ID
+				break
+			}
+		}
+		if providerID == "" {
+			providerID = providers[0].ID
+		}
+	}
+
+	prov, err := s.registry.Get(r.Context(), providerID)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, fmt.Sprintf("provider load failed: %v", err))
+		return
+	}
+
+	hintSection := ""
+	if strings.TrimSpace(req.Hint) != "" {
+		hintSection = "\nAdditional context: " + strings.TrimSpace(req.Hint)
+	}
+
+	prompt := fmt.Sprintf(`You are a monitoring configuration assistant.
+Write a clear, concise description for an AI monitoring job named "%s".%s
+
+The description will be sent as the task prompt to an AI agent on each scheduled run.
+It should explain: what to check or monitor, what data to collect, and what to report back.
+Be specific and actionable. Return ONLY the description text — no JSON, no markdown, no headings.`, req.Name, hintSection)
+
+	resp, err := prov.Execute(r.Context(), provider.TaskRequest{
+		SystemPrompt: "You are a concise technical writer. Return only plain text, no markdown, no JSON.",
+		Prompt:       prompt,
+	})
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, fmt.Sprintf("generation failed: %v", err))
+		return
+	}
+
+	description := strings.TrimSpace(resp.Output)
+	respond(w, http.StatusOK, map[string]string{"description": description})
 }

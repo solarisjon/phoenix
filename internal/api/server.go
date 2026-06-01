@@ -126,6 +126,7 @@ func (s *Server) buildRouter() http.Handler {
 		// Projects
 		r.Get("/projects", s.listProjects)
 		r.Post("/projects", s.createProject)
+		r.Post("/projects/generate-description", s.generateProjectDescription)
 		r.Get("/projects/{id}", s.getProject)
 		r.Put("/projects/{id}", s.updateProject)
 		r.Delete("/projects/{id}", s.deleteProject)

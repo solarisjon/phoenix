@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent, type Task } from '@/lib/api'
+import { api, type Project, type Agent, type Task, type Provider } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
-import { Input, Textarea, Label } from '@/components/ui/input'
+import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
@@ -120,20 +120,29 @@ export function MonitorDetailPage() {
   const [editWorkingDir, setEditWorkingDir] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const [proj, agts, allAgts, tsks] = await Promise.all([
+      const [proj, agts, allAgts, tsks, provs] = await Promise.all([
         api.projects.get(id),
         api.projects.listAgents(id),
         api.agents.list(),
         api.tasks.list(id),
+        api.providers.list(),
       ])
       setMonitor(proj)
       setAgents(agts)
       setAllAgents(allAgts)
       setTasks(tsks)
+      setProviders(provs)
+      setAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
     } finally {
       setLoading(false)
     }
@@ -185,6 +194,9 @@ export function MonitorDetailPage() {
     setEditDesc(monitor.description ?? '')
     setEditWorkingDir(monitor.working_dir ?? '')
     setSaveError('')
+    setShowAI(false)
+    setAiHint('')
+    setAiError('')
     setShowEdit(true)
   }
 
@@ -206,6 +218,21 @@ export function MonitorDetailPage() {
       setSaveError(e instanceof Error ? e.message : 'Failed to save')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const generateDescription = async () => {
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.projects.generateDescription(editName || monitor?.name || '', aiHint, aiProviderID)
+      setEditDesc(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : 'Generation failed')
+    } finally {
+      setAiGenerating(false)
     }
   }
 
@@ -336,15 +363,61 @@ export function MonitorDetailPage() {
 
       {/* Edit modal */}
       {showEdit && (
-        <Modal title="Edit Monitor" onClose={() => setShowEdit(false)}>
+        <Modal title="Edit Monitor" onClose={() => setShowEdit(false)} className="max-w-2xl">
           <div className="space-y-4">
             <div>
               <Label htmlFor="edit-name">Name</Label>
               <Input id="edit-name" value={editName} onChange={e => setEditName(e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="edit-desc">Description</Label>
-              <Textarea id="edit-desc" value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={2} />
+              <div className="flex items-center justify-between mb-1">
+                <Label htmlFor="edit-desc">Description</Label>
+                {providers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowAI(v => !v); setAiError('') }}
+                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+                  >
+                    ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+                  </button>
+                )}
+              </div>
+              {showAI && (
+                <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+                  <p className="text-xs text-slate-400">Describe what you want this monitor to do and AI will write the description for you.</p>
+                  {providers.length > 1 && (
+                    <div>
+                      <Label htmlFor="ai-provider">Generate using</Label>
+                      <Select id="ai-provider" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
+                        {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </Select>
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="ai-hint">Additional context <span className="text-slate-500 font-normal">(optional)</span></Label>
+                    <Textarea
+                      id="ai-hint"
+                      value={aiHint}
+                      onChange={e => setAiHint(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. Check disk usage on prod servers and alert if above 80%"
+                    />
+                  </div>
+                  {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+                  <div className="flex justify-end">
+                    <Button onClick={generateDescription} disabled={aiGenerating}>
+                      {aiGenerating ? 'Generating…' : '✦ Generate'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <Textarea
+                id="edit-desc"
+                value={editDesc}
+                onChange={e => setEditDesc(e.target.value)}
+                rows={5}
+                placeholder="Describe what this monitor should check and report on each run…"
+              />
             </div>
             <div>
               <Label htmlFor="edit-wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>

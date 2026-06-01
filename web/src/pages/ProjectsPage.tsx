@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Project } from '@/lib/api'
+import { api, type Project, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
-import { Input, Textarea, Label } from '@/components/ui/input'
+import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { timeAgo } from '@/lib/utils'
 
-function ProjectForm({ initial, onSave, onClose }: {
-  initial?: Project; onSave: () => void; onClose: () => void
+function ProjectForm({ initial, providers, onSave, onClose }: {
+  initial?: Project; providers: Provider[]; onSave: () => void; onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
@@ -18,6 +18,13 @@ function ProjectForm({ initial, onSave, onClose }: {
   const [kind, setKind] = useState<'project' | 'monitor'>(initial?.kind ?? 'project')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState(
+    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
+  )
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   const save = async () => {
     if (!name.trim()) { setError('Name is required'); return }
@@ -30,6 +37,22 @@ function ProjectForm({ initial, onSave, onClose }: {
     finally { setSaving(false) }
   }
 
+  const generateDescription = async () => {
+    if (!name.trim()) { setAiError('Enter a project name first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.projects.generateDescription(name, aiHint, aiProviderID)
+      setDescription(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: any) {
+      setAiError(e.message)
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -37,8 +60,48 @@ function ProjectForm({ initial, onSave, onClose }: {
         <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Build OKRs for Q3" />
       </div>
       <div>
-        <Label htmlFor="desc">Description</Label>
-        <Textarea id="desc" value={description} onChange={e => setDescription(e.target.value)} rows={3}
+        <div className="flex items-center justify-between mb-1">
+          <Label htmlFor="desc">Description</Label>
+          {providers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setShowAI(v => !v); setAiError('') }}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+            >
+              ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+            </button>
+          )}
+        </div>
+        {showAI && (
+          <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+            <p className="text-xs text-slate-400">Describe what you want this project to accomplish and AI will write the description.</p>
+            {providers.length > 1 && (
+              <div>
+                <Label htmlFor="ai-provider-proj">Generate using</Label>
+                <Select id="ai-provider-proj" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
+                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="ai-hint-proj">Additional context <span className="text-slate-500 font-normal">(optional)</span></Label>
+              <Textarea
+                id="ai-hint-proj"
+                value={aiHint}
+                onChange={e => setAiHint(e.target.value)}
+                rows={2}
+                placeholder="e.g. Focus on Q3 cost reduction targets, stakeholder is the CFO"
+              />
+            </div>
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+            <div className="flex justify-end">
+              <Button onClick={generateDescription} disabled={aiGenerating}>
+                {aiGenerating ? 'Generating…' : '✦ Generate'}
+              </Button>
+            </div>
+          </div>
+        )}
+        <Textarea id="desc" value={description} onChange={e => setDescription(e.target.value)} rows={4}
           placeholder="What is this project trying to achieve?" />
       </div>
       <div>
@@ -77,12 +140,17 @@ function ProjectForm({ initial, onSave, onClose }: {
 
 export function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Project | undefined>()
 
   const load = async () => {
-    try { setProjects(await api.projects.list('project')) }
+    try {
+      const [projs, provs] = await Promise.all([api.projects.list('project'), api.providers.list()])
+      setProjects(projs)
+      setProviders(provs)
+    }
     finally { setLoading(false) }
   }
 
@@ -142,8 +210,8 @@ export function ProjectsPage() {
       )}
 
       {showForm && (
-        <Modal title={editing ? 'Edit Project' : 'New Project'} onClose={() => setShowForm(false)}>
-          <ProjectForm initial={editing} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
+        <Modal title={editing ? 'Edit Project' : 'New Project'} onClose={() => setShowForm(false)} className="max-w-2xl">
+          <ProjectForm initial={editing} providers={providers} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
         </Modal>
       )}
     </div>

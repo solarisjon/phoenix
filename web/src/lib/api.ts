@@ -192,6 +192,11 @@ export const api = {
     assignAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),
     assignTeam: (id: string, teamId: string) => request<{ assigned: number, total: number, team: string }>(`/projects/${id}/teams`, { method: 'POST', body: JSON.stringify({ team_id: teamId }) }),
+    generateDescription: (name: string, hint?: string, providerId?: string) =>
+      request<{ description: string }>('/projects/generate-description', {
+        method: 'POST',
+        body: JSON.stringify({ name, hint: hint ?? '', provider_id: providerId ?? '' }),
+      }),
   },
   tasks: {
     list: (projectId: string) => request<Task[]>(`/tasks?project_id=${projectId}`),
