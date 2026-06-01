@@ -35,7 +35,7 @@
 
 ## Scheduling & automation
   - [FIXED] Heartbeat scheduling — scheduler fires periodic tasks for agents with heartbeat_interval set
-  - [TODO]  task queuing / concurrency limits — currently all tasks run immediately; add per-agent max_concurrent or global pool
+  - [FIXED] task queuing / concurrency limits — per-agent max_concurrent; excess tasks queue, drain on completion
 
 ## Providers & adapters
   - [FIXED] pi adapter (--mode json streaming, stdin prompt delivery)
