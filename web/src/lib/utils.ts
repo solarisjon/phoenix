@@ -25,9 +25,10 @@ export function taskStatusLabel(status: Task['status']) {
 }
 
 export function parseOutput(output: string): string {
+  if (!output || output.trim() === '' || output.trim() === '{}') return ''
   try {
     const parsed = JSON.parse(output)
-    return parsed.text || parsed.error || JSON.stringify(parsed, null, 2)
+    return parsed.text || parsed.error || ''
   } catch {
     return output
   }
