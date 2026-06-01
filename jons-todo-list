@@ -49,7 +49,7 @@
 ## Analytics & data
   - [FIXED] cost graphs — area chart, bar charts by agent/project, task status breakdown
   - [TODO]  cost estimates before running — show EstimatedCostUSD in task creation form for LLM providers
-  - [TODO]  token usage detail — show tokens_in / tokens_out in task detail modal
+  - [FIXED] token usage detail — show tokens_in / tokens_out in task detail modal
 
 ## Teams & collaboration
   - [FIXED] Agent teams — teams + team_agents tables, CRUD UI, assign whole team to project

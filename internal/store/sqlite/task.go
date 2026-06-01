@@ -15,7 +15,7 @@ type TaskRepo struct{ db *DB }
 func NewTaskRepo(db *DB) *TaskRepo { return &TaskRepo{db} }
 
 const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of, title, description,
-	status, input, output, cost_usd, dismissed,
+	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source,
 	created_at, started_at, completed_at `
@@ -80,10 +80,10 @@ func (r *TaskRepo) Get(ctx context.Context, id string) (*model.Task, error) {
 func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, source)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.Source)
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -97,11 +97,11 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 	}
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE tasks SET
-		  status = ?, output = ?, cost_usd = ?, dismissed = ?,
+		  status = ?, output = ?, cost_usd = ?, tokens_in = ?, tokens_out = ?, dismissed = ?,
 		  runner_pid = ?, timeout_at = ?,
 		  started_at = ?, completed_at = ?
 		WHERE id = ?`,
-		string(t.Status), t.Output, t.CostUSD, dismissed,
+		string(t.Status), t.Output, t.CostUSD, t.TokensIn, t.TokensOut, dismissed,
 		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt, t.ID)
 	if err != nil {
@@ -131,7 +131,7 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 	err := row.Scan(
 		&t.ID, &t.ProjectID, &t.AgentID, &parentID, &followUpOf,
 		&t.Title, &t.Description, &status,
-		&t.Input, &t.Output, &t.CostUSD, &dismissed,
+		&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 		&runnerPID, &timeoutAt,
 		&t.Source,
 		&t.CreatedAt, &startedAt, &completedAt,
@@ -178,7 +178,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 		if err := rows.Scan(
 			&t.ID, &t.ProjectID, &t.AgentID, &parentID, &followUpOf,
 			&t.Title, &t.Description, &status,
-			&t.Input, &t.Output, &t.CostUSD, &dismissed,
+			&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 			&runnerPID, &timeoutAt,
 			&t.Source,
 			&t.CreatedAt, &startedAt, &completedAt,

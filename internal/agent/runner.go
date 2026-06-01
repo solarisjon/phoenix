@@ -344,6 +344,8 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	task.CostUSD = totalCost
 	task.CompletedAt = &completedAt
 	task.RunnerPID = 0 // subprocess is done
+	task.TokensIn = tokensIn
+	task.TokensOut = tokensOut
 
 	finalStatus := model.TaskStatusCompleted
 	if err := r.setStatus(ctx, task, finalStatus, nil); err != nil {

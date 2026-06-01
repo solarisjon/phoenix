@@ -115,6 +115,8 @@ type Task struct {
 	Input        string     `json:"input"`        // JSON blob
 	Output       string     `json:"output"`       // JSON blob
 	CostUSD      float64    `json:"cost_usd"`
+	TokensIn     int        `json:"tokens_in"`
+	TokensOut    int        `json:"tokens_out"`
 	Source       string     `json:"source"`       // free-text provenance, empty if human-created
 	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
 	RunnerPID    int        `json:"runner_pid"`   // OS PID of the subprocess, 0 if not running

@@ -74,6 +74,12 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
             <p className="text-slate-300">{formatCost(task.cost_usd)}</p>
           </div>
         )}
+        {(task.tokens_in > 0 || task.tokens_out > 0) && (
+          <div>
+            <p className="text-slate-500 text-xs mb-0.5">Tokens</p>
+            <p className="text-slate-300 text-xs font-mono">↑{task.tokens_in.toLocaleString()} ↓{task.tokens_out.toLocaleString()}</p>
+          </div>
+        )}
       </div>
       {task.description && (
         <div>

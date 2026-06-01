@@ -62,6 +62,8 @@ export interface Task {
   input: string
   output: string
   cost_usd: number
+  tokens_in: number
+  tokens_out: number
   source: string
   dismissed: boolean
   created_at: string
