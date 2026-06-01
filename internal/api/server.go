@@ -170,6 +170,7 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Admin / system settings
 		r.Get("/admin/backup", s.backupDB)
+		r.Post("/admin/restore", s.restoreDB)
 		r.Get("/admin/sysinfo", s.getSysInfo)
 		r.Get("/admin/settings", s.getSystemSettings)
 		r.Put("/admin/settings", s.updateSystemSettings)

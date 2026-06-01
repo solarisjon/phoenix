@@ -11,7 +11,57 @@ import (
 	"time"
 )
 
-// getSysInfo returns basic runtime information about the Phoenix instance.
+// restoreDB accepts a multipart file upload of a Phoenix SQLite backup.
+// The file is validated, staged as {dbPath}.restore-pending, and applied
+// on the next server start (safe hot-swap is not possible with an open DB).
+func (s *Server) restoreDB(w http.ResponseWriter, r *http.Request) {
+	if s.admin == nil {
+		respondErr(w, http.StatusServiceUnavailable, "restore not available")
+		return
+	}
+
+	const maxUpload = 512 << 20 // 512 MB
+	if err := r.ParseMultipartForm(maxUpload); err != nil {
+		respondErr(w, http.StatusBadRequest, "failed to parse multipart form")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, "missing 'file' field in form")
+		return
+	}
+	defer file.Close()
+
+	// Write to a temp file first so StageRestore can validate + rename atomically.
+	tmp, err := os.CreateTemp("", "phoenix-restore-upload-*.db")
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, file); err != nil {
+		tmp.Close()
+		respondInternalErr(w, fmt.Errorf("write upload: %w", err))
+		return
+	}
+	tmp.Close()
+
+	if err := s.admin.StageRestore(tmpPath); err != nil {
+		log.Printf("restore: stage failed: %v", err)
+		respondErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	log.Printf("restore: backup staged; restart required to apply")
+	respond(w, http.StatusOK, map[string]string{
+		"message": "Restore staged. Restart the Phoenix server to apply the backup. All current data will be replaced.",
+	})
+}
+
+
 func (s *Server) getSysInfo(w http.ResponseWriter, r *http.Request) {
 	type taskCount struct {
 		Status string `json:"status"`

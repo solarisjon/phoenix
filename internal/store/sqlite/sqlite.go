@@ -22,8 +22,18 @@ type DB struct {
 }
 
 // Open opens (or creates) the SQLite database at the given path and
-// runs any pending migrations.
+// runs any pending migrations. If a staged restore file ({path}.restore-pending)
+// exists from a previous POST /api/admin/restore, it is applied atomically first.
 func Open(path string) (*DB, error) {
+	pendingPath := path + ".restore-pending"
+	if _, err := os.Stat(pendingPath); err == nil {
+		log.Printf("sqlite: applying staged restore from %s", pendingPath)
+		if err := os.Rename(pendingPath, path); err != nil {
+			return nil, fmt.Errorf("apply staged restore: %w", err)
+		}
+		log.Printf("sqlite: restore applied — existing data replaced")
+	}
+
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

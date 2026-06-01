@@ -243,6 +243,9 @@ function GlobalGuardrailsSection() {
 function SystemTab() {
   const [downloading, setDownloading] = useState(false)
   const [lastBackup, setLastBackup] = useState<string | null>(null)
+  const [restoreFile, setRestoreFile] = useState<File | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const [restoreMsg, setRestoreMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const downloadBackup = async () => {
     setDownloading(true)
@@ -264,6 +267,28 @@ function SystemTab() {
       console.error('Backup failed:', e)
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const doRestore = async () => {
+    if (!restoreFile) return
+    setRestoring(true)
+    setRestoreMsg(null)
+    try {
+      const form = new FormData()
+      form.append('file', restoreFile)
+      const res = await fetch('/api/admin/restore', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok) {
+        setRestoreMsg({ ok: false, text: data.error ?? 'Restore failed' })
+      } else {
+        setRestoreMsg({ ok: true, text: data.message })
+        setRestoreFile(null)
+      }
+    } catch (e: any) {
+      setRestoreMsg({ ok: false, text: e.message ?? 'Restore failed' })
+    } finally {
+      setRestoring(false)
     }
   }
 
@@ -306,6 +331,42 @@ function SystemTab() {
         <div className="text-xs text-slate-600">
           The downloaded file is a standard SQLite database. You can open it with any SQLite tool
           (e.g. <code>sqlite3</code>, DB Browser for SQLite) to inspect or restore data.
+        </div>
+
+        {/* Restore */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+          <div>
+            <div className="text-sm font-medium text-white">Restore from backup</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Upload a <code className="text-slate-400">.db</code> backup file. The restore is staged
+              and applied on the next server restart — no data is lost until you restart.
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex-1 cursor-pointer">
+              <input
+                type="file"
+                accept=".db"
+                className="hidden"
+                onChange={e => { setRestoreFile(e.target.files?.[0] ?? null); setRestoreMsg(null) }}
+              />
+              <div className="border border-dashed border-slate-700 hover:border-slate-500 rounded-lg px-3 py-2 text-sm text-slate-400 hover:text-white transition-colors truncate">
+                {restoreFile ? restoreFile.name : 'Choose .db file…'}
+              </div>
+            </label>
+            <button
+              onClick={doRestore}
+              disabled={!restoreFile || restoring}
+              className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shrink-0"
+            >
+              {restoring ? 'Staging…' : '⬆ Restore'}
+            </button>
+          </div>
+          {restoreMsg && (
+            <p className={`text-xs ${restoreMsg.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {restoreMsg.ok ? '✓ ' : '✗ '}{restoreMsg.text}
+            </p>
+          )}
         </div>
       </div>
     </div>
