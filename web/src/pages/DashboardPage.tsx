@@ -28,6 +28,20 @@ function StatCard({ label, value, sub, accent, onClick, href }: {
 }
 
 // Running task card — shows live streamed content
+function ElapsedTimer({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const origin = new Date(startedAt).getTime()
+    const tick = () => setElapsed(Math.floor((Date.now() - origin) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  const m = Math.floor(elapsed / 60)
+  const s = elapsed % 60
+  return <span className="tabular-nums">{m > 0 ? `${m}m ${s}s` : `${s}s`}</span>
+}
+
 function RunningTaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: () => void }) {
   const [stream, setStream] = useState('')
   const [cancelling, setCancelling] = useState(false)
@@ -71,6 +85,10 @@ function RunningTaskCard({ task, agents, projects, onCancel }: { task: Task; age
               {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline">{project.name}</Link> : ''}
               {project && agent ? ' · ' : ''}
               {agent?.name ?? ''}
+              {task.started_at && task.status === 'running' && (
+                <> · <ElapsedTimer startedAt={task.started_at} /></>
+              )}
+              {task.status === 'queued' && ' · waiting for agent'}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -85,11 +103,15 @@ function RunningTaskCard({ task, agents, projects, onCancel }: { task: Task; age
             </button>
           </div>
         </div>
-        {preview && (
+        {preview ? (
           <pre ref={scrollRef} className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">
             {preview}
           </pre>
-        )}
+        ) : task.description ? (
+          <div className="text-xs text-slate-500 bg-slate-900 rounded p-2 mt-1 leading-relaxed line-clamp-3">
+            {task.description}
+          </div>
+        ) : null}
         <p className="text-xs text-slate-600 mt-1.5">{timeAgo(task.created_at)}</p>
       </CardBody>
     </Card>

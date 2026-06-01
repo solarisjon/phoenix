@@ -48,11 +48,44 @@ function Countdown({ agent, tasks }: { agent: Agent; tasks: Task[] }) {
   )
 }
 
+function ElapsedTimer({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const origin = new Date(startedAt).getTime()
+    const tick = () => setElapsed(Math.floor((Date.now() - origin) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  const m = Math.floor(elapsed / 60)
+  const s = elapsed % 60
+  return <span className="text-xs text-violet-400 font-mono tabular-nums">{m > 0 ? `${m}m ${s}s` : `${s}s`}</span>
+}
+
 // ---- Run card ----
 
 function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
-  const [expanded, setExpanded] = useState(false)
-  const output = parseOutput(task.output)
+  const [expanded, setExpanded] = useState(task.status === 'running')
+  const [stream, setStream] = useState('')
+  const streamRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (task.status !== 'running') { setStream(''); return }
+    return phoenixWS.on((ev) => {
+      if (ev.type === 'task.output_stream') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) {
+          setStream(prev => prev + p.chunk)
+          setTimeout(() => {
+            const el = streamRef.current
+            if (el) el.scrollTop = el.scrollHeight
+          }, 0)
+        }
+      }
+    })
+  }, [task.id, task.status])
+
+  const output = stream || parseOutput(task.output)
 
   const duration = task.started_at && task.completed_at
     ? Math.round((new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()) / 1000)
@@ -71,12 +104,15 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
             <span>{timeAgo(task.created_at)}</span>
+            {task.status === 'running' && task.started_at && (
+              <><span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" /><ElapsedTimer startedAt={task.started_at} /></>
+            )}
             {duration !== null && <span>{duration}s</span>}
             {task.cost_usd > 0 && <span>{formatCost(task.cost_usd)}</span>}
             {agent && <span>{agent.name}</span>}
           </div>
         </div>
-        {output && (
+        {(output || task.status !== 'running') && (
           <button
             onClick={() => setExpanded(e => !e)}
             className="text-xs text-slate-500 hover:text-slate-300 transition-colors shrink-0"
@@ -84,15 +120,24 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
             {expanded ? 'Hide ▲' : 'Show output ▼'}
           </button>
         )}
-        {!output && task.status === 'running' && (
-          <span className="text-xs text-violet-400 animate-pulse flex items-center gap-1">
-            <span className="w-1.5 h-1.5 bg-violet-500 rounded-full animate-ping" />
-            Running…
-          </span>
-        )}
       </div>
-      {expanded && output && (
-        <div className="border-t border-slate-800 px-4 py-3 bg-slate-950 max-h-96 overflow-y-auto">
+      {/* Running: always show live content below header */}
+      {task.status === 'running' && (
+        <div className="border-t border-slate-800 px-4 py-3 bg-slate-950">
+          {stream ? (
+            <div ref={streamRef} className="max-h-64 overflow-y-auto">
+              <MarkdownOutput content={stream} />
+            </div>
+          ) : task.description ? (
+            <p className="text-xs text-slate-400 leading-relaxed">{task.description}</p>
+          ) : (
+            <span className="text-xs text-violet-400 animate-pulse">Waiting for first response…</span>
+          )}
+        </div>
+      )}
+      {/* Non-running: expand/collapse output */}
+      {task.status !== 'running' && expanded && output && (
+        <div ref={streamRef} className="border-t border-slate-800 px-4 py-3 bg-slate-950 max-h-96 overflow-y-auto">
           <MarkdownOutput content={output} />
         </div>
       )}
@@ -152,10 +197,7 @@ export function MonitorDetailPage() {
 
   useEffect(() => {
     const unsub = phoenixWS.on((ev) => {
-      if (
-        ev.type === 'task.status_changed' ||
-        ev.type === 'task.output_stream'
-      ) load()
+      if (ev.type === 'task.status_changed') load()
     })
     return unsub
   }, [load])

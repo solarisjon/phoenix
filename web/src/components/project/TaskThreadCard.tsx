@@ -1,7 +1,22 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../../lib/api'
 import type { Task, Agent } from '../../lib/api'
+import { phoenixWS } from '../../lib/ws'
 import { MarkdownOutput } from '../ui/markdown-output'
+
+function ElapsedTimer({ startedAt }: { startedAt: string }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    const origin = new Date(startedAt).getTime()
+    const tick = () => setElapsed(Math.floor((Date.now() - origin) / 1000))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+  const m = Math.floor(elapsed / 60)
+  const s = elapsed % 60
+  return <span className="text-xs text-stone-400 tabular-nums">{m > 0 ? `${m}m ${s}s` : `${s}s`}</span>
+}
 
 interface Props {
   task: Task
@@ -55,13 +70,39 @@ function statusBadge(status: Task['status']) {
 
 export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
   const [expanded, setExpanded] = useState(false)
+  const [stream, setStream] = useState('')
+  const streamRef = useRef<HTMLDivElement>(null)
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
 
+  useEffect(() => {
+    if (task.status !== 'running') { setStream(''); return }
+    return phoenixWS.on((ev) => {
+      if (ev.type === 'task.output_stream') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) {
+          setStream(prev => prev + p.chunk)
+          // auto-scroll
+          setTimeout(() => {
+            const el = streamRef.current
+            if (el) el.scrollTop = el.scrollHeight
+          }, 0)
+        }
+      }
+      if (ev.type === 'task.status_changed') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) onUpdate()
+      }
+    })
+  }, [task.id, task.status, onUpdate])
+
   const agentName = agents.find(a => a.id === task.agent_id)?.name ?? 'Unknown agent'
-  const outputText = parseOutputText(task.output)
+  const outputText = stream || parseOutputText(task.output)
   const preview = outputText.split('\n').slice(0, 2).join('\n')
   const hasMore = outputText.split('\n').length > 2 || outputText.length > 200
+
+  const isRunning = task.status === 'running'
+  const isQueued = task.status === 'queued'
 
   async function sendFollowUp() {
     if (!replyText.trim()) return
@@ -85,17 +126,68 @@ export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
           <div className="font-semibold text-stone-900 text-sm leading-snug">{task.title}</div>
           {statusBadge(task.status)}
         </div>
-        <div className="text-xs text-stone-400">
-          {agentName} · {relativeTime(task.completed_at ?? task.created_at)}
-          {task.cost_usd > 0 && ` · $${task.cost_usd.toFixed(3)}`}
+        <div className="flex items-center gap-2 text-xs text-stone-400">
+          <span>{agentName}</span>
+          {isRunning && task.started_at && (
+            <>
+              <span>·</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse inline-block" />
+              <ElapsedTimer startedAt={task.started_at} />
+            </>
+          )}
+          {!isRunning && (
+            <>
+              <span>·</span>
+              <span>{relativeTime(task.completed_at ?? task.created_at)}</span>
+            </>
+          )}
+          {task.cost_usd > 0 && <><span>·</span><span>${task.cost_usd.toFixed(3)}</span></>}
         </div>
         {task.source && (
           <div className="text-xs text-stone-400 mt-0.5">↳ {task.source}</div>
         )}
       </div>
 
-      {/* Output preview */}
-      {outputText && (
+      {/* Running: live stream or intent description */}
+      {isRunning && (
+        <div className="mx-4 mb-3">
+          {stream ? (
+            <div
+              ref={streamRef}
+              className="bg-stone-50 border-l-2 border-violet-300 rounded-r-lg px-3 py-2 max-h-48 overflow-y-auto"
+            >
+              <MarkdownOutput content={stream} compact />
+            </div>
+          ) : task.description ? (
+            <div className="flex gap-2 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse mt-1 flex-shrink-0" />
+              <p className="text-xs text-violet-700 leading-relaxed">{task.description}</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+              <span className="text-xs text-violet-500">Waiting for first response…</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Queued: show what it will do */}
+      {isQueued && (
+        <div className="mx-4 mb-3">
+          {task.description ? (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs text-indigo-500 mb-1 font-medium">Queued — waiting for agent</p>
+              <p className="text-xs text-indigo-700 leading-relaxed">{task.description}</p>
+            </div>
+          ) : (
+            <p className="text-xs text-stone-400 italic">Queued — waiting for agent…</p>
+          )}
+        </div>
+      )}
+
+      {/* Completed/failed: show output with expand */}
+      {!isRunning && !isQueued && outputText && (
         <div className="mx-4 mb-3 bg-stone-50 border-l-2 border-stone-200 rounded-r-lg px-3 py-2">
           <MarkdownOutput content={expanded ? outputText : preview} compact />
           {hasMore && (
