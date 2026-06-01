@@ -213,6 +213,11 @@ export const api = {
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     search: (q: string) => request<Task[]>(`/tasks/search?q=${encodeURIComponent(q)}`),
+    estimate: (agentId: string, description: string) =>
+      request<{ supported: boolean; estimated_cost_usd: number }>('/tasks/estimate', {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: agentId, description }),
+      }),
     listByAgent: (agentId: string) => request<Task[]>(`/agents/${agentId}/tasks`),
     listRunning: () => request<Task[]>('/tasks/running'),
     cancel: (id: string) => request<void>(`/tasks/${id}/cancel`, { method: 'POST', body: '{}' }),

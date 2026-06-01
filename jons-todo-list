@@ -67,7 +67,7 @@
 
 ## Nice-to-have / polish
   - [FIXED] agent activity log — per-agent history of all tasks it has run (currently only on project pages)
-  - [TODO]  task search — full-text search across task titles and output (SQLite FTS5)
+  - [FIXED] task search — full-text search across task titles and output (SQLite FTS5)
   - [TODO]  keyboard shortcuts — beyond ⌘K for quick tasks; e.g. R to retry, D to dismiss in inbox
   - [TODO]  mobile-friendly layout — sidebar collapses to bottom nav on narrow screens
 

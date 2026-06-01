@@ -6,6 +6,10 @@ A self-hosted AI agent orchestration platform. Give agents personas and instruct
 
 ---
 
+![Phoenix Dashboard](docs/screenshots/dashboard.jpg)
+
+---
+
 ## What it does
 
 | Feature | Description |

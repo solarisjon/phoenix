@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/provider"
 )
 
 type createTaskRequest struct {
@@ -36,6 +38,36 @@ func (r createTaskRequest) validate() string {
 }
 
 // listRunningTasks returns all tasks currently running or queued, across all projects.
+func (s *Server) estimateTask(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AgentID     string `json:"agent_id"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	agent, err := s.agents.Get(r.Context(), req.AgentID)
+	if err != nil || agent == nil {
+		respondErr(w, http.StatusBadRequest, "agent not found")
+		return
+	}
+	prov, err := s.registry.GetWithOverride(r.Context(), agent.ProviderID, agent.ModelOverride)
+	if err != nil {
+		// Provider not available — return unsupported
+		respond(w, http.StatusOK, map[string]interface{}{"supported": false, "estimated_cost_usd": 0})
+		return
+	}
+	est := prov.EstimateCost(provider.TaskRequest{
+		Prompt:       req.Description,
+		SystemPrompt: agent.Instructions,
+	})
+	respond(w, http.StatusOK, map[string]interface{}{
+		"supported":          est.EstimatedCostUSD > 0,
+		"estimated_cost_usd": est.EstimatedCostUSD,
+	})
+}
+
 func (s *Server) searchTasks(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {

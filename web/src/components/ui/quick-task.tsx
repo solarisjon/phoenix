@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { Agent } from '@/lib/api'
+import { formatCost } from '@/lib/utils'
 
 /**
  * Floating "+" button always visible in the bottom-right corner.
@@ -48,6 +49,7 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState('')
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
+  const [estimate, setEstimate] = useState<{ supported: boolean; estimated_cost_usd: number } | null>(null)
 
   useEffect(() => {
     api.agents.list().then(list => {
@@ -56,6 +58,22 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
       setAgentId((active.length ? active : list)[0]?.id ?? '')
     })
   }, [])
+
+  // Debounced cost estimate when agent + description changes
+  useEffect(() => {
+    if (!agentId) return
+    const combined = (title + ' ' + description).trim()
+    if (!combined) { setEstimate(null); return }
+    const timer = setTimeout(async () => {
+      try {
+        const est = await api.tasks.estimate(agentId, combined)
+        setEstimate(est)
+      } catch {
+        setEstimate(null)
+      }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [agentId, title, description])
 
   const submit = async () => {
     if (!title.trim()) { setError('Title is required'); return }
@@ -145,7 +163,11 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
 
             {/* Actions */}
             <div className="flex items-center justify-between pt-1">
-              <span className="text-xs text-slate-600">⌘K to toggle</span>
+              <span className="text-xs text-slate-600">
+                {estimate?.supported
+                  ? `~${formatCost(estimate.estimated_cost_usd)} est.`
+                  : '⌘K to toggle'}
+              </span>
               <div className="flex gap-2">
                 <button
                   onClick={onClose}
