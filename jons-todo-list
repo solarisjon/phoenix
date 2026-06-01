@@ -63,7 +63,7 @@
   - [FIXED] db.ResetOrphanedTasks() — marks queued/running tasks as failed on startup; kills orphaned PIDs
   - [TODO]  database restore — POST /api/admin/restore accepts a backup file and replaces the DB
   - [TODO]  multi-user auth — Phase 7 in design doc; currently single-user (user ID hardcoded)
-  - [TODO]  settings: system info panel — show version, uptime, DB size, task counts
+  - [FIXED] settings: system info panel — show version, uptime, DB size, task counts
 
 ## Nice-to-have / polish
   - [TODO]  agent activity log — per-agent history of all tasks it has run (currently only on project pages)

@@ -7,10 +7,50 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
-// backupDB streams a consistent snapshot of the SQLite database to the client.
+// getSysInfo returns basic runtime information about the Phoenix instance.
+func (s *Server) getSysInfo(w http.ResponseWriter, r *http.Request) {
+	type taskCount struct {
+		Status string `json:"status"`
+		Count  int    `json:"count"`
+	}
+	type sysInfoResponse struct {
+		Version      string      `json:"version"`
+		UptimeSeconds float64    `json:"uptime_seconds"`
+		GoVersion    string      `json:"go_version"`
+		DBSizeBytes  int64       `json:"db_size_bytes"`
+		DBPath       string      `json:"db_path"`
+		TotalTasks   int         `json:"total_tasks"`
+		TaskCounts   []taskCount `json:"task_counts"`
+		ActiveTasks  int         `json:"active_tasks"`
+	}
+
+	resp := sysInfoResponse{
+		Version:       "v0.1",
+		UptimeSeconds: time.Since(s.startTime).Seconds(),
+		GoVersion:     runtime.Version(),
+		ActiveTasks:   len(s.runner.ActiveTasks()),
+	}
+
+	if s.admin != nil {
+		resp.DBPath = s.admin.DBPath()
+		if fi, err := os.Stat(resp.DBPath); err == nil {
+			resp.DBSizeBytes = fi.Size()
+		}
+	}
+
+	if counts, err := s.stats.TaskCountByStatus(r.Context()); err == nil {
+		for _, c := range counts {
+			resp.TaskCounts = append(resp.TaskCounts, taskCount{Status: c.Status, Count: c.Count})
+			resp.TotalTasks += c.Count
+		}
+	}
+
+	respond(w, http.StatusOK, resp)
+}
 //
 // It uses VACUUM INTO to produce a clean, WAL-consolidated copy in a temp file,
 // then streams that file as an application/octet-stream download and removes it.

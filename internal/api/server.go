@@ -33,6 +33,7 @@ type Server struct {
 	hub            *Hub
 	router         http.Handler
 	admin          *sqlite.AdminRepo
+	startTime      time.Time
 }
 
 // New creates a Server and registers all routes.
@@ -64,6 +65,7 @@ func New(
 		registry:       reg,
 		hub:            NewHub(),
 		admin:          admin,
+		startTime:      time.Now(),
 	}
 	s.router = s.buildRouter()
 	return s
@@ -165,6 +167,7 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Admin / system settings
 		r.Get("/admin/backup", s.backupDB)
+		r.Get("/admin/sysinfo", s.getSysInfo)
 		r.Get("/admin/settings", s.getSystemSettings)
 		r.Put("/admin/settings", s.updateSystemSettings)
 		r.Post("/admin/settings/generate-guardrails", s.generateGlobalGuardrails)

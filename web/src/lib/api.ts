@@ -118,6 +118,17 @@ export interface CostsResponse {
   by_status: TaskStatusCount[]
 }
 
+export interface SysInfo {
+  version: string
+  uptime_seconds: number
+  go_version: string
+  db_size_bytes: number
+  db_path: string
+  total_tasks: number
+  task_counts: { status: string; count: number }[]
+  active_tasks: number
+}
+
 const BASE = '/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -233,5 +244,6 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ description, provider_id: providerId ?? '' }),
       }),
+    sysinfo: () => request<SysInfo>('/admin/sysinfo'),
   },
 }

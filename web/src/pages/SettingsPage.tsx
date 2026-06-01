@@ -3,7 +3,68 @@ import { useSearchParams } from 'react-router-dom'
 import { AgentsPage } from './AgentsPage'
 import { ProvidersPage } from './ProvidersPage'
 import { api } from '../lib/api'
-import type { SystemSettings } from '../lib/api'
+import type { SystemSettings, SysInfo } from '../lib/api'
+
+function SystemInfoSection() {
+  const [info, setInfo] = useState<SysInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.admin.sysinfo().then(setInfo).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  const formatUptime = (s: number) => {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    if (h > 0) return `${h}h ${m}m`
+    return `${m}m`
+  }
+
+  const formatBytes = (b: number) => {
+    if (b >= 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`
+    if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`
+    return `${b} B`
+  }
+
+  if (loading) return <div className="text-slate-500 text-sm">Loading…</div>
+  if (!info) return <div className="text-slate-500 text-sm">Unavailable</div>
+
+  const rows = [
+    { label: 'Version', value: info.version },
+    { label: 'Uptime', value: formatUptime(info.uptime_seconds) },
+    { label: 'Go runtime', value: info.go_version },
+    { label: 'Database size', value: formatBytes(info.db_size_bytes) },
+    { label: 'Total tasks', value: info.total_tasks.toLocaleString() },
+    { label: 'Active tasks', value: info.active_tasks.toString() },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-white mb-1">System Info</h2>
+        <p className="text-slate-400 text-sm">Runtime details for this Phoenix instance.</p>
+      </div>
+      <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800">
+        {rows.map(({ label, value }) => (
+          <div key={label} className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-slate-400">{label}</span>
+            <span className="text-sm text-white font-mono">{value}</span>
+          </div>
+        ))}
+      </div>
+      {info.task_counts.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800">
+          {info.task_counts.map(({ status, count }) => (
+            <div key={status} className="flex items-center justify-between px-4 py-2">
+              <span className="text-xs text-slate-500 capitalize">{status}</span>
+              <span className="text-xs text-slate-300 font-mono">{count.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function GlobalGuardrailsSection() {
   const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '' })
@@ -208,6 +269,11 @@ function SystemTab() {
 
   return (
     <div className="space-y-10 max-w-xl">
+      {/* System Info */}
+      <SystemInfoSection />
+
+      <hr className="border-slate-800" />
+
       {/* Global Guardrails */}
       <GlobalGuardrailsSection />
 
