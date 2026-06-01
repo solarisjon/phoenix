@@ -61,7 +61,7 @@
   - [FIXED] UI theming — 5 themes, live switcher, persisted to localStorage
   - [FIXED] README — professional docs with setup, API reference, architecture
   - [FIXED] db.ResetOrphanedTasks() — marks queued/running tasks as failed on startup; kills orphaned PIDs
-  - [TODO]  database restore — POST /api/admin/restore accepts a backup file and replaces the DB
+  - [FIXED] database restore — POST /api/admin/restore accepts a backup file and replaces the DB
   - [TODO]  multi-user auth — Phase 7 in design doc; currently single-user (user ID hardcoded)
   - [FIXED] settings: system info panel — show version, uptime, DB size, task counts
 
