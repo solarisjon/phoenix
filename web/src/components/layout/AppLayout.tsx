@@ -18,6 +18,7 @@ const titles: Record<string, string> = {
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [inboxCount, setInboxCount] = useState(0)
+  const [runningCount, setRunningCount] = useState(0)
 
   const title = Object.entries(titles).find(([path]) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
@@ -33,8 +34,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     } catch { /* ignore */ }
   }, [])
 
+  const refreshRunning = useCallback(async () => {
+    try {
+      const tasks = await api.tasks.listRunning()
+      setRunningCount(tasks.length)
+    } catch { /* ignore */ }
+  }, [])
+
   useEffect(() => {
     refreshInbox()
+    refreshRunning()
     phoenixWS.connect()
     const unsub = phoenixWS.on((ev) => {
       if (
@@ -44,15 +53,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       ) {
         refreshInbox()
       }
+      if (ev.type === 'task.status_changed') {
+        refreshRunning()
+      }
     })
     // Periodic re-sync in case WS missed an event (dismissed tasks, reconnects)
-    const poll = setInterval(refreshInbox, 30_000)
+    const poll = setInterval(() => { refreshInbox(); refreshRunning() }, 30_000)
     return () => { unsub(); clearInterval(poll) }
-  }, [refreshInbox])
+  }, [refreshInbox, refreshRunning])
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
-      <Sidebar inboxCount={inboxCount} />
+      <Sidebar inboxCount={inboxCount} runningCount={runningCount} />
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar inboxCount={inboxCount} title={title} />
         <div className="flex-1 overflow-auto p-6">
