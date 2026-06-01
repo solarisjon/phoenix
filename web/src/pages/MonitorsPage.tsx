@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent } from '@/lib/api'
+import { api, type Project, type Agent, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
-import { Input, Textarea, Label } from '@/components/ui/input'
+import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { AgentsSection } from '@/components/shared/AgentsSection'
 import { timeAgo } from '@/lib/utils'
@@ -19,8 +19,9 @@ const formatInterval = (secs: number | null | undefined) => {
 
 // ---- Create / Edit Monitor form (name + description + working dir only) ----
 
-function MonitorForm({ initial, onSave, onClose }: {
+function MonitorForm({ initial, providers, onSave, onClose }: {
   initial?: Project
+  providers: Provider[]
   onSave: () => void
   onClose: () => void
 }) {
@@ -29,6 +30,13 @@ function MonitorForm({ initial, onSave, onClose }: {
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState(
+    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
+  )
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   const save = async () => {
     if (!name.trim()) { setError('Name is required'); return }
@@ -52,6 +60,22 @@ function MonitorForm({ initial, onSave, onClose }: {
     }
   }
 
+  const generateDescription = async () => {
+    if (!name.trim()) { setAiError('Enter a monitor name first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.projects.generateDescription(name, aiHint, aiProviderID)
+      setDescription(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : 'Generation failed')
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -60,8 +84,48 @@ function MonitorForm({ initial, onSave, onClose }: {
           placeholder="e.g. Jira Queue Monitor" />
       </div>
       <div>
-        <Label htmlFor="mon-desc">Description</Label>
-        <Textarea id="mon-desc" value={description} onChange={e => setDescription(e.target.value)} rows={2}
+        <div className="flex items-center justify-between mb-1">
+          <Label htmlFor="mon-desc">Description</Label>
+          {providers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setShowAI(v => !v); setAiError('') }}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+            >
+              ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+            </button>
+          )}
+        </div>
+        {showAI && (
+          <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+            <p className="text-xs text-slate-400">Describe what you want this monitor to do and AI will write the description.</p>
+            {providers.length > 1 && (
+              <div>
+                <Label htmlFor="ai-provider-mon">Generate using</Label>
+                <Select id="ai-provider-mon" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
+                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="ai-hint-mon">Additional context <span className="text-slate-500 font-normal">(optional)</span></Label>
+              <Textarea
+                id="ai-hint-mon"
+                value={aiHint}
+                onChange={e => setAiHint(e.target.value)}
+                rows={2}
+                placeholder="e.g. Watch for tickets with priority=critical, notify if queue grows beyond 10"
+              />
+            </div>
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+            <div className="flex justify-end">
+              <Button onClick={generateDescription} disabled={aiGenerating}>
+                {aiGenerating ? 'Generating…' : '✦ Generate'}
+              </Button>
+            </div>
+          </div>
+        )}
+        <Textarea id="mon-desc" value={description} onChange={e => setDescription(e.target.value)} rows={4}
           placeholder="What does this monitor watch and do?" />
       </div>
       <div>
@@ -84,10 +148,11 @@ function MonitorForm({ initial, onSave, onClose }: {
 
 // ---- Monitor card ----
 
-function MonitorCard({ monitor, agents, allAgents, onDelete, onRefresh }: {
+function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefresh }: {
   monitor: Project
   agents: Agent[]
   allAgents: Agent[]
+  providers: Provider[]
   onDelete: () => void
   onRefresh: () => void
 }) {
@@ -175,9 +240,10 @@ function MonitorCard({ monitor, agents, allAgents, onDelete, onRefresh }: {
       </Card>
 
       {showEdit && (
-        <Modal title={`Edit: ${monitor.name}`} onClose={() => setShowEdit(false)}>
+        <Modal title={`Edit: ${monitor.name}`} onClose={() => setShowEdit(false)} className="max-w-2xl">
           <MonitorForm
             initial={monitor}
+            providers={providers}
             onSave={() => { setShowEdit(false); onRefresh() }}
             onClose={() => setShowEdit(false)}
           />
@@ -193,17 +259,20 @@ export function MonitorsPage() {
   const [monitors, setMonitors] = useState<Project[]>([])
   const [agentsByMonitor, setAgentsByMonitor] = useState<Record<string, Agent[]>>({})
   const [allAgents, setAllAgents] = useState<Agent[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const [mons, agents] = await Promise.all([
+      const [mons, agents, provs] = await Promise.all([
         api.projects.list('monitor'),
         api.agents.list(),
+        api.providers.list(),
       ])
       setMonitors(mons)
       setAllAgents(agents)
+      setProviders(provs)
       const agentMap: Record<string, Agent[]> = {}
       await Promise.all(mons.map(async m => {
         agentMap[m.id] = await api.projects.listAgents(m.id)
@@ -251,6 +320,7 @@ export function MonitorsPage() {
               monitor={m}
               agents={agentsByMonitor[m.id] ?? []}
               allAgents={allAgents}
+              providers={providers}
               onDelete={() => deleteMonitor(m.id, m.name)}
               onRefresh={load}
             />
@@ -259,8 +329,9 @@ export function MonitorsPage() {
       )}
 
       {showForm && (
-        <Modal title="New Monitor" onClose={() => setShowForm(false)}>
+        <Modal title="New Monitor" onClose={() => setShowForm(false)} className="max-w-2xl">
           <MonitorForm
+            providers={providers}
             onSave={() => { setShowForm(false); load() }}
             onClose={() => setShowForm(false)}
           />
