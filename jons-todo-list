@@ -42,7 +42,7 @@
   - [FIXED] claudecode adapter (stream-json streaming)
   - [FIXED] crush adapter (plain text stdout streaming, AGENTS.md lifecycle)
   - [FIXED] Ollama adapter (local models, /api/chat NDJSON, thinking token suppression)
-  - [TODO]  model picker dropdown — list available models per adapter; ollama: GET /api/tags; pi: (none); opencode: from config
+  - [FIXED] model picker dropdown — list available models per adapter; ollama: GET /api/tags; pi: (none); opencode: from config
   - [TODO]  copilot adapter — needs `copilot login` interactive setup first (BLOCKED: no ~/.copilot/ config exists)
   - [TODO]  claudecode smoke test — needs claude auth setup (BLOCKED)
 
