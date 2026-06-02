@@ -409,6 +409,12 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	task.TokensIn = tokensIn
 	task.TokensOut = tokensOut
 
+	// Derive health signal for monitor tasks.
+	if task.Source == "monitor" {
+		sig := deriveHealthSignal(fullOutput)
+		task.HealthSignal = &sig
+	}
+
 	finalStatus := model.TaskStatusCompleted
 	if err := r.setStatus(ctx, task, finalStatus, nil); err != nil {
 		log.Printf("runner: set completed status: %v", err)
@@ -446,6 +452,11 @@ func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
 	}
 
 	status := model.TaskStatusFailed
+	// Monitor tasks always get a health signal, even on failure.
+	if task.Source == "monitor" {
+		sig := "failed"
+		task.HealthSignal = &sig
+	}
 	if setErr := r.setStatus(dbCtx, task, status, nil); setErr != nil {
 		log.Printf("runner: set failed status: %v", setErr)
 	}
@@ -472,4 +483,24 @@ func (r *Runner) emit(ev StreamEvent) {
 	if r.onEvent != nil {
 		r.onEvent(ev)
 	}
+}
+
+// deriveHealthSignal inspects the output text of a completed monitor task and
+// returns one of three health signals:
+//   - "all_clear"       — completed successfully with no alert keywords
+//   - "needs_attention" — completed but output contains warning/issue keywords
+//   - "failed"          — task itself failed (set separately in failTask)
+func deriveHealthSignal(output string) string {
+	lower := strings.ToLower(output)
+	alertKeywords := []string{
+		"error", "warning", "alert", "critical", "failure", "fail", "issue",
+		"problem", "exception", "danger", "anomaly", "breach", "exceeded",
+		"unavailable", "down", "offline", "unreachable", "timeout", "timed out",
+	}
+	for _, kw := range alertKeywords {
+		if strings.Contains(lower, kw) {
+			return "needs_attention"
+		}
+	}
+	return "all_clear"
 }

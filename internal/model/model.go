@@ -120,6 +120,7 @@ type Task struct {
 	TokensIn     int        `json:"tokens_in"`
 	TokensOut    int        `json:"tokens_out"`
 	Source       string     `json:"source"`       // free-text provenance, empty if human-created
+	HealthSignal *string    `json:"health_signal"` // monitor runs: "all_clear" | "needs_attention" | "failed"
 	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
 	RunnerPID    int        `json:"runner_pid"`   // OS PID of the subprocess, 0 if not running
 	TimeoutAt    *time.Time `json:"timeout_at"`   // when the task will be force-killed

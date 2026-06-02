@@ -95,11 +95,19 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
       <div className="flex items-center gap-4 px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
+            {task.health_signal && (
+              <span className={
+                task.health_signal === 'all_clear' ? 'text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-800' :
+                task.health_signal === 'needs_attention' ? 'text-xs font-medium px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-400 border border-amber-800' :
+                'text-xs font-medium px-2 py-0.5 rounded-full bg-red-900/40 text-red-400 border border-red-800'
+              }>
+                {task.health_signal === 'all_clear' ? '✓ All clear' :
+                 task.health_signal === 'needs_attention' ? '⚠ Needs attention' :
+                 '✗ Failed'}
+              </span>
+            )}
             <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
             <span className="text-sm text-slate-300">{task.title}</span>
-            {task.source && (
-              <span className="text-xs text-slate-500">↳ {task.source}</span>
-            )}
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
             <span>{timeAgo(task.created_at)}</span>

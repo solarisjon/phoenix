@@ -213,6 +213,7 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 		Title:       fmt.Sprintf("Scheduled run — %s", now.Format("2006-01-02 15:04")),
 		Description: spec.monitor.Description,
 		Status:      model.TaskStatusPending,
+		Source:      "monitor",
 		Input:       "{}",
 		Output:      "{}",
 		CreatedAt:   now,

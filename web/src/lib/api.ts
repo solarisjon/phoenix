@@ -67,6 +67,7 @@ export interface Task {
   tokens_in: number
   tokens_out: number
   source: string
+  health_signal: 'all_clear' | 'needs_attention' | 'failed' | null
   dismissed: boolean
   created_at: string
   started_at: string | null
