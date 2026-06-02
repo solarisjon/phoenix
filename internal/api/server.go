@@ -118,6 +118,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Delete("/teams/{id}", s.deleteTeam)
 		r.Post("/teams/{id}/agents", s.addTeamAgent)
 		r.Delete("/teams/{id}/agents/{agentId}", s.removeTeamAgent)
+		r.Post("/teams/{id}/broadcast", s.broadcastTeam)
 		r.Get("/teams/{id}/export", s.exportTeam)
 
 		// Import

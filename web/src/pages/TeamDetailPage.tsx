@@ -5,6 +5,7 @@ import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
+import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { formatCost, timeAgo } from '@/lib/utils'
 
@@ -42,6 +43,12 @@ export function TeamDetailPage() {
   const [loading, setLoading] = useState(true)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showBroadcast, setShowBroadcast] = useState(false)
+  const [broadcastProjectId, setBroadcastProjectId] = useState('')
+  const [broadcastTitle, setBroadcastTitle] = useState('')
+  const [broadcastDescription, setBroadcastDescription] = useState('')
+  const [broadcastSaving, setBroadcastSaving] = useState(false)
+  const [broadcastMessage, setBroadcastMessage] = useState('')
 
   const load = useCallback(async () => {
     if (!id) return
@@ -58,6 +65,33 @@ export function TeamDetailPage() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!broadcastProjectId && projects.length > 0) {
+      setBroadcastProjectId(projects[0].id)
+    }
+  }, [projects, broadcastProjectId])
+
+  const broadcast = async () => {
+    if (!id || !broadcastProjectId || !broadcastTitle.trim()) return
+    setBroadcastSaving(true)
+    setBroadcastMessage('')
+    try {
+      const result = await api.teams.broadcast(id, {
+        project_id: broadcastProjectId,
+        title: broadcastTitle,
+        description: broadcastDescription,
+      })
+      setBroadcastMessage(`Broadcast queued ${result.count} task${result.count === 1 ? '' : 's'}.`)
+      setBroadcastTitle('')
+      setBroadcastDescription('')
+      await load()
+    } catch (e: any) {
+      setBroadcastMessage(e.message || 'Broadcast failed')
+    } finally {
+      setBroadcastSaving(false)
+    }
+  }
 
   const deleteTeam = async () => {
     if (!id) return
@@ -122,6 +156,7 @@ export function TeamDetailPage() {
           {team.description && <p className="text-slate-400 text-sm mt-1">{team.description}</p>}
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => setShowBroadcast(true)}>Broadcast</Button>
           <a href={api.teams.exportUrl(team.id)} download>
             <Button variant="secondary">Export Bundle ↓</Button>
           </a>
@@ -271,6 +306,41 @@ export function TeamDetailPage() {
             <Link to="/settings?tab=agents" className="text-violet-500 hover:underline">Settings → Agents</Link>.
           </p>
         </section>
+      )}
+
+      {showBroadcast && (
+        <Modal title="Broadcast to Team" onClose={() => setShowBroadcast(false)}>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="broadcast-project">Project</Label>
+              <Select id="broadcast-project" value={broadcastProjectId} onChange={e => setBroadcastProjectId(e.target.value)}>
+                <option value="">Select project…</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="broadcast-title">Title</Label>
+              <Input id="broadcast-title" value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)} placeholder="e.g. Audit current project status" />
+            </div>
+            <div>
+              <Label htmlFor="broadcast-description">Description</Label>
+              <Textarea id="broadcast-description" value={broadcastDescription} onChange={e => setBroadcastDescription(e.target.value)} rows={5} placeholder="Instructions sent to every team member…" />
+            </div>
+            {broadcastMessage && (
+              <p className={`text-sm ${broadcastMessage.startsWith('Broadcast queued') ? 'text-green-400' : 'text-red-400'}`}>
+                {broadcastMessage}
+              </p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <Button variant="secondary" onClick={() => setShowBroadcast(false)}>Cancel</Button>
+              <Button onClick={broadcast} disabled={broadcastSaving || !broadcastProjectId || !broadcastTitle.trim()}>
+                {broadcastSaving ? 'Broadcasting…' : 'Send Broadcast'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Delete confirmation */}

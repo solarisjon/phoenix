@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -220,23 +221,23 @@ type bundleProvider struct {
 }
 
 type bundleAgent struct {
-	Name              string  `json:"name"`
-	Behaviour         string  `json:"behaviour,omitempty"`
-	Persona           string  `json:"persona,omitempty"`
-	Instructions      string  `json:"instructions,omitempty"`
-	Guardrails        string  `json:"guardrails"`
-	HardGuardrails    string  `json:"hard_guardrails,omitempty"`
-	HeartbeatInterval *int    `json:"heartbeat_interval,omitempty"`
-	CanSpawnAgents    bool    `json:"can_spawn_agents"`
-	ModelOverride     string  `json:"model_override,omitempty"`
-	ProviderRef       string  `json:"provider_ref"`
+	Name              string `json:"name"`
+	Behaviour         string `json:"behaviour,omitempty"`
+	Persona           string `json:"persona,omitempty"`
+	Instructions      string `json:"instructions,omitempty"`
+	Guardrails        string `json:"guardrails"`
+	HardGuardrails    string `json:"hard_guardrails,omitempty"`
+	HeartbeatInterval *int   `json:"heartbeat_interval,omitempty"`
+	CanSpawnAgents    bool   `json:"can_spawn_agents"`
+	ModelOverride     string `json:"model_override,omitempty"`
+	ProviderRef       string `json:"provider_ref"`
 }
 
 type teamBundle struct {
-	PhoenixBundleVersion string         `json:"phoenix_bundle_version"`
-	ExportedAt           time.Time      `json:"exported_at"`
-	Team                 bundleTeamMeta `json:"team"`
-	Agents               []bundleAgent  `json:"agents"`
+	PhoenixBundleVersion string           `json:"phoenix_bundle_version"`
+	ExportedAt           time.Time        `json:"exported_at"`
+	Team                 bundleTeamMeta   `json:"team"`
+	Agents               []bundleAgent    `json:"agents"`
 	Providers            []bundleProvider `json:"providers"`
 }
 
@@ -247,8 +248,8 @@ type bundleTeamMeta struct {
 
 // importBundleRequest is the body for POST /api/import/team
 type importBundleRequest struct {
-	Bundle   teamBundle `json:"bundle"`
-	APIKeys  map[string]string `json:"api_keys"` // ref -> key, may be empty
+	Bundle  teamBundle        `json:"bundle"`
+	APIKeys map[string]string `json:"api_keys"` // ref -> key, may be empty
 }
 
 // exportTeam handles GET /api/teams/:id/export
@@ -433,20 +434,20 @@ func (s *Server) importTeam(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		agent := &model.Agent{
-			ID:             uuid.New().String(),
-			Name:           ba.Name,
-			Behaviour:      ba.Behaviour,
-			Persona:        ba.Persona,
-			Instructions:   ba.Instructions,
-			Guardrails:     ba.Guardrails,
-			HardGuardrails: ba.HardGuardrails,
-			ProviderID:     provID,
-			ModelOverride:  ba.ModelOverride,
-			CanSpawnAgents: ba.CanSpawnAgents,
+			ID:                uuid.New().String(),
+			Name:              ba.Name,
+			Behaviour:         ba.Behaviour,
+			Persona:           ba.Persona,
+			Instructions:      ba.Instructions,
+			Guardrails:        ba.Guardrails,
+			HardGuardrails:    ba.HardGuardrails,
+			ProviderID:        provID,
+			ModelOverride:     ba.ModelOverride,
+			CanSpawnAgents:    ba.CanSpawnAgents,
 			HeartbeatInterval: ba.HeartbeatInterval,
-			Status:         model.AgentStatusActive,
-			CreatedBy:      user.ID,
-			CreatedAt:      time.Now(),
+			Status:            model.AgentStatusActive,
+			CreatedBy:         user.ID,
+			CreatedAt:         time.Now(),
 		}
 		if err := s.agents.Create(r.Context(), agent); err != nil {
 			respondInternalErr(w, err)
@@ -527,5 +528,73 @@ func (s *Server) assignTeamToProject(w http.ResponseWriter, r *http.Request) {
 		"team":     team.Name,
 		"assigned": assigned,
 		"total":    len(team.Agents),
+	})
+}
+
+type broadcastRequest struct {
+	ProjectID   string `json:"project_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "id")
+	team, err := s.teams.Get(r.Context(), teamID)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if team == nil {
+		respondErr(w, http.StatusNotFound, "team not found")
+		return
+	}
+
+	var req broadcastRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		respondErr(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	if strings.TrimSpace(req.ProjectID) == "" {
+		respondErr(w, http.StatusBadRequest, "project_id is required")
+		return
+	}
+
+	proj, err := s.projects.Get(r.Context(), req.ProjectID)
+	if err != nil || proj == nil {
+		respondErr(w, http.StatusBadRequest, "project not found")
+		return
+	}
+
+	var taskIDs []string
+	for _, agent := range team.Agents {
+		_ = s.projects.AssignAgent(r.Context(), req.ProjectID, agent.ID)
+
+		task := &model.Task{
+			ID:          uuid.New().String(),
+			ProjectID:   req.ProjectID,
+			AgentID:     agent.ID,
+			Title:       req.Title,
+			Description: req.Description,
+			Status:      model.TaskStatusPending,
+			Source:      "team_broadcast:" + teamID,
+			CreatedAt:   time.Now(),
+		}
+		if err := s.tasks.Create(r.Context(), task); err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if err := s.runner.RunTask(r.Context(), task.ID); err != nil {
+			log.Printf("broadcast: run task %s: %v", task.ID, err)
+		}
+		taskIDs = append(taskIDs, task.ID)
+	}
+
+	respond(w, http.StatusCreated, map[string]interface{}{
+		"team_id":  teamID,
+		"task_ids": taskIDs,
+		"count":    len(taskIDs),
 	})
 }

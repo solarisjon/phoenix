@@ -186,6 +186,14 @@ export const api = {
     delete: (id: string) => request<void>(`/teams/${id}`, { method: 'DELETE' }),
     addAgent: (id: string, agentId: string) => request<void>(`/teams/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/teams/${id}/agents/${agentId}`, { method: 'DELETE' }),
+    broadcast: async (id: string, data: { project_id: string; title: string; description: string }) => {
+      const res = await fetch(`/api/teams/${id}/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      return res.json()
+    },
     exportUrl: (id: string) => `/api/teams/${id}/export`,
     import: (bundle: unknown, apiKeys: Record<string, string>) =>
       request<{ team_id: string; team_name: string; agent_ids: string[]; provider_ids: string[]; skipped: string[] }>(
