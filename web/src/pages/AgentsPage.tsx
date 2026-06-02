@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type Agent, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
@@ -325,6 +325,8 @@ export function AgentsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Agent | undefined>()
+  const [importMessage, setImportMessage] = useState('')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const load = async () => {
     try {
@@ -343,6 +345,31 @@ export function AgentsPage() {
 
   const providerName = (id: string) => providers.find(p => p.id === id)?.name ?? '–'
 
+  const exportAgent = async (agent: Agent) => {
+    const blob = await api.agents.export(agent.id)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${agent.name.toLowerCase().replace(/\s+/g, '-') || 'agent'}-agent.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const importAgent = async (file: File) => {
+    try {
+      setImportMessage('')
+      const raw = await file.text()
+      const bundle = JSON.parse(raw)
+      const agent = await api.agents.importAgent({ bundle })
+      setImportMessage(`Imported ${agent.name}.`)
+      await load()
+    } catch (e: any) {
+      setImportMessage(e.message || 'Import failed')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -350,8 +377,24 @@ export function AgentsPage() {
           <h1 className="text-2xl font-bold text-white">Agents</h1>
           <p className="text-slate-400 text-sm mt-1">Configure your AI agents and their personas</p>
         </div>
-        <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ Create Agent</Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={async e => {
+              const file = e.target.files?.[0]
+              if (file) await importAgent(file)
+              e.target.value = ''
+            }}
+          />
+          <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>Import Agent</Button>
+          <Button onClick={() => { setEditing(undefined); setShowForm(true) }}>+ Create Agent</Button>
+        </div>
       </div>
+
+      {importMessage && <p className={`text-sm ${importMessage.startsWith('Imported ') ? 'text-green-400' : 'text-red-400'}`}>{importMessage}</p>}
 
       {loading ? (
         <div className="text-slate-500 text-sm">Loading…</div>
@@ -387,6 +430,7 @@ export function AgentsPage() {
                     )}
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => exportAgent(a)}>Export</Button>
                     <Link to={`/agents/${a.id}/activity`}>
                       <Button variant="ghost" size="sm">Activity</Button>
                     </Link>

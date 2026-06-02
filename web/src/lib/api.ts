@@ -172,6 +172,26 @@ export const api = {
     create: (data: Partial<Agent>) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Agent>) => request<Agent>(`/agents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/agents/${id}`, { method: 'DELETE' }),
+    export: async (id: string): Promise<Blob> => {
+      const res = await fetch(`/api/agents/${id}/export`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }))
+        throw new Error(err.error || res.statusText)
+      }
+      return res.blob()
+    },
+    importAgent: async (data: { bundle: unknown; api_key?: string }) => {
+      const res = await fetch('/api/agents/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }))
+        throw new Error(err.error || res.statusText)
+      }
+      return res.json() as Promise<Agent>
+    },
     generate: (description: string, providerId?: string) =>
       request<GeneratedAgent>('/agents/generate', {
         method: 'POST',
