@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/provider"
 )
 
 type createTeamRequest struct {
@@ -597,4 +598,70 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 		"task_ids": taskIDs,
 		"count":    len(taskIDs),
 	})
+}
+
+// generateTeamDescription uses an LLM to draft a description for a team.
+func (s *Server) generateTeamDescription(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name       string `json:"name"`
+		Hint       string `json:"hint"`
+		ProviderID string `json:"provider_id"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		respondErr(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	providerID := req.ProviderID
+	if providerID == "" {
+		providers, err := s.providers.List(r.Context())
+		if err != nil || len(providers) == 0 {
+			respondErr(w, http.StatusBadRequest, "no providers available for generation")
+			return
+		}
+		for _, p := range providers {
+			if p.Type == model.ProviderTypeLLM {
+				providerID = p.ID
+				break
+			}
+		}
+		if providerID == "" {
+			providerID = providers[0].ID
+		}
+	}
+
+	prov, err := s.registry.Get(r.Context(), providerID)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, fmt.Sprintf("provider load failed: %v", err))
+		return
+	}
+
+	hintSection := ""
+	if strings.TrimSpace(req.Hint) != "" {
+		hintSection = "\nAdditional context: " + strings.TrimSpace(req.Hint)
+	}
+
+	prompt := fmt.Sprintf(`Write a concise description for an AI agent team named "%s".%s
+
+Explain:
+- What this team's purpose and mission is
+- What kinds of tasks these agents handle together
+- The team's area of responsibility
+
+Return ONLY the description text — no JSON, no markdown headings.`,
+		req.Name, hintSection)
+
+	resp, err := prov.Execute(r.Context(), provider.TaskRequest{
+		SystemPrompt: "You are a concise technical writer. Return only plain text, no markdown, no JSON.",
+		Prompt:       prompt,
+	})
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, fmt.Sprintf("generation failed: %v", err))
+		return
+	}
+
+	respond(w, http.StatusOK, map[string]string{"description": strings.TrimSpace(resp.Output)})
 }

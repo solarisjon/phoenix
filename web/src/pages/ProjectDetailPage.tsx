@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent, type Task, type Team } from '@/lib/api'
+import { api, type Project, type Agent, type Task, type Team, type Provider } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,11 +14,12 @@ import { AgentsSection } from '@/components/shared/AgentsSection'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 
-function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose }: {
+function TaskForm({ projectId, allAgents, projectAgents, teams, providers, onSave, onClose }: {
   projectId: string
   allAgents: Agent[]
   projectAgents: Agent[]
   teams: Team[]
+  providers: Provider[]
   onSave: () => void
   onClose: () => void
 }) {
@@ -30,6 +31,13 @@ function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [progress, setProgress] = useState('')
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState(
+    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
+  )
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   // Group agents: assigned to project first, then the rest
   const projectAgentIds = new Set(projectAgents.map(a => a.id))
@@ -69,6 +77,22 @@ function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose 
       onSave()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false); setProgress('') }
+  }
+
+  const generateDescription = async () => {
+    if (!title.trim()) { setAiError('Enter a task title first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.tasks.generateDescription(title, aiHint, aiProviderID)
+      setDescription(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: any) {
+      setAiError(e.message)
+    } finally {
+      setAiGenerating(false)
+    }
   }
 
   return (
@@ -152,7 +176,47 @@ function TaskForm({ projectId, allAgents, projectAgents, teams, onSave, onClose 
       )}
 
       <div>
-        <Label htmlFor="desc">Description</Label>
+        <div className="flex items-center justify-between mb-1">
+          <Label htmlFor="desc">Description</Label>
+          {providers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setShowAI(v => !v); setAiError('') }}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+            >
+              ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+            </button>
+          )}
+        </div>
+        {showAI && (
+          <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+            <p className="text-xs text-slate-400">Describe what the agent should do and AI will write the task description.</p>
+            {providers.length > 1 && (
+              <div>
+                <Label htmlFor="ai-provider-task">Generate using</Label>
+                <Select id="ai-provider-task" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
+                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="ai-hint-task">Additional context <span className="text-slate-500 font-normal">(optional)</span></Label>
+              <Textarea
+                id="ai-hint-task"
+                value={aiHint}
+                onChange={e => setAiHint(e.target.value)}
+                rows={2}
+                placeholder="e.g. Focus on security implications, output as a markdown checklist"
+              />
+            </div>
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+            <div className="flex justify-end">
+              <Button onClick={generateDescription} disabled={aiGenerating}>
+                {aiGenerating ? 'Generating…' : '✦ Generate'}
+              </Button>
+            </div>
+          </div>
+        )}
         <Textarea id="desc" value={description} onChange={e => setDescription(e.target.value)} rows={4}
           placeholder="Detailed instructions for the agent…" />
       </div>
@@ -656,22 +720,25 @@ export function ProjectDetailPage() {
   const [criticAgentId, setCriticAgentId] = useState('')
   const [savingCritic, setSavingCritic] = useState(false)
   const [criticMessage, setCriticMessage] = useState('')
+  const [providers, setProviders] = useState<Provider[]>([])
 
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const [proj, agts, allAgts, tsks, tms] = await Promise.all([
+      const [proj, agts, allAgts, tsks, tms, provs] = await Promise.all([
         api.projects.get(id),
         api.projects.listAgents(id),
         api.agents.list(),
         api.tasks.list(id),
         api.teams.list(),
+        api.providers.list(),
       ])
       setProject(proj)
       setAgents(agts)
       setAllAgents(allAgts)
       setTasks(tsks)
       setTeams(tms)
+      setProviders(provs)
     } finally { setLoading(false) }
   }, [id])
 
@@ -850,6 +917,7 @@ export function ProjectDetailPage() {
             allAgents={allAgents}
             projectAgents={agents}
             teams={teams}
+            providers={providers}
             onSave={() => { setShowTaskForm(false); load() }}
             onClose={() => setShowTaskForm(false)}
           />

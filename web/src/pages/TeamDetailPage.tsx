@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, type Team, type Task, type Project } from '@/lib/api'
+import { api, type Team, type Task, type Project, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -49,18 +49,27 @@ export function TeamDetailPage() {
   const [broadcastDescription, setBroadcastDescription] = useState('')
   const [broadcastSaving, setBroadcastSaving] = useState(false)
   const [broadcastMessage, setBroadcastMessage] = useState('')
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [showBroadcastAI, setShowBroadcastAI] = useState(false)
+  const [broadcastAIHint, setBroadcastAIHint] = useState('')
+  const [broadcastAIProviderID, setBroadcastAIProviderID] = useState('')
+  const [broadcastAIGenerating, setBroadcastAIGenerating] = useState(false)
+  const [broadcastAIError, setBroadcastAIError] = useState('')
 
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const [t, ts, projs] = await Promise.all([
+      const [t, ts, projs, provs] = await Promise.all([
         api.teams.get(id),
         api.tasks.listAll(),
         api.projects.list(),
+        api.providers.list(),
       ])
       setTeam(t)
       setAllTasks(ts)
       setProjects(projs)
+      setProviders(provs)
+      setBroadcastAIProviderID(prev => prev || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
     } finally { setLoading(false) }
   }, [id])
 
@@ -325,7 +334,64 @@ export function TeamDetailPage() {
               <Input id="broadcast-title" value={broadcastTitle} onChange={e => setBroadcastTitle(e.target.value)} placeholder="e.g. Audit current project status" />
             </div>
             <div>
-              <Label htmlFor="broadcast-description">Description</Label>
+              <div className="flex items-center justify-between mb-1">
+                <Label htmlFor="broadcast-description">Description</Label>
+                {providers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowBroadcastAI(v => !v); setBroadcastAIError('') }}
+                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+                  >
+                    ✦ {showBroadcastAI ? 'Hide AI assist' : 'Generate with AI'}
+                  </button>
+                )}
+              </div>
+              {showBroadcastAI && (
+                <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+                  <p className="text-xs text-slate-400">Describe what you want the team to do and AI will write the broadcast instructions.</p>
+                  {providers.length > 1 && (
+                    <div>
+                      <Label htmlFor="ai-provider-broadcast">Generate using</Label>
+                      <Select id="ai-provider-broadcast" value={broadcastAIProviderID} onChange={e => setBroadcastAIProviderID(e.target.value)}>
+                        {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </Select>
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="ai-hint-broadcast">Additional context <span className="text-slate-500 font-normal">(optional)</span></Label>
+                    <Textarea
+                      id="ai-hint-broadcast"
+                      value={broadcastAIHint}
+                      onChange={e => setBroadcastAIHint(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. Focus on identifying blockers, report in bullet points"
+                    />
+                  </div>
+                  {broadcastAIError && <p className="text-xs text-red-400">{broadcastAIError}</p>}
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={async () => {
+                        if (!broadcastTitle.trim()) { setBroadcastAIError('Enter a title first'); return }
+                        setBroadcastAIGenerating(true)
+                        setBroadcastAIError('')
+                        try {
+                          const result = await api.tasks.generateDescription(broadcastTitle, broadcastAIHint, broadcastAIProviderID)
+                          setBroadcastDescription(result.description)
+                          setShowBroadcastAI(false)
+                          setBroadcastAIHint('')
+                        } catch (e: any) {
+                          setBroadcastAIError(e.message)
+                        } finally {
+                          setBroadcastAIGenerating(false)
+                        }
+                      }}
+                      disabled={broadcastAIGenerating}
+                    >
+                      {broadcastAIGenerating ? 'Generating…' : '✦ Generate'}
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Textarea id="broadcast-description" value={broadcastDescription} onChange={e => setBroadcastDescription(e.target.value)} rows={5} placeholder="Instructions sent to every team member…" />
             </div>
             {broadcastMessage && (

@@ -115,6 +115,7 @@ func (s *Server) buildRouter() http.Handler {
 		// Teams
 		r.Get("/teams", s.listTeams)
 		r.Post("/teams", s.createTeam)
+		r.Post("/teams/generate-description", s.generateTeamDescription)
 		r.Get("/teams/{id}", s.getTeam)
 		r.Put("/teams/{id}", s.updateTeam)
 		r.Delete("/teams/{id}", s.deleteTeam)
@@ -144,6 +145,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/tasks/quick", s.quickTask)
 		r.Get("/tasks/search", s.searchTasks)
 		r.Post("/tasks/estimate", s.estimateTask)
+		r.Post("/tasks/generate-description", s.generateTaskDescription)
 		r.Get("/tasks/running", s.listRunningTasks)
 		r.Get("/tasks/attention", s.listAttentionTasks)
 		r.Get("/tasks/{id}", s.getTask)

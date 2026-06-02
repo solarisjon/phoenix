@@ -216,6 +216,11 @@ export const api = {
       return res.json()
     },
     exportUrl: (id: string) => `/api/teams/${id}/export`,
+    generateDescription: (name: string, hint?: string, providerId?: string) =>
+      request<{ description: string }>('/teams/generate-description', {
+        method: 'POST',
+        body: JSON.stringify({ name, hint: hint ?? '', provider_id: providerId ?? '' }),
+      }),
     import: (bundle: unknown, apiKeys: Record<string, string>) =>
       request<{ team_id: string; team_name: string; agent_ids: string[]; provider_ids: string[]; skipped: string[] }>(
         '/import/team', { method: 'POST', body: JSON.stringify({ bundle, api_keys: apiKeys }) }
@@ -262,6 +267,11 @@ export const api = {
       request<{ supported: boolean; estimated_cost_usd: number }>('/tasks/estimate', {
         method: 'POST',
         body: JSON.stringify({ agent_id: agentId, description }),
+      }),
+    generateDescription: (title: string, hint?: string, providerId?: string) =>
+      request<{ description: string }>('/tasks/generate-description', {
+        method: 'POST',
+        body: JSON.stringify({ title, hint: hint ?? '', provider_id: providerId ?? '' }),
       }),
     listByAgent: (agentId: string) => request<Task[]>(`/agents/${agentId}/tasks`),
     listRunning: () => request<Task[]>('/tasks/running'),

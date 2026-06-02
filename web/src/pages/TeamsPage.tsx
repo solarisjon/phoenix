@@ -1,19 +1,20 @@
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { api, type Team, type Agent } from '@/lib/api'
+import { api, type Team, type Agent, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
-import { Input, Textarea, Label } from '@/components/ui/input'
+import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { ImportTeamWizard } from '@/components/ui/import-team-wizard'
 import { timeAgo } from '@/lib/utils'
 
 // ---- Team form ----
 
-function TeamForm({ initial, allAgents, onSave, onClose }: {
+function TeamForm({ initial, allAgents, providers, onSave, onClose }: {
   initial?: Team
   allAgents: Agent[]
+  providers: Provider[]
   onSave: () => void
   onClose: () => void
 }) {
@@ -24,6 +25,13 @@ function TeamForm({ initial, allAgents, onSave, onClose }: {
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState(
+    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
+  )
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   const toggleAgent = (id: string) => {
     setSelectedAgents(prev => {
@@ -56,6 +64,22 @@ function TeamForm({ initial, allAgents, onSave, onClose }: {
     finally { setSaving(false) }
   }
 
+  const generateDescription = async () => {
+    if (!name.trim()) { setAiError('Enter a team name first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.teams.generateDescription(name, aiHint, aiProviderID)
+      setDescription(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: any) {
+      setAiError(e.message)
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -64,7 +88,47 @@ function TeamForm({ initial, allAgents, onSave, onClose }: {
           placeholder="e.g. Sustaining Team" />
       </div>
       <div>
-        <Label htmlFor="tdesc">Description</Label>
+        <div className="flex items-center justify-between mb-1">
+          <Label htmlFor="tdesc">Description</Label>
+          {providers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setShowAI(v => !v); setAiError('') }}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+            >
+              ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+            </button>
+          )}
+        </div>
+        {showAI && (
+          <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+            <p className="text-xs text-slate-400">Describe the team's purpose and AI will write the description.</p>
+            {providers.length > 1 && (
+              <div>
+                <Label htmlFor="ai-provider-team">Generate using</Label>
+                <Select id="ai-provider-team" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
+                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="ai-hint-team">Additional context <span className="text-slate-500 font-normal">(optional)</span></Label>
+              <Textarea
+                id="ai-hint-team"
+                value={aiHint}
+                onChange={e => setAiHint(e.target.value)}
+                rows={2}
+                placeholder="e.g. Focus on DevOps automation, escalation path for critical incidents"
+              />
+            </div>
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+            <div className="flex justify-end">
+              <Button onClick={generateDescription} disabled={aiGenerating}>
+                {aiGenerating ? 'Generating…' : '✦ Generate'}
+              </Button>
+            </div>
+          </div>
+        )}
         <Textarea id="tdesc" value={description} onChange={e => setDescription(e.target.value)}
           rows={2} placeholder="What does this team handle?" />
       </div>
@@ -107,6 +171,7 @@ export function TeamsPage() {
   const [searchParams] = useSearchParams()
   const [teams, setTeams] = useState<Team[]>([])
   const [allAgents, setAllAgents] = useState<Agent[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showImport, setShowImport] = useState(false)
@@ -114,9 +179,10 @@ export function TeamsPage() {
 
   const load = async () => {
     try {
-      const [t, a] = await Promise.all([api.teams.list(), api.agents.list()])
+      const [t, a, provs] = await Promise.all([api.teams.list(), api.agents.list(), api.providers.list()])
       setTeams(t)
       setAllAgents(a)
+      setProviders(provs)
     } finally { setLoading(false) }
   }
 
@@ -230,6 +296,7 @@ export function TeamsPage() {
           <TeamForm
             initial={editing}
             allAgents={allAgents}
+            providers={providers}
             onSave={() => { setShowForm(false); setEditing(undefined); load() }}
             onClose={() => { setShowForm(false); setEditing(undefined) }}
           />
