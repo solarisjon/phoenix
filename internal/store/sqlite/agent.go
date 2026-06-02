@@ -17,7 +17,7 @@ func NewAgentRepo(db *DB) *AgentRepo { return &AgentRepo{db} }
 func (r *AgentRepo) List(ctx context.Context) ([]*model.Agent, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
-		       provider_id, model_override, can_spawn_agents, can_hire_agents, heartbeat_interval,
+		       provider_id, model_override, can_spawn_agents, can_hire_agents,
 		       max_concurrent, created_by, status, created_at, template_id
 		FROM agents ORDER BY created_at ASC`)
 	if err != nil {
@@ -30,7 +30,7 @@ func (r *AgentRepo) List(ctx context.Context) ([]*model.Agent, error) {
 func (r *AgentRepo) Get(ctx context.Context, id string) (*model.Agent, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
-		       provider_id, model_override, can_spawn_agents, can_hire_agents, heartbeat_interval,
+		       provider_id, model_override, can_spawn_agents, can_hire_agents,
 		       max_concurrent, created_by, status, created_at, template_id
 		FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
@@ -47,10 +47,10 @@ func (r *AgentRepo) Create(ctx context.Context, a *model.Agent) error {
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO agents
-		  (id, name, persona, instructions, guardrails, behaviour, hard_guardrails, provider_id, model_override, can_spawn_agents, can_hire_agents, heartbeat_interval, max_concurrent, created_by, status, template_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, name, persona, instructions, guardrails, behaviour, hard_guardrails, provider_id, model_override, can_spawn_agents, can_hire_agents, max_concurrent, created_by, status, template_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Name, a.Persona, a.Instructions, a.Guardrails, a.Behaviour, a.HardGuardrails,
-		a.ProviderID, a.ModelOverride, canSpawn, canHire, nullInt(a.HeartbeatInterval), a.MaxConcurrent, a.CreatedBy, string(a.Status), nullString(a.TemplateID))
+		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.CreatedBy, string(a.Status), nullString(a.TemplateID))
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -69,10 +69,10 @@ func (r *AgentRepo) Update(ctx context.Context, a *model.Agent) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE agents SET
 		  name = ?, persona = ?, instructions = ?, guardrails = ?, behaviour = ?, hard_guardrails = ?,
-		  provider_id = ?, model_override = ?, can_spawn_agents = ?, can_hire_agents = ?, heartbeat_interval = ?, max_concurrent = ?, status = ?, template_id = ?
+		  provider_id = ?, model_override = ?, can_spawn_agents = ?, can_hire_agents = ?, max_concurrent = ?, status = ?, template_id = ?
 		WHERE id = ?`,
 		a.Name, a.Persona, a.Instructions, a.Guardrails, a.Behaviour, a.HardGuardrails,
-		a.ProviderID, a.ModelOverride, canSpawn, canHire, nullInt(a.HeartbeatInterval), a.MaxConcurrent, string(a.Status), nullString(a.TemplateID), a.ID)
+		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, string(a.Status), nullString(a.TemplateID), a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
@@ -90,11 +90,10 @@ func (r *AgentRepo) Delete(ctx context.Context, id string) error {
 func scanAgent(row *sql.Row) (*model.Agent, error) {
 	var a model.Agent
 	var status string
-	var hb sql.NullInt64
 	var templateID sql.NullString
 	var canSpawn, canHire int
 	err := row.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails, &a.Behaviour, &a.HardGuardrails,
-		&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &hb, &a.MaxConcurrent, &a.CreatedBy, &status, &a.CreatedAt, &templateID)
+		&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.CreatedBy, &status, &a.CreatedAt, &templateID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -104,10 +103,6 @@ func scanAgent(row *sql.Row) (*model.Agent, error) {
 	a.Status = model.AgentStatus(status)
 	a.CanSpawnAgents = canSpawn != 0
 	a.CanHireAgents = canHire != 0
-	if hb.Valid {
-		v := int(hb.Int64)
-		a.HeartbeatInterval = &v
-	}
 	if templateID.Valid {
 		a.TemplateID = &templateID.String
 	}
@@ -120,20 +115,15 @@ func scanAgents(rows *sql.Rows) ([]*model.Agent, error) {
 	for rows.Next() {
 		var a model.Agent
 		var status string
-		var hb sql.NullInt64
 		var templateID sql.NullString
 		var canSpawn, canHire int
 		if err := rows.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails, &a.Behaviour, &a.HardGuardrails,
-			&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &hb, &a.MaxConcurrent, &a.CreatedBy, &status, &a.CreatedAt, &templateID); err != nil {
+			&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.CreatedBy, &status, &a.CreatedAt, &templateID); err != nil {
 			return nil, fmt.Errorf("scan agent row: %w", err)
 		}
 		a.Status = model.AgentStatus(status)
 		a.CanSpawnAgents = canSpawn != 0
 		a.CanHireAgents = canHire != 0
-		if hb.Valid {
-			v := int(hb.Int64)
-			a.HeartbeatInterval = &v
-		}
 		if templateID.Valid {
 			a.TemplateID = &templateID.String
 		}

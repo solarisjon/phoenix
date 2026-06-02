@@ -21,7 +21,6 @@ export interface Agent {
   model_override: string
   can_spawn_agents: boolean
   can_hire_agents: boolean
-  heartbeat_interval: number | null
   max_concurrent: number
   status: 'active' | 'paused' | 'disabled'
   created_at: string

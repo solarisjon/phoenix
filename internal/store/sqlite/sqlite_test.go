@@ -106,17 +106,15 @@ func TestProviderCRUD(t *testing.T) {
 func seedAgent(t *testing.T, db *DB) *model.Agent {
 	t.Helper()
 	seedProvider(t, db)
-	hb := 600
 	a := &model.Agent{
-		ID:                "agent-1",
-		Name:              "Ops Manager",
-		Persona:           "Senior operations expert",
-		Instructions:      "Always delegate research.",
-		Guardrails:        "Never approve without user review.",
-		ProviderID:        "prov-1",
-		HeartbeatInterval: &hb,
-		CreatedBy:         defaultUserID,
-		Status:            model.AgentStatusActive,
+		ID:           "agent-1",
+		Name:         "Ops Manager",
+		Persona:      "Senior operations expert",
+		Instructions: "Always delegate research.",
+		Guardrails:   "Never approve without user review.",
+		ProviderID:   "prov-1",
+		CreatedBy:    defaultUserID,
+		Status:       model.AgentStatusActive,
 	}
 	if err := NewAgentRepo(db).Create(context.Background(), a); err != nil {
 		t.Fatalf("seed agent: %v", err)
@@ -140,21 +138,14 @@ func TestAgentCRUD(t *testing.T) {
 	if err != nil || got == nil {
 		t.Fatalf("Get: err=%v got=%v", err, got)
 	}
-	if got.HeartbeatInterval == nil || *got.HeartbeatInterval != 600 {
-		t.Errorf("HeartbeatInterval = %v, want 600", got.HeartbeatInterval)
-	}
 
 	got.Name = "Updated Agent"
-	got.HeartbeatInterval = nil
 	if err := repo.Update(ctx, got); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	updated, _ := repo.Get(ctx, a.ID)
 	if updated.Name != "Updated Agent" {
 		t.Error("name not updated")
-	}
-	if updated.HeartbeatInterval != nil {
-		t.Error("expected nil heartbeat after update")
 	}
 
 	if err := repo.Delete(ctx, a.ID); err != nil {

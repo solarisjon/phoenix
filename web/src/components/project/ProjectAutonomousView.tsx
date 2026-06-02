@@ -35,16 +35,15 @@ function parseOutputText(output: string): string {
   }
 }
 
-function nextHeartbeatCountdown(tasks: Task[], agent: Agent): string | null {
-  if (!agent.heartbeat_interval) return null
-  // Find the most recent heartbeat task for this agent
-  const heartbeats = tasks
-    .filter(t => t.agent_id === agent.id && t.title.startsWith('Heartbeat'))
+function nextScheduledCountdown(tasks: Task[], project: Project): string | null {
+  if (!project.schedule_interval) return null
+  const scheduledTasks = tasks
+    .filter(t => t.title.startsWith('Scheduled run') && t.status === 'completed')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  if (!heartbeats.length) return null
+  if (!scheduledTasks.length) return null
 
-  const last = new Date(heartbeats[0].created_at).getTime()
-  const nextFire = last + agent.heartbeat_interval * 1000
+  const last = new Date(scheduledTasks[0].created_at).getTime()
+  const nextFire = last + project.schedule_interval * 1000
   const remaining = nextFire - Date.now()
   if (remaining <= 0) return 'firing soon'
   const m = Math.floor(remaining / 60000)
@@ -53,31 +52,29 @@ function nextHeartbeatCountdown(tasks: Task[], agent: Agent): string | null {
 }
 
 export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTaskClick, onNewTask }: Props) {
-  const heartbeatAgents = agents.filter(a => (a.heartbeat_interval ?? 0) > 0)
-  const primaryAgent = heartbeatAgents[0]
   const agentNames = agents.map(a => a.name).join(', ')
 
   const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [countdown, setCountdown] = useState<string | null>(
-    primaryAgent ? nextHeartbeatCountdown(tasks, primaryAgent) : null
+    nextScheduledCountdown(tasks, project)
   )
 
   // Refresh countdown every 10s and auto-refresh data every 30s
   useEffect(() => {
     const tick = setInterval(() => {
-      setCountdown(primaryAgent ? nextHeartbeatCountdown(tasks, primaryAgent) : null)
+      setCountdown(nextScheduledCountdown(tasks, project))
     }, 10_000)
     const dataRefresh = setInterval(onUpdate, 30_000)
     return () => { clearInterval(tick); clearInterval(dataRefresh) }
-  }, [primaryAgent, tasks, onUpdate])
+  }, [project, tasks, onUpdate])
 
   // Stats
-  const isHeartbeat = (t: Task) => t.title.startsWith('Heartbeat')
-  const done = tasks.filter(t => t.status === 'completed' && !isHeartbeat(t) && !t.dismissed).length
+  const isScheduled = (t: Task) => t.title.startsWith('Scheduled run')
+  const done = tasks.filter(t => t.status === 'completed' && !isScheduled(t) && !t.dismissed).length
   const active = tasks.filter(t => (t.status === 'running' || t.status === 'queued') && !t.dismissed).length
   const stuck = tasks.filter(t => t.status === 'failed' && !t.dismissed).length
   const sessions24h = tasks.filter(t => {
-    if (!isHeartbeat(t) || t.status !== 'completed') return false
+    if (!isScheduled(t) || t.status !== 'completed') return false
     const age = Date.now() - new Date(t.created_at).getTime()
     return age < 24 * 60 * 60 * 1000
   }).length
@@ -88,9 +85,9 @@ export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTask
   // Stuck tasks (for attention panel)
   const stuckTasks = tasks.filter(t => t.status === 'failed' && !t.dismissed)
 
-  // Last heartbeat session
+  // Last scheduled session
   const lastSession = tasks
-    .filter(t => isHeartbeat(t) && t.status === 'completed')
+    .filter(t => isScheduled(t) && t.status === 'completed')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
   const lastSessionText = lastSession ? parseOutputText(lastSession.output) : null
   const lastSessionPreview = lastSessionText?.split('\n').slice(0, 3).join('\n') ?? ''
@@ -220,7 +217,7 @@ export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTask
             </div>
           ) : (
             <div className="bg-white border border-stone-200 rounded-xl p-4 shadow-sm text-sm text-stone-400 italic">
-              No sessions yet — first heartbeat will fire soon.
+              No sessions yet — first scheduled run will fire soon.
             </div>
           )}
         </div>

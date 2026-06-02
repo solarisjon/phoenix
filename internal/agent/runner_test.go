@@ -193,6 +193,19 @@ func (r *memTaskRepo) CancelQueuedTask(_ context.Context, taskID string) (bool, 
 	return true, nil
 }
 
+func (r *memTaskRepo) ListCompletedForInbox(_ context.Context, limit int) ([]*model.Task, error) {
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.Status == model.TaskStatusCompleted {
+			out = append(out, t)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}

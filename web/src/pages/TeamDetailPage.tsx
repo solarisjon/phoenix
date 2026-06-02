@@ -16,12 +16,12 @@ function formatInterval(secs: number): string {
   return `${(secs / 86400).toFixed(1).replace(/\.0$/, '')}d`
 }
 
-// Compute "next heartbeat" from most recent heartbeat task for that agent+project
-function nextFire(agentId: string, projectId: string, interval: number, allTasks: Task[]): string {
-  const hbTasks = allTasks
-    .filter(t => t.agent_id === agentId && t.project_id === projectId && t.title.startsWith('Heartbeat'))
+// Compute "next scheduled run" for a monitor project
+function nextFire(projectId: string, interval: number, allTasks: Task[]): string {
+  const scheduledTasks = allTasks
+    .filter(t => t.project_id === projectId && t.title.startsWith('Scheduled run'))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  const lastFired = hbTasks[0] ? new Date(hbTasks[0].created_at) : null
+  const lastFired = scheduledTasks[0] ? new Date(scheduledTasks[0].created_at) : null
   const nextDate = lastFired
     ? new Date(lastFired.getTime() + interval * 1000)
     : null
@@ -137,18 +137,19 @@ export function TeamDetailPage() {
     }
   }
 
-  // Heartbeat schedule: (agent, project) pairs where agent has heartbeat_interval
+  // Schedule: monitors with schedule_interval assigned to team members
   const scheduleRows: Array<{ agent: typeof members[0]; project: Project; interval: number; next: string }> = []
-  for (const agent of members) {
-    if (!agent.heartbeat_interval) continue
-    for (const proj of teamProjects) {
-      scheduleRows.push({
-        agent,
-        project: proj,
-        interval: agent.heartbeat_interval,
-        next: nextFire(agent.id, proj.id, agent.heartbeat_interval, allTasks),
-      })
-    }
+  for (const proj of teamProjects) {
+    if (proj.kind !== 'monitor' || !proj.schedule_interval) continue
+    // Find the first active team member assigned to this monitor
+    const assignedAgent = members.find(a => a.status === 'active')
+    if (!assignedAgent) continue
+    scheduleRows.push({
+      agent: assignedAgent,
+      project: proj,
+      interval: proj.schedule_interval,
+      next: nextFire(proj.id, proj.schedule_interval, allTasks),
+    })
   }
 
   return (
@@ -224,9 +225,6 @@ export function TeamDetailPage() {
                         </div>
                       )}
                     </div>
-                    {agent.heartbeat_interval && (
-                      <p className="text-xs text-slate-600 mt-1.5">⏱ {formatInterval(agent.heartbeat_interval)} heartbeat</p>
-                    )}
                     <div className="mt-2">
                       <Link to={`/settings?tab=agents`}>
                         <Button variant="ghost" size="sm" className="w-full text-xs">Configure →</Button>
@@ -311,8 +309,8 @@ export function TeamDetailPage() {
             </div>
           </Card>
           <p className="text-xs text-slate-600 mt-2">
-            Heartbeat intervals are set per agent in{' '}
-            <Link to="/settings?tab=agents" className="text-violet-500 hover:underline">Settings → Agents</Link>.
+            Schedules are set per monitor in{' '}
+            <Link to="/monitors" className="text-violet-500 hover:underline">Monitors</Link>.
           </p>
         </section>
       )}

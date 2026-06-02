@@ -81,8 +81,8 @@ func main() {
 		hub.BroadcastAgentEvent(ev, taskRepo)
 	})
 
-	// Start the heartbeat scheduler. Scans agents/projects every 60s and
-	// fires tasks for agents with heartbeat_interval set.
+	// Start the monitor scheduler. Scans monitors every 60s and
+	// fires tasks for monitors with schedule_interval set.
 	sched := scheduler.New(agentRepo, projectRepo, taskRepo, runner, 60*time.Second)
 	sched.Start()
 	defer sched.Stop()

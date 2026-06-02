@@ -228,7 +228,7 @@ type bundleAgent struct {
 	Instructions      string `json:"instructions,omitempty"`
 	Guardrails        string `json:"guardrails"`
 	HardGuardrails    string `json:"hard_guardrails,omitempty"`
-	HeartbeatInterval *int   `json:"heartbeat_interval,omitempty"`
+	HeartbeatInterval *int   `json:"heartbeat_interval,omitempty"` // kept for bundle compat; ignored on import
 	CanSpawnAgents    bool   `json:"can_spawn_agents"`
 	ModelOverride     string `json:"model_override,omitempty"`
 	ProviderRef       string `json:"provider_ref"`
@@ -313,10 +313,6 @@ func (s *Server) exportTeam(w http.ResponseWriter, r *http.Request) {
 			CanSpawnAgents: agent.CanSpawnAgents,
 			ModelOverride:  agent.ModelOverride,
 			ProviderRef:    providerRef[agent.ProviderID],
-		}
-		if agent.HeartbeatInterval != nil {
-			v := *agent.HeartbeatInterval
-			ba.HeartbeatInterval = &v
 		}
 		bundleAgents = append(bundleAgents, ba)
 	}
@@ -445,7 +441,6 @@ func (s *Server) importTeam(w http.ResponseWriter, r *http.Request) {
 			ProviderID:        provID,
 			ModelOverride:     ba.ModelOverride,
 			CanSpawnAgents:    ba.CanSpawnAgents,
-			HeartbeatInterval: ba.HeartbeatInterval,
 			Status:            model.AgentStatusActive,
 			CreatedBy:         user.ID,
 			CreatedAt:         time.Now(),
