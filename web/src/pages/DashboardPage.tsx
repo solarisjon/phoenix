@@ -42,12 +42,13 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
   return <span className="tabular-nums">{m > 0 ? `${m}m ${s}s` : `${s}s`}</span>
 }
 
-function RunningTaskCard({ task, agents, projects, onCancel }: { task: Task; agents: Agent[]; projects: Project[]; onCancel: () => void }) {
+function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; onCancel: () => void }) {
   const [stream, setStream] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const agent = agents.find(a => a.id === task.agent_id)
   const project = projects.find(p => p.id === task.project_id)
   const scrollRef = useRef<HTMLPreElement>(null)
+  const isQueued = task.status === 'queued'
 
   useEffect(() => {
     const unsub = phoenixWS.on((ev) => {
@@ -73,42 +74,45 @@ function RunningTaskCard({ task, agents, projects, onCancel }: { task: Task; age
   const preview = stream || parseOutput(task.output)
 
   return (
-    <Card className="border-violet-900/40">
+    <Card className={isQueued ? 'border-slate-700/50' : 'border-violet-900/40'}>
       <CardBody className="py-3 px-4">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse flex-shrink-0" />
+              {isQueued
+                ? <span className="text-xs text-slate-500 font-mono w-5 flex-shrink-0">#{queuePos}</span>
+                : <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse flex-shrink-0" />
+              }
               <p className="text-sm font-medium text-white truncate">{task.title}</p>
             </div>
             <p className="text-xs text-slate-500">
               {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline">{project.name}</Link> : ''}
               {project && agent ? ' · ' : ''}
               {agent?.name ?? ''}
-              {task.started_at && task.status === 'running' && (
+              {task.started_at && !isQueued && (
                 <> · <ElapsedTimer startedAt={task.started_at} /></>
               )}
-              {task.status === 'queued' && ' · waiting for agent'}
+              {isQueued && ' · waiting in queue'}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="info">{task.status}</Badge>
+            <Badge variant={isQueued ? 'muted' : 'info'}>{isQueued ? 'Queued' : 'Running'}</Badge>
             <button
               onClick={handleCancel}
               disabled={cancelling}
               className="text-xs text-slate-500 hover:text-red-400 disabled:opacity-50 transition-colors"
-              title="Cancel task"
+              title={isQueued ? 'Remove from queue' : 'Cancel task'}
             >
               {cancelling ? '…' : '✕'}
             </button>
           </div>
         </div>
-        {preview ? (
+        {!isQueued && preview ? (
           <pre ref={scrollRef} className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">
             {preview}
           </pre>
-        ) : task.description ? (
-          <div className="text-xs text-slate-500 bg-slate-900 rounded p-2 mt-1 leading-relaxed line-clamp-3">
+        ) : isQueued && task.description ? (
+          <div className="text-xs text-slate-500 bg-slate-900 rounded p-2 mt-1 leading-relaxed line-clamp-2">
             {task.description}
           </div>
         ) : null}
@@ -359,7 +363,6 @@ export function DashboardPage() {
   const [costs, setCosts] = useState<CostsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [showRunning, setShowRunning] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -393,7 +396,7 @@ export function DashboardPage() {
     return unsub
   }, [load])
 
-  const runningCount = runningTasks.length
+  
 
   return (
     <div className="space-y-6">
@@ -407,9 +410,10 @@ export function DashboardPage() {
         <StatCard label="Active Projects" value={String(projects.filter(p => p.status === 'active').length)} />
         <StatCard
           label="Tasks Running"
-          value={String(runningCount)}
-          sub={runningCount > 0 ? 'View live →' : undefined}
-          onClick={runningCount > 0 ? () => setShowRunning(true) : undefined}
+          value={String(runningTasks.filter(t => t.status === 'running').length)}
+          sub={runningTasks.filter(t => t.status === 'queued').length > 0
+            ? `${runningTasks.filter(t => t.status === 'queued').length} queued`
+            : undefined}
         />
         <StatCard
           label="Needs Attention"
@@ -425,20 +429,28 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Running tasks panel */}
-      {showRunning && runningTasks.length > 0 && (
+      {/* Running & queued tasks — always visible when active */}
+      {runningTasks.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
-              Live Tasks ({runningTasks.length})
+              Active Tasks ({runningTasks.length})
             </h2>
-            <button className="text-xs text-slate-500 hover:text-slate-300" onClick={() => setShowRunning(false)}>Hide ✕</button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {runningTasks.map(t => (
-              <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={load} />
-            ))}
+            {(() => {
+              const running = runningTasks.filter(t => t.status === 'running')
+              const queued = runningTasks.filter(t => t.status === 'queued')
+              return [
+                ...running.map(t => (
+                  <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={load} />
+                )),
+                ...queued.map((t, i) => (
+                  <RunningTaskCard key={t.id} task={t} queuePos={i + 1} agents={agents} projects={projects} onCancel={load} />
+                )),
+              ]
+            })()}
           </div>
         </div>
       )}

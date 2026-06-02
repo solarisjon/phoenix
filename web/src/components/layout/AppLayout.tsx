@@ -8,20 +8,19 @@ import { QuickTaskButton } from '@/components/ui/quick-task'
 
 const titles: Record<string, string> = {
   '/': 'Dashboard',
-  '/feed': 'Feed',
   '/inbox': 'Inbox',
-  '/queue': 'Queue',
   '/projects': 'Projects',
+  '/monitors': 'Monitors',
   '/tasks': 'Tasks',
   '/teams': 'Teams',
   '/settings': 'Settings',
+  '/feed': 'Event Log',
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const [inboxCount, setInboxCount] = useState(0)
-  const [runningCount, setRunningCount] = useState(0)
-  const [queuedCount, setQueuedCount] = useState(0)
+  const [activeCount, setActiveCount] = useState(0)
 
   const title = Object.entries(titles).find(([path]) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
@@ -40,8 +39,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const refreshRunning = useCallback(async () => {
     try {
       const tasks = await api.tasks.listRunning()
-      setRunningCount(tasks.length)
-      setQueuedCount(tasks.filter(t => t.status === 'queued').length)
+      setActiveCount(tasks.length)
     } catch { /* ignore */ }
   }, [])
 
@@ -68,7 +66,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
-      <Sidebar inboxCount={inboxCount} runningCount={runningCount} queuedCount={queuedCount} />
+      <Sidebar inboxCount={inboxCount} activeCount={activeCount} />
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar inboxCount={inboxCount} title={title} />
         <div className="flex-1 overflow-auto p-6">

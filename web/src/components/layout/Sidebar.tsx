@@ -4,9 +4,7 @@ import { ThemePicker } from '@/components/ui/theme-picker'
 
 const nav = [
   { label: 'Dashboard', href: '/', icon: '◈' },
-  { label: 'Feed', href: '/feed', icon: '⚡' },
   { label: 'Inbox', href: '/inbox', icon: '⊡' },
-  { label: 'Queue', href: '/queue', icon: '≡' },
   { label: 'Projects', href: '/projects', icon: '⊞' },
   { label: 'Monitors', href: '/monitors', icon: '⟳' },
   { label: 'Tasks', href: '/tasks', icon: '✦' },
@@ -15,7 +13,7 @@ const nav = [
   { label: 'Help', href: '/help', icon: '?' },
 ]
 
-export function Sidebar({ inboxCount, runningCount, queuedCount }: { inboxCount: number; runningCount: number; queuedCount: number }) {
+export function Sidebar({ inboxCount, activeCount }: { inboxCount: number; activeCount: number }) {
   return (
     <aside className="w-56 flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col">
       {/* Logo */}
@@ -49,19 +47,14 @@ export function Sidebar({ inboxCount, runningCount, queuedCount }: { inboxCount:
               <span className="text-base">{icon}</span>
               {label}
             </span>
-            {label === 'Queue' && queuedCount > 0 && (
-              <span className="bg-sky-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
-                {queuedCount > 99 ? '99+' : queuedCount}
+            {label === 'Dashboard' && activeCount > 0 && (
+              <span className="bg-violet-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
+                {activeCount > 99 ? '99+' : activeCount}
               </span>
             )}
             {label === 'Inbox' && inboxCount > 0 && (
               <span className="bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
                 {inboxCount > 99 ? '99+' : inboxCount}
-              </span>
-            )}
-            {label === 'Tasks' && runningCount > 0 && (
-              <span className="bg-violet-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
-                {runningCount > 99 ? '99+' : runningCount}
               </span>
             )}
           </NavLink>
