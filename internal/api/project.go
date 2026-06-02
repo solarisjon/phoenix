@@ -14,12 +14,13 @@ import (
 )
 
 type createProjectRequest struct {
-	Name             string `json:"name"`
-	Description      string `json:"description"`
-	WorkingDir       string `json:"working_dir"`
-	Kind             string `json:"kind"`
-	Status           string `json:"status"`
-	ScheduleInterval *int   `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
+	Name             string  `json:"name"`
+	Description      string  `json:"description"`
+	WorkingDir       string  `json:"working_dir"`
+	Kind             string  `json:"kind"`
+	Status           string  `json:"status"`
+	ScheduleInterval *int    `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
+	CriticAgentID    *string `json:"critic_agent_id"`
 }
 
 func (r createProjectRequest) validate() string {
@@ -102,6 +103,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		ScheduleInterval: req.ScheduleInterval,
 		Owner:            user.ID,
 		Status:           status,
+		CriticAgentID:    req.CriticAgentID,
 		CreatedAt:        time.Now(),
 	}
 	if err := s.projects.Create(r.Context(), p); err != nil {
@@ -136,6 +138,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.Description = req.Description
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
 	existing.ScheduleInterval = req.ScheduleInterval
+	existing.CriticAgentID = req.CriticAgentID
 	if req.Kind != "" {
 		existing.Kind = model.ProjectKind(req.Kind)
 	}

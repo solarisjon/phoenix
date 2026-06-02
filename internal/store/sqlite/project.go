@@ -19,10 +19,10 @@ func (r *ProjectRepo) ListByKind(ctx context.Context, kind string) ([]*model.Pro
 	var err error
 	if kind == "" {
 		rows, err = r.db.QueryContext(ctx,
-			`SELECT id, name, description, working_dir, kind, schedule_interval, owner, status, created_at FROM projects ORDER BY created_at ASC`)
+			`SELECT id, name, description, working_dir, kind, schedule_interval, owner, status, critic_agent_id, created_at FROM projects ORDER BY created_at ASC`)
 	} else {
 		rows, err = r.db.QueryContext(ctx,
-			`SELECT id, name, description, working_dir, kind, schedule_interval, owner, status, created_at FROM projects WHERE kind = ? ORDER BY created_at ASC`, kind)
+			`SELECT id, name, description, working_dir, kind, schedule_interval, owner, status, critic_agent_id, created_at FROM projects WHERE kind = ? ORDER BY created_at ASC`, kind)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
@@ -37,7 +37,7 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
 
 func (r *ProjectRepo) Get(ctx context.Context, id string) (*model.Project, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, description, working_dir, kind, schedule_interval, owner, status, created_at FROM projects WHERE id = ?`, id)
+		`SELECT id, name, description, working_dir, kind, schedule_interval, owner, status, critic_agent_id, created_at FROM projects WHERE id = ?`, id)
 	return scanProject(row)
 }
 
@@ -47,8 +47,8 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 		kind = string(model.ProjectKindProject)
 	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, working_dir, kind, schedule_interval, owner, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval, p.Owner, string(p.Status))
+		`INSERT INTO projects (id, name, description, working_dir, kind, schedule_interval, owner, status, critic_agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval, p.Owner, string(p.Status), nullString(p.CriticAgentID))
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -61,8 +61,8 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 		kind = string(model.ProjectKindProject)
 	}
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, description = ?, working_dir = ?, kind = ?, schedule_interval = ?, status = ? WHERE id = ?`,
-		p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval, string(p.Status), p.ID)
+		`UPDATE projects SET name = ?, description = ?, working_dir = ?, kind = ?, schedule_interval = ?, status = ?, critic_agent_id = ? WHERE id = ?`,
+		p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval, string(p.Status), nullString(p.CriticAgentID), p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
@@ -116,7 +116,8 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 func scanProject(row *sql.Row) (*model.Project, error) {
 	var p model.Project
 	var status, kind string
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval, &p.Owner, &status, &p.CreatedAt)
+	var criticAgentID sql.NullString
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval, &p.Owner, &status, &criticAgentID, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -125,6 +126,9 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 	}
 	p.Status = model.ProjectStatus(status)
 	p.Kind = model.ProjectKind(kind)
+	if criticAgentID.Valid {
+		p.CriticAgentID = &criticAgentID.String
+	}
 	if p.Kind == "" {
 		p.Kind = model.ProjectKindProject
 	}
@@ -136,11 +140,15 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 	for rows.Next() {
 		var p model.Project
 		var status, kind string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval, &p.Owner, &status, &p.CreatedAt); err != nil {
+		var criticAgentID sql.NullString
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval, &p.Owner, &status, &criticAgentID, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
 		}
 		p.Status = model.ProjectStatus(status)
 		p.Kind = model.ProjectKind(kind)
+		if criticAgentID.Valid {
+			p.CriticAgentID = &criticAgentID.String
+		}
 		if p.Kind == "" {
 			p.Kind = model.ProjectKindProject
 		}

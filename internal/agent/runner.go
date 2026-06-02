@@ -437,6 +437,27 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
+	// After successful completion, check if project has a critic configured.
+	if !task.IsCriticReview {
+		if proj, perr := r.projects.Get(r.bgCtx, task.ProjectID); perr == nil && proj != nil && proj.CriticAgentID != nil {
+			criticTask := &model.Task{
+				ID:             uuid.New().String(),
+				ProjectID:      task.ProjectID,
+				AgentID:        *proj.CriticAgentID,
+				Title:          "Critic Review: " + task.Title,
+				Description:    "You are reviewing the output of a completed task. Provide an objective critique: what was done well, what could be improved, any risks or concerns.\n\nOriginal Task: " + task.Title + "\n\nTask Output:\n" + task.Output,
+				Status:         model.TaskStatusPending,
+				Source:         "critic",
+				IsCriticReview: true,
+				ReviewedTaskID: &task.ID,
+				CreatedAt:      time.Now(),
+			}
+			if cerr := r.tasks.Create(r.bgCtx, criticTask); cerr == nil {
+				_ = r.RunTask(r.bgCtx, criticTask.ID)
+			}
+		}
+	}
+
 	r.emit(StreamEvent{
 		TaskID:     task.ID,
 		AgentID:    task.AgentID,

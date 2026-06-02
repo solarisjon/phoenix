@@ -21,6 +21,7 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
 interface Props {
   task: Task
   followUps: Task[]
+  criticReviews: Task[]
   agents: Agent[]
   onUpdate: () => void
 }
@@ -68,7 +69,7 @@ function statusBadge(status: Task['status']) {
   )
 }
 
-export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
+export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdate }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [stream, setStream] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
@@ -123,7 +124,14 @@ export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
       {/* Card header */}
       <div className="p-4 pb-3">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <div className="font-semibold text-stone-900 text-sm leading-snug">{task.title}</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="font-semibold text-stone-900 text-sm leading-snug">{task.title}</div>
+            {task.is_critic_review && (
+              <span className="text-xs rounded-md px-2 py-0.5 font-medium bg-amber-50 border border-amber-200 text-amber-700">
+                🎯 Critic Review
+              </span>
+            )}
+          </div>
           {statusBadge(task.status)}
         </div>
         <div className="flex items-center gap-2 text-xs text-stone-400">
@@ -230,6 +238,33 @@ export function TaskThreadCard({ task, followUps, agents, onUpdate }: Props) {
                 ) : fu.status === 'failed' ? (
                   <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-600">
                     Follow-up failed
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Critic review thread */}
+      {criticReviews.length > 0 && (
+        <div className="mx-4 mb-3 border-l-2 border-amber-200 pl-3 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Critic Reviews</p>
+          {criticReviews.map(review => {
+            const reviewText = parseOutputText(review.output)
+            const reviewAgent = agents.find(a => a.id === review.agent_id)?.name ?? 'Unknown'
+            return (
+              <div key={review.id} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="text-xs font-medium text-amber-800">🎯 {reviewAgent}</span>
+                  {statusBadge(review.status)}
+                  <span className="text-xs text-amber-700/70">{relativeTime(review.completed_at ?? review.created_at)}</span>
+                </div>
+                {review.status === 'running' || review.status === 'queued' ? (
+                  <p className="text-xs text-amber-700">{review.status === 'running' ? 'Review in progress…' : 'Review queued…'}</p>
+                ) : reviewText ? (
+                  <div className="text-xs text-amber-900 leading-relaxed">
+                    <MarkdownOutput content={reviewText} compact />
                   </div>
                 ) : null}
               </div>

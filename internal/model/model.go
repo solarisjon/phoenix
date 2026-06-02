@@ -51,23 +51,23 @@ type User struct {
 
 // Provider holds configuration for an LLM endpoint or coding agent tool.
 type Provider struct {
-	ID         string       `json:"id"`
-	Name       string       `json:"name"`
-	Type       ProviderType `json:"type"`
-	Config     string       `json:"config"` // JSON blob
-	CreatedBy  string       `json:"created_by"`
-	CreatedAt  time.Time    `json:"created_at"`
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Type      ProviderType `json:"type"`
+	Config    string       `json:"config"` // JSON blob
+	CreatedBy string       `json:"created_by"`
+	CreatedAt time.Time    `json:"created_at"`
 }
 
 // Agent is an AI agent with a behaviour description, guardrails, and a provider.
 type Agent struct {
 	ID                string      `json:"id"`
 	Name              string      `json:"name"`
-	Behaviour         string       `json:"behaviour"`          // unified persona + instructions field
-	Persona           string       `json:"persona"`            // legacy — kept for backwards compat
-	Instructions      string       `json:"instructions"`       // legacy — kept for backwards compat
-	Guardrails        string      `json:"guardrails"`         // soft (advisory) constraints
-	HardGuardrails    string      `json:"hard_guardrails"`    // mandatory — triggers awaiting_approval
+	Behaviour         string      `json:"behaviour"`       // unified persona + instructions field
+	Persona           string      `json:"persona"`         // legacy — kept for backwards compat
+	Instructions      string      `json:"instructions"`    // legacy — kept for backwards compat
+	Guardrails        string      `json:"guardrails"`      // soft (advisory) constraints
+	HardGuardrails    string      `json:"hard_guardrails"` // mandatory — triggers awaiting_approval
 	ProviderID        string      `json:"provider_id"`
 	ModelOverride     string      `json:"model_override"`     // if set, overrides the provider's default model
 	CanSpawnAgents    bool        `json:"can_spawn_agents"`   // if true, agent may create tasks for other agents
@@ -92,11 +92,12 @@ type Project struct {
 	ID               string        `json:"id"`
 	Name             string        `json:"name"`
 	Description      string        `json:"description"`
-	WorkingDir       string        `json:"working_dir"`        // optional: filesystem path passed to coding agents
-	Kind             ProjectKind   `json:"kind"`               // "project" | "monitor"
-	ScheduleInterval *int          `json:"schedule_interval"`  // seconds; nil = no automatic schedule (monitors only)
+	WorkingDir       string        `json:"working_dir"`       // optional: filesystem path passed to coding agents
+	Kind             ProjectKind   `json:"kind"`              // "project" | "monitor"
+	ScheduleInterval *int          `json:"schedule_interval"` // seconds; nil = no automatic schedule (monitors only)
 	Owner            string        `json:"owner"`
 	Status           ProjectStatus `json:"status"`
+	CriticAgentID    *string       `json:"critic_agent_id"`
 	CreatedAt        time.Time     `json:"created_at"`
 }
 
@@ -108,28 +109,30 @@ type ProjectAgent struct {
 
 // Task is a unit of work assigned to an agent within a project.
 type Task struct {
-	ID           string     `json:"id"`
-	ProjectID    string     `json:"project_id"`
-	AgentID      string     `json:"agent_id"`
-	ParentTaskID *string    `json:"parent_task_id"` // nil = top-level task
-	FollowUpOf   *string    `json:"follow_up_of"`   // nil = original task; set on human refinement follow-ups
-	Title        string     `json:"title"`
-	Description  string     `json:"description"`
-	Status       TaskStatus `json:"status"`
-	Input        string     `json:"input"`        // JSON blob
-	Output       string     `json:"output"`       // JSON blob
-	CostUSD      float64    `json:"cost_usd"`
-	TokensIn     int        `json:"tokens_in"`
-	TokensOut    int        `json:"tokens_out"`
-	Source       string     `json:"source"`       // free-text provenance, empty if human-created
-	HealthSignal *string    `json:"health_signal"` // monitor runs: "all_clear" | "needs_attention" | "failed"
-	GuardrailReason *string `json:"guardrail_reason"` // set when task is paused by a hard guardrail
-	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
-	RunnerPID    int        `json:"runner_pid"`   // OS PID of the subprocess, 0 if not running
-	TimeoutAt    *time.Time `json:"timeout_at"`   // when the task will be force-killed
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at"`
-	CompletedAt  *time.Time `json:"completed_at"`
+	ID              string     `json:"id"`
+	ProjectID       string     `json:"project_id"`
+	AgentID         string     `json:"agent_id"`
+	ParentTaskID    *string    `json:"parent_task_id"` // nil = top-level task
+	FollowUpOf      *string    `json:"follow_up_of"`   // nil = original task; set on human refinement follow-ups
+	Title           string     `json:"title"`
+	Description     string     `json:"description"`
+	Status          TaskStatus `json:"status"`
+	Input           string     `json:"input"`  // JSON blob
+	Output          string     `json:"output"` // JSON blob
+	CostUSD         float64    `json:"cost_usd"`
+	TokensIn        int        `json:"tokens_in"`
+	TokensOut       int        `json:"tokens_out"`
+	Source          string     `json:"source"`           // free-text provenance, empty if human-created
+	HealthSignal    *string    `json:"health_signal"`    // monitor runs: "all_clear" | "needs_attention" | "failed"
+	GuardrailReason *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
+	Dismissed       bool       `json:"dismissed"`        // hidden from inbox but kept for audit
+	RunnerPID       int        `json:"runner_pid"`       // OS PID of the subprocess, 0 if not running
+	TimeoutAt       *time.Time `json:"timeout_at"`       // when the task will be force-killed
+	IsCriticReview  bool       `json:"is_critic_review"`
+	ReviewedTaskID  *string    `json:"reviewed_task_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	StartedAt       *time.Time `json:"started_at"`
+	CompletedAt     *time.Time `json:"completed_at"`
 }
 
 // Team is a named group of agents that can be assigned to projects as a unit.

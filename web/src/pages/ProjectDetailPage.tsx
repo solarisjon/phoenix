@@ -653,6 +653,9 @@ export function ProjectDetailPage() {
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [criticAgentId, setCriticAgentId] = useState('')
+  const [savingCritic, setSavingCritic] = useState(false)
+  const [criticMessage, setCriticMessage] = useState('')
 
   const load = useCallback(async () => {
     if (!id) return
@@ -673,6 +676,33 @@ export function ProjectDetailPage() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    setCriticAgentId(project?.critic_agent_id ?? '')
+  }, [project?.critic_agent_id])
+
+  const saveCritic = async () => {
+    if (!project) return
+    setSavingCritic(true)
+    setCriticMessage('')
+    try {
+      const updated = await api.projects.update(project.id, {
+        name: project.name,
+        description: project.description,
+        working_dir: project.working_dir,
+        kind: project.kind,
+        status: project.status,
+        schedule_interval: project.schedule_interval,
+        critic_agent_id: criticAgentId || null,
+      })
+      setProject(updated)
+      setCriticMessage('Critic agent saved')
+    } catch (e: any) {
+      setCriticMessage(e.message || 'Failed to save critic agent')
+    } finally {
+      setSavingCritic(false)
+    }
+  }
 
   const deleteProject = async () => {
     if (!id) return
@@ -747,6 +777,28 @@ export function ProjectDetailPage() {
           </Modal>
         )
       })()}
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4">
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <div>
+            <p className="text-xs text-slate-500 uppercase tracking-wide">Project Settings</p>
+            <p className="text-xs text-slate-600 mt-1">Optional advisory reviewer that automatically critiques completed tasks.</p>
+          </div>
+        </div>
+        <div className="flex flex-col md:flex-row md:items-end gap-3">
+          <div className="flex-1">
+            <Label htmlFor="critic-agent">Critic Agent</Label>
+            <Select id="critic-agent" value={criticAgentId} onChange={e => setCriticAgentId(e.target.value)}>
+              <option value="">None</option>
+              {allAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+            </Select>
+          </div>
+          <Button variant="secondary" onClick={saveCritic} disabled={savingCritic}>
+            {savingCritic ? 'Saving…' : 'Save Critic'}
+          </Button>
+        </div>
+        {criticMessage && <p className={`text-xs mt-2 ${criticMessage === 'Critic agent saved' ? 'text-green-400' : 'text-red-400'}`}>{criticMessage}</p>}
+      </div>
 
       {/* Agents — same pattern as Monitors page */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4">

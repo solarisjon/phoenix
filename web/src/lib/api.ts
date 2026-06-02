@@ -53,6 +53,7 @@ export interface Project {
   schedule_interval: number | null  // seconds; null = no schedule (monitors only)
   owner: string
   status: 'active' | 'archived'
+  critic_agent_id: string | null
   created_at: string
 }
 
@@ -74,6 +75,8 @@ export interface Task {
   health_signal: 'all_clear' | 'needs_attention' | 'failed' | null
   guardrail_reason: string | null
   dismissed: boolean
+  is_critic_review: boolean
+  reviewed_task_id: string | null
   created_at: string
   started_at: string | null
   completed_at: string | null

@@ -11,18 +11,26 @@ interface Props {
 }
 
 export function ProjectHumanView({ project, tasks, agents, onUpdate, onNewTask, emptyState }: Props) {
-  // Split into top-level tasks and follow-ups
-  const topLevel = tasks.filter(t => !t.follow_up_of && !t.dismissed)
+  // Split into top-level tasks, follow-ups, and critic reviews.
+  const topLevel = tasks.filter(t => !t.follow_up_of && !t.reviewed_task_id && !t.dismissed)
   const followUpMap: Record<string, Task[]> = {}
+  const criticReviewMap: Record<string, Task[]> = {}
   for (const t of tasks) {
     if (t.follow_up_of) {
       if (!followUpMap[t.follow_up_of]) followUpMap[t.follow_up_of] = []
       followUpMap[t.follow_up_of].push(t)
     }
+    if (t.reviewed_task_id) {
+      if (!criticReviewMap[t.reviewed_task_id]) criticReviewMap[t.reviewed_task_id] = []
+      criticReviewMap[t.reviewed_task_id].push(t)
+    }
   }
-  // Sort follow-ups oldest first so thread reads top-to-bottom
+  // Sort thread children oldest first so the thread reads top-to-bottom.
   for (const id in followUpMap) {
     followUpMap[id].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  }
+  for (const id in criticReviewMap) {
+    criticReviewMap[id].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   }
 
   const assignedAgents = agents.filter(a =>
@@ -61,6 +69,7 @@ export function ProjectHumanView({ project, tasks, agents, onUpdate, onNewTask, 
               key={task.id}
               task={task}
               followUps={followUpMap[task.id] ?? []}
+              criticReviews={criticReviewMap[task.id] ?? []}
               agents={agents}
               onUpdate={onUpdate}
             />
