@@ -16,12 +16,11 @@ A self-hosted AI agent orchestration platform. Give agents personas and instruct
 |---|---|
 | **Agents** | Reusable AI personas with instructions, guardrails, and a provider. |
 | **Projects** | Human-driven workspaces with an optional working directory on disk. |
-| **Monitors** | Autonomous projects driven by a heartbeat agent on a schedule. |
+| **Monitors** | Autonomous projects that run on a schedule — pick an agent and set an interval. |
 | **Tasks** | Run immediately, stream output live, track cost. |
 | **Follow-up threads** | Chat-style refinement on any task — previous output carried forward as context. |
 | **Quick Tasks** | One-off tasks without a project (⌘K from anywhere). |
-| **Inbox** | Failed tasks, awaiting-approval tasks, and pending agent hire proposals in one place. |
-| **Heartbeats** | Agents with an interval auto-fire scheduled tasks per assigned project or monitor. |
+| **Inbox** | Failed, awaiting-approval, completed tasks, and pending agent hire proposals in one place. |
 | **Agent spawning** | Agents delegate work to other agents via the Phoenix API. |
 | **Agent hiring** | Agents propose new hires → land in Inbox for human approval before any agent is created. |
 | **Teams** | Group agents into named teams; assign a whole team to a project at once. Export/import as bundles. |
@@ -130,10 +129,6 @@ Settings → Agents → **+ New Agent**
 
 Click **✦ Generate with AI** to draft persona, instructions, and guardrails from a plain-English description.
 
-### Heartbeats
-
-Set a **Heartbeat Interval** (minimum 60s) and the agent automatically receives a scheduled task for each project or monitor it's assigned to. If the agent already has a running or queued task in that project, the heartbeat is skipped for that cycle.
-
 ### Agent spawning
 
 Enable **Allow agent to spawn tasks for other agents**. The agent's system prompt gains instructions to call `POST /api/agents/spawn`, creating tasks for any other agent by ID.
@@ -158,9 +153,9 @@ On any completed or failed task, type a reply to continue the work. The previous
 
 ## Monitors
 
-Autonomous projects driven by a heartbeat agent. A monitor has a name, an optional working directory, and one assigned heartbeat agent. The agent wakes on its interval, does its work (triaging a queue, checking a system, generating a report), and sleeps. Run history is shown in the Monitor detail view.
+Autonomous projects that run on a schedule. A monitor has a name, an optional working directory, a **Schedule Interval**, and one or more assigned agents. On each tick Phoenix creates a task for the assigned agent(s); if an agent already has a running or queued task in that monitor it is skipped for that cycle. Run history is shown in the Monitor detail view.
 
-Create a monitor: Monitors → **+ New Monitor**. You must have at least one agent with a heartbeat interval configured.
+Create a monitor: Monitors → **+ New Monitor**. Set a Schedule Interval (minimum 60 s) and assign at least one agent.
 
 ---
 
@@ -180,13 +175,14 @@ Press **⌘K** (or click the ✦ button) from anywhere to run a one-off task wit
 
 ## Inbox
 
-Three sections, highest priority first:
+Four sections, highest priority first:
 
 1. **Pending Hires** — agent hire proposals awaiting approval. Edit, approve with provider selection, or reject.
 2. **Awaiting Approval** — tasks where an agent requested human sign-off. Approve, revise with feedback, or reject.
 3. **Failed** — tasks that errored. Retry, follow up, or dismiss.
+4. **Completed** — recently completed tasks with output preview and links to generated collateral.
 
-The sidebar badge counts all three categories in real time. Use **Dismiss all** to bulk-clear a section.
+The sidebar badge counts all active (non-completed) categories in real time. Use **Dismiss all** to bulk-clear a section.
 
 ---
 
@@ -253,7 +249,7 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | Method | Path | |
 |---|---|---|
 | GET | `/api/inbox` | Failed + awaiting-approval tasks |
-| POST | `/api/inbox/dismiss-all` | Bulk dismiss (`?filter=failed\|awaiting\|all`) |
+| POST | `/api/inbox/dismiss-all` | Bulk dismiss (`?filter=failed\|awaiting\|completed\|all`) |
 | POST | `/api/inbox/:taskId/approve` | Approve |
 | POST | `/api/inbox/:taskId/reject` | Reject |
 | POST | `/api/inbox/:taskId/revise` | Send feedback and re-run |
@@ -348,7 +344,6 @@ See [GitHub Issues](https://github.com/solarisjon/phoenix/issues) for the full b
 
 Upcoming:
 - Task cancellation (SIGTERM a running task)
-- Model picker dropdown (list available models per provider)
 - Per-agent activity log
 - Token usage detail in task output
 - Full-text task search

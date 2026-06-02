@@ -227,8 +227,8 @@ export function HelpPage() {
             { term: 'Agent', def: 'A reusable AI persona with a name, instructions, and a provider.' },
             { term: 'Project', def: 'A workspace with a working directory and assigned agents.' },
             { term: 'Task', def: 'A unit of work. Runs inside a project, streams output live.' },
-            { term: 'Monitor', def: 'An autonomous project driven by a heartbeat agent on a schedule.' },
-            { term: 'Inbox', def: 'Tasks awaiting your approval or that failed and need attention.' },
+            { term: 'Monitor', def: 'An autonomous project that runs on a schedule. Set an interval and assign agents — Phoenix fires tasks automatically.' },
+            { term: 'Inbox', def: 'Tasks awaiting approval, failed tasks, completed tasks, and pending hire proposals.' },
             { term: 'Team', def: 'A named group of agents that can be exported and imported as a bundle.' },
             { term: 'Follow-up', def: 'A reply task that gets the previous task\'s output as context.' },
           ].map(({ term, def }) => (
