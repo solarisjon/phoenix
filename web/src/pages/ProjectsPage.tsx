@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { api, type Project, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -139,6 +139,7 @@ function ProjectForm({ initial, providers, onSave, onClose }: {
 }
 
 export function ProjectsPage() {
+  const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
@@ -183,9 +184,12 @@ export function ProjectsPage() {
           {projects.map(p => (
             <Card key={p.id} className="hover:border-slate-700 transition-colors">
               <CardBody className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
+                <div
+                  className="flex-1 min-w-0 cursor-pointer"
+                  onClick={() => navigate(`/projects/${p.id}`)}
+                >
                   <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-medium text-white">{p.name}</h3>
+                    <h3 className="font-medium text-white hover:text-violet-400 transition-colors">{p.name}</h3>
                     <Badge variant={p.status === 'active' ? 'success' : 'muted'}>{p.status}</Badge>
                   </div>
                   {p.description && <p className="text-sm text-slate-400 line-clamp-1">{p.description}</p>}
@@ -197,9 +201,6 @@ export function ProjectsPage() {
                   <p className="text-xs text-slate-600 mt-2">Created {timeAgo(p.created_at)}</p>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
-                  <Link to={`/projects/${p.id}`}>
-                    <Button variant="secondary" size="sm">Open</Button>
-                  </Link>
                   <Button variant="ghost" size="sm" onClick={() => { setEditing(p); setShowForm(true) }}>Edit</Button>
                   <Button variant="danger" size="sm" onClick={() => remove(p.id)}>Delete</Button>
                 </div>
