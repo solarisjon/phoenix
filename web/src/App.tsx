@@ -13,6 +13,7 @@ const TeamsPage         = lazy(() => import('@/pages/TeamsPage').then(m => ({ de
 const TeamDetailPage    = lazy(() => import('@/pages/TeamDetailPage').then(m => ({ default: m.TeamDetailPage })))
 const SettingsPage      = lazy(() => import('@/pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
 const HelpPage          = lazy(() => import('@/pages/HelpPage').then(m => ({ default: m.HelpPage })))
+const FeedPage          = lazy(() => import('@/pages/FeedPage'))
 const AgentActivityPage = lazy(() => import('@/pages/AgentActivityPage').then(m => ({ default: m.AgentActivityPage })))
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/teams/:id" element={<TeamDetailPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/help" element={<HelpPage />} />
+            <Route path="/feed" element={<FeedPage />} />
             {/* Legacy redirects so old bookmarks still work */}
             <Route path="/agents/:id/activity" element={<AgentActivityPage />} />
             <Route path="/agents" element={<Navigate to="/settings?tab=agents" replace />} />

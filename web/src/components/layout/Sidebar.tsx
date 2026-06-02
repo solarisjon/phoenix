@@ -4,6 +4,7 @@ import { ThemePicker } from '@/components/ui/theme-picker'
 
 const nav = [
   { label: 'Dashboard', href: '/', icon: '◈' },
+  { label: 'Feed', href: '/feed', icon: '⚡' },
   { label: 'Inbox', href: '/inbox', icon: '⊡' },
   { label: 'Projects', href: '/projects', icon: '⊞' },
   { label: 'Monitors', href: '/monitors', icon: '⟳' },
