@@ -440,6 +440,100 @@ function HireApprovalCard({ draft, providers, onAction }: {
   )
 }
 
+// ---- Completed task card ----
+
+function CompletedTaskCard({ task, agents, agentName, projectName, onAction }: {
+  task: Task
+  agents: Agent[]
+  agentName: string
+  projectName: string
+  onAction: () => void
+}) {
+  const [detail, setDetail] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const output = parseOutput(task.output)
+
+  const dismiss = async () => {
+    setBusy(true)
+    try { await api.tasks.dismiss(task.id); onAction() } finally { setBusy(false) }
+  }
+
+  return (
+    <>
+      <Card className="border-green-900/40">
+        <CardBody>
+          <div className="flex items-start gap-4">
+            <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0 bg-green-500" />
+            <div className="flex-1 min-w-0">
+              {/* Header row */}
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <button className="text-left flex-1 min-w-0" onClick={() => setDetail(true)}>
+                  <h3 className="font-medium text-white hover:text-violet-300 transition-colors truncate">{task.title}</h3>
+                </button>
+                <Badge variant="success">Completed</Badge>
+              </div>
+
+              {/* Meta */}
+              <div className="flex items-center gap-2 text-xs text-slate-500 mb-3 flex-wrap">
+                <Link to={`/projects/${task.project_id}`} className="text-violet-400 hover:underline">{projectName}</Link>
+                <span>·</span>
+                <span>{agentName}</span>
+                <span>·</span>
+                <span>{task.completed_at ? timeAgo(task.completed_at) : timeAgo(task.created_at)}</span>
+                {task.cost_usd > 0 && (
+                  <>
+                    <span>·</span>
+                    <span className="text-slate-400">${task.cost_usd.toFixed(4)}</span>
+                  </>
+                )}
+                {task.source && (
+                  <>
+                    <span>·</span>
+                    <span className="text-slate-500">↳ {task.source}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Output preview */}
+              <div className="bg-slate-800 rounded-lg p-3 mb-3 cursor-pointer" onClick={() => setDetail(true)}>
+                <p className="text-xs text-slate-400 mb-1">Output</p>
+                <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono max-h-24 overflow-hidden line-clamp-4">
+                  {output || '(no output)'}
+                </pre>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 flex-wrap items-center">
+                <Button size="sm" onClick={() => setDetail(true)}>Details &amp; Collateral</Button>
+                <Link
+                  to={`/projects/${task.project_id}`}
+                  className="text-xs text-violet-400 hover:text-violet-300 border border-violet-800/50 hover:border-violet-600 rounded-lg px-3 py-1.5 transition-colors"
+                >
+                  Go to Project →
+                </Link>
+                <Button size="sm" variant="ghost" onClick={dismiss} disabled={busy}>Dismiss</Button>
+              </div>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {detail && (
+        <Modal title={task.title} onClose={() => setDetail(false)} className="max-w-2xl">
+          <TaskDetail
+            task={task}
+            agents={agents}
+            agentName={agentName}
+            projectName={projectName}
+            onRetry={() => setDetail(false)}
+            onClose={() => setDetail(false)}
+          />
+        </Modal>
+      )}
+    </>
+  )
+}
+
 // ---- Group heading ----
 
 function GroupHeading({ label, count, color, onDismissAll }: {
@@ -510,10 +604,11 @@ export function InboxPage() {
 
   const awaiting = tasks.filter(t => t.status === 'awaiting_approval')
   const failed = tasks.filter(t => t.status === 'failed')
-  const totalItems = awaiting.length + failed.length + drafts.length
+  const completed = tasks.filter(t => t.status === 'completed')
+  const totalItems = awaiting.length + failed.length + drafts.length + completed.length
   const dismissibleCount = awaiting.length + failed.length
 
-  const dismissAll = async (filter: 'failed' | 'awaiting' | 'all') => {
+  const dismissAll = async (filter: 'failed' | 'awaiting' | 'completed' | 'all') => {
     const label = filter === 'all' ? 'all inbox items' : `all ${filter} tasks`
     if (!confirm(`Dismiss ${label}? They will be hidden but not deleted.`)) return
     await api.inbox.dismissAll(filter)
@@ -526,9 +621,10 @@ export function InboxPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Inbox</h1>
           <p className="text-slate-400 text-sm mt-1">
-            {drafts.length > 0 && <><span className="text-purple-400">{drafts.length} pending hire{drafts.length !== 1 ? 's' : ''}</span>{(awaiting.length > 0 || failed.length > 0) ? ', ' : ''}</>}
-            {awaiting.length > 0 && <><span className="text-amber-400">{awaiting.length} awaiting approval</span>{failed.length > 0 ? ', ' : ''}</>}
-            {failed.length > 0 && <span className="text-red-400">{failed.length} failed</span>}
+            {drafts.length > 0 && <><span className="text-purple-400">{drafts.length} pending hire{drafts.length !== 1 ? 's' : ''}</span>{(awaiting.length > 0 || failed.length > 0 || completed.length > 0) ? ', ' : ''}</>}
+            {awaiting.length > 0 && <><span className="text-amber-400">{awaiting.length} awaiting approval</span>{(failed.length > 0 || completed.length > 0) ? ', ' : ''}</>}
+            {failed.length > 0 && <><span className="text-red-400">{failed.length} failed</span>{completed.length > 0 ? ', ' : ''}</>}
+            {completed.length > 0 && <span className="text-green-400">{completed.length} completed</span>}
             {totalItems === 0 && 'All clear — nothing needs your attention'}
           </p>
         </div>
@@ -594,6 +690,26 @@ export function InboxPage() {
               <div className="space-y-3">
                 {failed.map(t => (
                   <InboxTaskCard
+                    key={t.id}
+                    task={t}
+                    agents={agents}
+                    agentName={agentName(t.agent_id)}
+                    projectName={projectName(t.project_id)}
+                    onAction={load}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Completed */}
+          {completed.length > 0 && (
+            <section>
+              <GroupHeading label="Completed" count={completed.length} color="bg-green-500"
+                onDismissAll={completed.length > 1 ? () => dismissAll('completed') : undefined} />
+              <div className="space-y-3">
+                {completed.map(t => (
+                  <CompletedTaskCard
                     key={t.id}
                     task={t}
                     agents={agents}

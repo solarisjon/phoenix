@@ -284,7 +284,7 @@ export const api = {
     approve: (taskId: string) => request<Task>(`/inbox/${taskId}/approve`, { method: 'POST', body: '{}' }),
     reject: (taskId: string) => request<Task>(`/inbox/${taskId}/reject`, { method: 'POST', body: '{}' }),
     revise: (taskId: string, feedback: string) => request<Task>(`/inbox/${taskId}/revise`, { method: 'POST', body: JSON.stringify({ feedback }) }),
-    dismissAll: (filter: 'failed' | 'awaiting' | 'all' = 'all') =>
+    dismissAll: (filter: 'failed' | 'awaiting' | 'completed' | 'all' = 'all') =>
       request<{ dismissed: number }>(`/inbox/dismiss-all?filter=${filter}`, { method: 'POST', body: '{}' }),
   },
   agentDrafts: {

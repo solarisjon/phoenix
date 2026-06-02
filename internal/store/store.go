@@ -66,6 +66,8 @@ type TaskRepo interface {
 	// CancelQueuedTask atomically sets a task to failed only if it is still queued.
 	// Returns true if the task was cancelled, false if it was already in another state.
 	CancelQueuedTask(ctx context.Context, taskID string) (bool, error)
+	// ListCompletedForInbox returns up to limit recently completed, undismissed tasks, newest first.
+	ListCompletedForInbox(ctx context.Context, limit int) ([]*model.Task, error)
 }
 
 // TeamRepo manages agent teams.

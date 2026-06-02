@@ -153,6 +153,17 @@ func (r *TaskRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *TaskRepo) ListCompletedForInbox(ctx context.Context, limit int) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE status = 'completed' AND dismissed = 0 ORDER BY completed_at DESC LIMIT ?`,
+		limit)
+	if err != nil {
+		return nil, fmt.Errorf("list completed for inbox: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 func (r *TaskRepo) NextQueuedTask(ctx context.Context, agentID string) (*model.Task, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1`,

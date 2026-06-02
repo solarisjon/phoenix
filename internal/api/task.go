@@ -181,7 +181,7 @@ func (s *Server) listRunningTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // listAttentionTasks returns all tasks needing human attention:
-// failed and awaiting_approval, across all projects, newest first.
+// failed, awaiting_approval, and recently completed, across all projects, newest first.
 func (s *Server) listAttentionTasks(w http.ResponseWriter, r *http.Request) {
 	statuses := []model.TaskStatus{
 		model.TaskStatusFailed,
@@ -192,6 +192,14 @@ func (s *Server) listAttentionTasks(w http.ResponseWriter, r *http.Request) {
 		respondInternalErr(w, err)
 		return
 	}
+
+	completed, err := s.tasks.ListCompletedForInbox(r.Context(), 100)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	list = append(list, completed...)
+
 	if list == nil {
 		list = []*model.Task{}
 	}

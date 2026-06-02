@@ -24,8 +24,10 @@ func (s *Server) dismissAllInbox(w http.ResponseWriter, r *http.Request) {
 		statuses = []model.TaskStatus{model.TaskStatusFailed}
 	case "awaiting":
 		statuses = []model.TaskStatus{model.TaskStatusAwaitingApproval}
+	case "completed":
+		statuses = []model.TaskStatus{model.TaskStatusCompleted}
 	default: // "all"
-		statuses = []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusAwaitingApproval}
+		statuses = []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusAwaitingApproval, model.TaskStatusCompleted}
 	}
 
 	tasks, err := s.tasks.ListByStatuses(r.Context(), statuses)
@@ -58,6 +60,13 @@ func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
 		respondInternalErr(w, err)
 		return
 	}
+
+	completed, err := s.tasks.ListCompletedForInbox(r.Context(), 100)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	tasks = append(tasks, completed...)
 
 	// Optional filters.
 	projectID := r.URL.Query().Get("project_id")
