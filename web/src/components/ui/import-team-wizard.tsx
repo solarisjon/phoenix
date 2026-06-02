@@ -17,8 +17,9 @@ interface BundleProvider {
 
 interface BundleAgent {
   name: string
-  persona: string
-  instructions: string
+  behaviour?: string
+  persona?: string
+  instructions?: string
   guardrails: string
   heartbeat_interval?: number
   can_spawn_agents: boolean

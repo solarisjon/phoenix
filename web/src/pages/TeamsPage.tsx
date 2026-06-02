@@ -85,7 +85,7 @@ function TeamForm({ initial, allAgents, onSave, onClose }: {
                 />
                 <div>
                   <p className="text-sm text-white">{a.name}</p>
-                  {a.persona && <p className="text-xs text-slate-500 line-clamp-1">{a.persona}</p>}
+                  {(a.behaviour || a.persona) && <p className="text-xs text-slate-500 line-clamp-1">{a.behaviour || a.persona}</p>}
                 </div>
               </label>
             ))}

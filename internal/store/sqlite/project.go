@@ -99,7 +99,7 @@ func (r *ProjectRepo) RemoveAgent(ctx context.Context, projectID, agentID string
 
 func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*model.Agent, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails,
+		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails, a.behaviour,
 		       a.provider_id, a.model_override, a.can_spawn_agents, a.can_hire_agents, a.heartbeat_interval,
 		       a.max_concurrent, a.created_by, a.status, a.created_at
 		FROM agents a

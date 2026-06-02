@@ -16,6 +16,7 @@ import (
 
 type createAgentRequest struct {
 	Name              string `json:"name"`
+	Behaviour         string `json:"behaviour"`
 	Persona           string `json:"persona"`
 	Instructions      string `json:"instructions"`
 	Guardrails        string `json:"guardrails"`
@@ -104,6 +105,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	a := &model.Agent{
 		ID:                uuid.New().String(),
 		Name:              strings.TrimSpace(req.Name),
+		Behaviour:         req.Behaviour,
 		Persona:           req.Persona,
 		Instructions:      req.Instructions,
 		Guardrails:        req.Guardrails,
@@ -158,6 +160,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	existing.Name = strings.TrimSpace(req.Name)
+	existing.Behaviour = req.Behaviour
 	existing.Persona = req.Persona
 	existing.Instructions = req.Instructions
 	existing.Guardrails = req.Guardrails
@@ -248,16 +251,29 @@ Agent description: %s`, req.Description)
 		Persona      string `json:"persona"`
 		Instructions string `json:"instructions"`
 		Guardrails   string `json:"guardrails"`
+		Behaviour    string `json:"behaviour"`
 	}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		// Return the raw text so the UI can show it rather than failing silently.
 		respond(w, http.StatusOK, map[string]string{
+			"behaviour":    output,
 			"persona":      output,
 			"instructions": "",
 			"guardrails":   "",
 			"raw":          output,
 		})
 		return
+	}
+	// Synthesise behaviour from persona + instructions if not directly provided.
+	if result.Behaviour == "" {
+		parts := []string{}
+		if result.Persona != "" {
+			parts = append(parts, result.Persona)
+		}
+		if result.Instructions != "" {
+			parts = append(parts, result.Instructions)
+		}
+		result.Behaviour = strings.Join(parts, "\n\n")
 	}
 	respond(w, http.StatusOK, result)
 }

@@ -20,7 +20,7 @@ function formatInterval(secs: number): string {
 
 function GenerateModal({ providers, onApply, onClose }: {
   providers: Provider[]
-  onApply: (persona: string, instructions: string, guardrails: string) => void
+  onApply: (behaviour: string, guardrails: string) => void
   onClose: () => void
 }) {
   const [description, setDescription] = useState('')
@@ -36,7 +36,7 @@ function GenerateModal({ providers, onApply, onClose }: {
     setGenerating(true)
     try {
       const result = await api.agents.generate(description, providerId)
-      onApply(result.persona, result.instructions, result.guardrails)
+      onApply(result.behaviour || [result.persona, result.instructions].filter(Boolean).join('\n\n'), result.guardrails)
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -47,7 +47,7 @@ function GenerateModal({ providers, onApply, onClose }: {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400">
-        Describe what you want this agent to do and an AI will generate its persona, instructions, and guardrails.
+        Describe what you want this agent to do and an AI will generate its behaviour and guardrails.
       </p>
       <div>
         <Label htmlFor="gen-provider">Generate using</Label>
@@ -80,8 +80,9 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
-  const [persona, setPersona] = useState(initial?.persona ?? '')
-  const [instructions, setInstructions] = useState(initial?.instructions ?? '')
+  const [behaviour, setBehaviour] = useState(
+    initial?.behaviour || [initial?.persona, initial?.instructions].filter(Boolean).join('\n\n') || ''
+  )
   const [guardrails, setGuardrails] = useState(initial?.guardrails ?? '')
   const [providerID, setProviderID] = useState(initial?.provider_id ?? providers[0]?.id ?? '')
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
@@ -105,7 +106,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     setSaving(true)
     try {
       const hbSecs = heartbeatInterval.trim() ? parseInt(heartbeatInterval, 10) : null
-      const data = { name, persona, instructions, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, max_concurrent: maxConcurrent, status }
+      const data = { name, behaviour, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, max_concurrent: maxConcurrent, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -116,9 +117,8 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     }
   }
 
-  const applyGenerated = (p: string, i: string, g: string) => {
-    setPersona(p)
-    setInstructions(i)
+  const applyGenerated = (b: string, g: string) => {
+    setBehaviour(b)
     setGuardrails(g)
     setShowGenerate(false)
   }
@@ -265,14 +265,9 @@ function AgentForm({ initial, providers, onSave, onClose }: {
 
           <div className="space-y-4">
             <div>
-              <Label htmlFor="persona">Persona</Label>
-              <Textarea id="persona" value={persona} onChange={e => setPersona(e.target.value)} rows={3}
-                placeholder="High-level personality and role description…" />
-            </div>
-            <div>
-              <Label htmlFor="instructions">Instructions</Label>
-              <Textarea id="instructions" value={instructions} onChange={e => setInstructions(e.target.value)} rows={5}
-                placeholder="Detailed operational instructions…" />
+              <Label htmlFor="behaviour">Behaviour</Label>
+              <Textarea id="behaviour" value={behaviour} onChange={e => setBehaviour(e.target.value)} rows={7}
+                placeholder="Describe who this agent is, their personality, communication style, and detailed operational instructions for what they do and how…" />
             </div>
             <div>
               <Label htmlFor="guardrails">Guardrails</Label>
@@ -348,7 +343,7 @@ export function AgentsPage() {
         <div className="text-slate-500 text-sm">Loading…</div>
       ) : agents.length === 0 ? (
         <EmptyState icon="⬡" title="No agents yet"
-          description="Create your first agent with a persona, instructions, and a provider."
+          description="Create your first agent with a behaviour description and a provider."
           action={<Button onClick={() => setShowForm(true)}>Create Agent</Button>} />
       ) : (
         <div className="grid gap-4">
@@ -373,8 +368,8 @@ export function AgentsPage() {
                       </div>
                       <Badge variant={statusVariant[a.status]}>{a.status}</Badge>
                     </div>
-                    {a.persona && (
-                      <p className="text-sm text-slate-400 line-clamp-2 pl-11">{a.persona}</p>
+                    {(a.behaviour || a.persona) && (
+                      <p className="text-sm text-slate-400 line-clamp-2 pl-11">{a.behaviour || a.persona}</p>
                     )}
                   </div>
                   <div className="flex gap-2 flex-shrink-0">

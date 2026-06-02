@@ -221,8 +221,9 @@ type bundleProvider struct {
 
 type bundleAgent struct {
 	Name              string  `json:"name"`
-	Persona           string  `json:"persona"`
-	Instructions      string  `json:"instructions"`
+	Behaviour         string  `json:"behaviour,omitempty"`
+	Persona           string  `json:"persona,omitempty"`
+	Instructions      string  `json:"instructions,omitempty"`
 	Guardrails        string  `json:"guardrails"`
 	HeartbeatInterval *int    `json:"heartbeat_interval,omitempty"`
 	CanSpawnAgents    bool    `json:"can_spawn_agents"`
@@ -303,8 +304,7 @@ func (s *Server) exportTeam(w http.ResponseWriter, r *http.Request) {
 	for _, agent := range team.Agents {
 		ba := bundleAgent{
 			Name:           agent.Name,
-			Persona:        agent.Persona,
-			Instructions:   agent.Instructions,
+			Behaviour:      agent.Behaviour,
 			Guardrails:     agent.Guardrails,
 			CanSpawnAgents: agent.CanSpawnAgents,
 			ModelOverride:  agent.ModelOverride,
@@ -433,6 +433,7 @@ func (s *Server) importTeam(w http.ResponseWriter, r *http.Request) {
 		agent := &model.Agent{
 			ID:             uuid.New().String(),
 			Name:           ba.Name,
+			Behaviour:      ba.Behaviour,
 			Persona:        ba.Persona,
 			Instructions:   ba.Instructions,
 			Guardrails:     ba.Guardrails,

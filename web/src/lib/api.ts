@@ -12,8 +12,9 @@ export interface Provider {
 export interface Agent {
   id: string
   name: string
-  persona: string
-  instructions: string
+  behaviour: string
+  persona: string        // legacy
+  instructions: string   // legacy
   guardrails: string
   provider_id: string
   model_override: string
@@ -26,6 +27,7 @@ export interface Agent {
 }
 
 export interface GeneratedAgent {
+  behaviour: string
   persona: string
   instructions: string
   guardrails: string

@@ -21,21 +21,26 @@ func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails string) pro
 	}
 }
 
-// assembleSystemPrompt combines persona, instructions, guardrails, and optional
-// spawn-agent instructions into a single system prompt string.
+// assembleSystemPrompt combines behaviour (or legacy persona+instructions),
+// guardrails, and optional spawn/hire instructions into a single system prompt.
 func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string) string {
 	var b strings.Builder
 
-	if a.Persona != "" {
-		b.WriteString("## Persona\n")
-		b.WriteString(a.Persona)
+	if a.Behaviour != "" {
+		b.WriteString("## Behaviour\n")
+		b.WriteString(a.Behaviour)
 		b.WriteString("\n\n")
-	}
-
-	if a.Instructions != "" {
-		b.WriteString("## Instructions\n")
-		b.WriteString(a.Instructions)
-		b.WriteString("\n\n")
+	} else {
+		if a.Persona != "" {
+			b.WriteString("## Persona\n")
+			b.WriteString(a.Persona)
+			b.WriteString("\n\n")
+		}
+		if a.Instructions != "" {
+			b.WriteString("## Instructions\n")
+			b.WriteString(a.Instructions)
+			b.WriteString("\n\n")
+		}
 	}
 
 	if a.Guardrails != "" {

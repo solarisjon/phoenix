@@ -278,7 +278,7 @@ function GuidedSetup({ projectId, allAgents, projectAgents, teams, onDone }: {
                       className="rounded accent-violet-500" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-white">{a.name}</p>
-                      {a.persona && <p className="text-xs text-slate-500 truncate">{a.persona}</p>}
+                      {(a.behaviour || a.persona) && <p className="text-xs text-slate-500 truncate">{a.behaviour || a.persona}</p>}
                     </div>
                   </label>
                 ))}
@@ -291,7 +291,7 @@ function GuidedSetup({ projectId, allAgents, projectAgents, teams, onDone }: {
                       className="rounded accent-violet-500" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-white">{a.name}</p>
-                      {a.persona && <p className="text-xs text-slate-500 truncate">{a.persona}</p>}
+                      {(a.behaviour || a.persona) && <p className="text-xs text-slate-500 truncate">{a.behaviour || a.persona}</p>}
                     </div>
                   </label>
                 ))}

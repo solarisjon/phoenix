@@ -59,12 +59,13 @@ type Provider struct {
 	CreatedAt  time.Time    `json:"created_at"`
 }
 
-// Agent is an AI agent with a persona, instructions, guardrails, and a provider.
+// Agent is an AI agent with a behaviour description, guardrails, and a provider.
 type Agent struct {
 	ID                string      `json:"id"`
 	Name              string      `json:"name"`
-	Persona           string      `json:"persona"`
-	Instructions      string      `json:"instructions"`
+	Behaviour         string       `json:"behaviour"`          // unified persona + instructions field
+	Persona           string       `json:"persona"`            // legacy — kept for backwards compat
+	Instructions      string       `json:"instructions"`       // legacy — kept for backwards compat
 	Guardrails        string      `json:"guardrails"`
 	ProviderID        string      `json:"provider_id"`
 	ModelOverride     string      `json:"model_override"`     // if set, overrides the provider's default model
