@@ -15,18 +15,19 @@ import (
 )
 
 type createAgentRequest struct {
-	Name              string `json:"name"`
-	Behaviour         string `json:"behaviour"`
-	Persona           string `json:"persona"`
-	Instructions      string `json:"instructions"`
-	Guardrails        string `json:"guardrails"`
-	HardGuardrails    string `json:"hard_guardrails"`
-	ProviderID        string `json:"provider_id"`
-	ModelOverride     string `json:"model_override"`
-	CanSpawnAgents    bool   `json:"can_spawn_agents"`
-	CanHireAgents     bool   `json:"can_hire_agents"`
-	HeartbeatInterval *int   `json:"heartbeat_interval"`
-	Status            string `json:"status"`
+	Name              string  `json:"name"`
+	Behaviour         string  `json:"behaviour"`
+	Persona           string  `json:"persona"`
+	Instructions      string  `json:"instructions"`
+	Guardrails        string  `json:"guardrails"`
+	HardGuardrails    string  `json:"hard_guardrails"`
+	ProviderID        string  `json:"provider_id"`
+	ModelOverride     string  `json:"model_override"`
+	CanSpawnAgents    bool    `json:"can_spawn_agents"`
+	CanHireAgents     bool    `json:"can_hire_agents"`
+	HeartbeatInterval *int    `json:"heartbeat_interval"`
+	Status            string  `json:"status"`
+	TemplateID        *string `json:"template_id"`
 }
 
 func (r createAgentRequest) validate() string {
@@ -119,6 +120,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:         user.ID,
 		Status:            status,
 		CreatedAt:         time.Now(),
+		TemplateID:        req.TemplateID,
 	}
 	if err := s.agents.Create(r.Context(), a); err != nil {
 		respondInternalErr(w, err)
@@ -172,6 +174,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.CanSpawnAgents = req.CanSpawnAgents
 	existing.CanHireAgents = req.CanHireAgents
 	existing.HeartbeatInterval = req.HeartbeatInterval
+	existing.TemplateID = req.TemplateID
 	if req.Status != "" {
 		existing.Status = model.AgentStatus(req.Status)
 	}

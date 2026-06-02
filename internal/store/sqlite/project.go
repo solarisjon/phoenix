@@ -101,7 +101,7 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails, a.behaviour, a.hard_guardrails,
 		       a.provider_id, a.model_override, a.can_spawn_agents, a.can_hire_agents, a.heartbeat_interval,
-		       a.max_concurrent, a.created_by, a.status, a.created_at
+		       a.max_concurrent, a.created_by, a.status, a.created_at, a.template_id
 		FROM agents a
 		JOIN project_agents pa ON pa.agent_id = a.id
 		WHERE pa.project_id = ?

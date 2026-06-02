@@ -77,9 +77,10 @@ function GenerateModal({ providers, onApply, onClose }: {
 
 // ---- Agent form ----
 
-function AgentForm({ initial, providers, onSave, onClose }: {
+function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
   initial?: Agent
   providers: Provider[]
+  allAgents: Agent[]
   onSave: () => void
   onClose: () => void
 }) {
@@ -96,6 +97,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [heartbeatInterval, setHeartbeatInterval] = useState<string>(
     initial?.heartbeat_interval != null ? String(initial.heartbeat_interval) : ''
   )
+  const [templateID, setTemplateID] = useState(initial?.template_id ?? '')
   const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
@@ -103,6 +105,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [showGenerate, setShowGenerate] = useState(false)
 
   const selectedProvider = providers.find(p => p.id === providerID)
+  const templateOptions = allAgents.filter(agent => agent.id !== initial?.id)
 
   const save = async () => {
     setError('')
@@ -111,7 +114,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     setSaving(true)
     try {
       const hbSecs = heartbeatInterval.trim() ? parseInt(heartbeatInterval, 10) : null
-      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, max_concurrent: maxConcurrent, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, template_id: templateID || null, max_concurrent: maxConcurrent, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -150,6 +153,13 @@ function AgentForm({ initial, providers, onSave, onClose }: {
               <option value="active">Active</option>
               <option value="paused">Paused</option>
               <option value="disabled">Disabled</option>
+            </Select>
+          </div>
+          <div className="col-span-2">
+            <Label htmlFor="template-id">Base Template <span className="text-slate-500 font-normal">(optional)</span></Label>
+            <Select id="template-id" value={templateID} onChange={e => setTemplateID(e.target.value)}>
+              <option value="">None — this is a template</option>
+              {templateOptions.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </Select>
           </div>
         </div>
@@ -374,8 +384,8 @@ export function AgentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Agents</h1>
-          <p className="text-slate-400 text-sm mt-1">Configure your AI agents and their personas</p>
+          <h1 className="text-2xl font-bold text-white">Agent Templates</h1>
+          <p className="text-slate-400 text-sm mt-1">Configure reusable agent templates and concrete instances</p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -414,7 +424,10 @@ export function AgentsPage() {
                         {a.name.charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <h3 className="font-medium text-white">{a.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-medium text-white">{a.name}</h3>
+                          <Badge variant={a.template_id ? 'muted' : 'info'}>{a.template_id ? 'Instance' : 'Template'}</Badge>
+                        </div>
                         <p className="text-xs text-slate-500">
                           {providerName(a.provider_id)}
                           {a.model_override && <span className="text-slate-600"> · {a.model_override}</span>}
@@ -446,7 +459,7 @@ export function AgentsPage() {
 
       {showForm && (
         <Modal title={editing ? 'Edit Agent' : 'Create Agent'} onClose={() => setShowForm(false)} className="max-w-2xl">
-          <AgentForm initial={editing} providers={providers} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
+          <AgentForm initial={editing} providers={providers} allAgents={agents} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
         </Modal>
       )}
     </div>

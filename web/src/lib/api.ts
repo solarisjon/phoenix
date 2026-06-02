@@ -25,6 +25,7 @@ export interface Agent {
   max_concurrent: number
   status: 'active' | 'paused' | 'disabled'
   created_at: string
+  template_id: string | null
 }
 
 export interface GeneratedAgent {

@@ -77,6 +77,7 @@ type Agent struct {
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`
 	CreatedAt         time.Time   `json:"created_at"`
+	TemplateID        *string     `json:"template_id"`
 }
 
 // ProjectKind distinguishes human-driven workbenches from autonomous daemons.
