@@ -19,6 +19,28 @@ const formatInterval = (secs: number | null | undefined) => {
 
 // ---- Create / Edit Monitor form (name + description + working dir only) ----
 
+// Schedule options: label → seconds
+const SCHEDULE_OPTIONS = [
+  { label: 'No schedule (manual only)', value: 0 },
+  { label: 'Every 5 minutes', value: 300 },
+  { label: 'Every 15 minutes', value: 900 },
+  { label: 'Every 30 minutes', value: 1800 },
+  { label: 'Every hour', value: 3600 },
+  { label: 'Every 6 hours', value: 21600 },
+  { label: 'Every 12 hours', value: 43200 },
+  { label: 'Every day', value: 86400 },
+]
+
+function scheduleLabel(secs: number | null | undefined): string {
+  if (!secs) return 'No schedule'
+  const opt = SCHEDULE_OPTIONS.find(o => o.value === secs)
+  if (opt) return opt.label
+  if (secs < 60) return `Every ${secs}s`
+  if (secs < 3600) return `Every ${Math.round(secs / 60)}m`
+  if (secs < 86400) return `Every ${Math.round(secs / 3600)}h`
+  return `Every ${Math.round(secs / 86400)}d`
+}
+
 function MonitorForm({ initial, providers, onSave, onClose }: {
   initial?: Project
   providers: Provider[]
@@ -28,6 +50,7 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
+  const [scheduleInterval, setScheduleInterval] = useState<number>(initial?.schedule_interval ?? 0)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showAI, setShowAI] = useState(false)
@@ -43,14 +66,17 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
     setSaving(true)
     setError('')
     try {
+      const payload = {
+        name: name.trim(),
+        description,
+        working_dir: workingDir.trim(),
+        kind: 'monitor' as const,
+        schedule_interval: scheduleInterval > 0 ? scheduleInterval : null,
+      }
       if (initial) {
-        await api.projects.update(initial.id, {
-          name: name.trim(), description, working_dir: workingDir.trim(), kind: 'monitor',
-        })
+        await api.projects.update(initial.id, payload)
       } else {
-        await api.projects.create({
-          name: name.trim(), description, working_dir: workingDir.trim(), kind: 'monitor',
-        })
+        await api.projects.create(payload)
       }
       onSave()
     } catch (e: unknown) {
@@ -85,7 +111,7 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
       </div>
       <div>
         <div className="flex items-center justify-between mb-1">
-          <Label htmlFor="mon-desc">Description</Label>
+          <Label htmlFor="mon-desc">Description — what should this monitor check and do?</Label>
           {providers.length > 0 && (
             <button
               type="button"
@@ -129,6 +155,21 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
           placeholder="What does this monitor watch and do?" />
       </div>
       <div>
+        <Label htmlFor="mon-schedule">Schedule</Label>
+        <Select
+          id="mon-schedule"
+          value={String(scheduleInterval)}
+          onChange={e => setScheduleInterval(Number(e.target.value))}
+        >
+          {SCHEDULE_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </Select>
+        {scheduleInterval === 0 && (
+          <p className="text-xs text-slate-500 mt-1">You can trigger runs manually from the monitor page.</p>
+        )}
+      </div>
+      <div>
         <Label htmlFor="mon-wdir">
           Working Directory <span className="text-slate-500 font-normal">(optional)</span>
         </Label>
@@ -159,9 +200,7 @@ function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefres
   const navigate = useNavigate()
   const [showEdit, setShowEdit] = useState(false)
 
-  const hasHeartbeat = agents.some(a => (a.heartbeat_interval ?? 0) > 0)
-  const heartbeatAgent = agents.find(a => (a.heartbeat_interval ?? 0) > 0)
-  const interval = heartbeatAgent ? formatInterval(heartbeatAgent.heartbeat_interval) : null
+  const interval = monitor.schedule_interval ? scheduleLabel(monitor.schedule_interval) : null
 
   const addAgent = async (agentId: string) => {
     await api.projects.assignAgent(monitor.id, agentId)
@@ -190,25 +229,23 @@ function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefres
                 <Badge variant={monitor.status === 'active' ? 'success' : 'muted'}>
                   {monitor.status}
                 </Badge>
-                {agents.length > 0 && !hasHeartbeat && (
-                  <Badge variant="warning">no heartbeat agent</Badge>
-                )}
-                {interval && (
-                  <span className="text-xs text-violet-400 font-medium">{interval}</span>
-                )}
               </div>
-              {monitor.description && (
-                <p className="text-sm text-slate-400 line-clamp-1 mt-1 ml-6">
-                  {monitor.description}
-                </p>
-              )}
-              <div className="flex items-center gap-3 ml-6 mt-1 text-xs text-slate-500">
-                {monitor.working_dir && (
-                  <span className="font-mono truncate" title={monitor.working_dir}>
-                    📁 {monitor.working_dir.split('/').pop()}
-                  </span>
+                {monitor.description && (
+                  <p className="text-sm text-slate-400 line-clamp-1 mt-1 ml-6">
+                    {monitor.description}
+                  </p>
                 )}
-                <span>Created {timeAgo(monitor.created_at)}</span>
+                <div className="flex items-center gap-3 ml-6 mt-1 text-xs text-slate-500">
+                  {interval
+                    ? <span className="text-violet-400 font-medium">⟳ {interval}</span>
+                    : <span className="text-amber-500">No schedule — manual only</span>
+                  }
+                  {monitor.working_dir && (
+                    <span className="font-mono truncate" title={monitor.working_dir}>
+                      📁 {monitor.working_dir.split('/').pop()}
+                    </span>
+                  )}
+                  <span>Created {timeAgo(monitor.created_at)}</span>
                 <span
                   className="text-slate-600 hover:text-slate-400 transition-colors"
                   onClick={e => { e.stopPropagation(); navigate(`/monitors/${monitor.id}`) }}

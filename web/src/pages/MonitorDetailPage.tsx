@@ -13,19 +13,18 @@ import { AgentsSection } from '@/components/shared/AgentsSection'
 
 // ---- Countdown clock ----
 
-function Countdown({ agent, tasks }: { agent: Agent; tasks: Task[] }) {
+function Countdown({ agent, tasks, scheduleInterval }: { agent: Agent; tasks: Task[]; scheduleInterval: number }) {
   const [remaining, setRemaining] = useState<number | null>(null)
 
   useEffect(() => {
-    if (!agent.heartbeat_interval) return
-    const interval = agent.heartbeat_interval * 1000
+    const interval = scheduleInterval * 1000
 
     const calc = () => {
-      const heartbeats = tasks
-        .filter(t => t.title.startsWith('Heartbeat'))
+      const scheduled = tasks
+        .filter(t => t.title.startsWith('Scheduled run'))
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      if (!heartbeats.length) { setRemaining(null); return }
-      const last = new Date(heartbeats[0].created_at).getTime()
+      if (!scheduled.length) { setRemaining(null); return }
+      const last = new Date(scheduled[0].created_at).getTime()
       const next = last + interval
       setRemaining(Math.max(0, next - Date.now()))
     }
@@ -33,7 +32,7 @@ function Countdown({ agent, tasks }: { agent: Agent; tasks: Task[] }) {
     calc()
     const timer = setInterval(calc, 1000)
     return () => clearInterval(timer)
-  }, [agent, tasks])
+  }, [agent, tasks, scheduleInterval])
 
   if (remaining === null) return <span className="text-slate-500 text-sm">No runs yet</span>
   if (remaining === 0) return <span className="text-violet-400 text-sm animate-pulse">Firing soon…</span>
@@ -162,6 +161,7 @@ export function MonitorDetailPage() {
   const [showEdit, setShowEdit] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
+  const [editScheduleInterval, setEditScheduleInterval] = useState<number>(0)
   const [editWorkingDir, setEditWorkingDir] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -202,13 +202,27 @@ export function MonitorDetailPage() {
     return unsub
   }, [load])
 
-  const primaryAgent = agents.find(a => (a.heartbeat_interval ?? 0) > 0)
+  const primaryAgent = agents[0] ?? null
 
-  const formatInterval = (secs: number | null) => {
-    if (!secs) return null
-    if (secs < 60) return `every ${secs}s`
-    if (secs < 3600) return `every ${Math.round(secs / 60)} min`
-    return `every ${Math.round(secs / 3600)}h`
+  const SCHEDULE_OPTIONS = [
+    { label: 'No schedule (manual only)', value: 0 },
+    { label: 'Every 5 minutes', value: 300 },
+    { label: 'Every 15 minutes', value: 900 },
+    { label: 'Every 30 minutes', value: 1800 },
+    { label: 'Every hour', value: 3600 },
+    { label: 'Every 6 hours', value: 21600 },
+    { label: 'Every 12 hours', value: 43200 },
+    { label: 'Every day', value: 86400 },
+  ]
+
+  const scheduleLabel = (secs: number | null | undefined): string => {
+    if (!secs) return 'No schedule'
+    const opt = SCHEDULE_OPTIONS.find(o => o.value === secs)
+    if (opt) return opt.label
+    if (secs < 60) return `Every ${secs}s`
+    if (secs < 3600) return `Every ${Math.round(secs / 60)}m`
+    if (secs < 86400) return `Every ${Math.round(secs / 3600)}h`
+    return `Every ${Math.round(secs / 86400)}d`
   }
 
   const runNow = async () => {
@@ -235,6 +249,7 @@ export function MonitorDetailPage() {
     setEditName(monitor.name)
     setEditDesc(monitor.description ?? '')
     setEditWorkingDir(monitor.working_dir ?? '')
+    setEditScheduleInterval(monitor.schedule_interval ?? 0)
     setSaveError('')
     setShowAI(false)
     setAiHint('')
@@ -253,6 +268,7 @@ export function MonitorDetailPage() {
         description: editDesc,
         working_dir: editWorkingDir.trim(),
         kind: 'monitor',
+        schedule_interval: editScheduleInterval > 0 ? editScheduleInterval : null,
       })
       setShowEdit(false)
       load()
@@ -331,20 +347,19 @@ export function MonitorDetailPage() {
           </div>
         </div>
 
-        {/* Agent + schedule info */}
+        {/* Schedule + agent info */}
         <div className="flex items-center gap-6 ml-8 flex-wrap">
+          <div>
+            <p className="text-xs text-slate-500 mb-0.5">Schedule</p>
+            {monitor.schedule_interval
+              ? <p className="text-sm text-violet-400 font-medium">⟳ {scheduleLabel(monitor.schedule_interval)}</p>
+              : <p className="text-sm text-slate-500">Manual only</p>
+            }
+          </div>
           {primaryAgent && (
             <div>
               <p className="text-xs text-slate-500 mb-0.5">Agent</p>
               <p className="text-sm text-slate-300">{primaryAgent.name}</p>
-            </div>
-          )}
-          {primaryAgent?.heartbeat_interval && (
-            <div>
-              <p className="text-xs text-slate-500 mb-0.5">Schedule</p>
-              <p className="text-sm text-violet-400 font-medium">
-                {formatInterval(primaryAgent.heartbeat_interval)}
-              </p>
             </div>
           )}
           {monitor.working_dir && (
@@ -353,13 +368,12 @@ export function MonitorDetailPage() {
               <p className="text-xs text-slate-400 font-mono">{monitor.working_dir}</p>
             </div>
           )}
-          <div>
-            <p className="text-xs text-slate-500 mb-0.5">Next run</p>
-            {primaryAgent
-              ? <Countdown agent={primaryAgent} tasks={tasks} />
-              : <span className="text-slate-500 text-sm">No heartbeat agent</span>
-            }
-          </div>
+          {monitor.schedule_interval && primaryAgent && (
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">Next run</p>
+              <Countdown agent={primaryAgent} tasks={tasks} scheduleInterval={monitor.schedule_interval} />
+            </div>
+          )}
         </div>
 
         {triggerError && (
@@ -389,9 +403,11 @@ export function MonitorDetailPage() {
           <EmptyState
             icon="⟳"
             title="No runs yet"
-            description={primaryAgent
-              ? `Waiting for the first heartbeat. ${primaryAgent.name} runs ${formatInterval(primaryAgent.heartbeat_interval ?? null)}.`
-              : 'Assign a heartbeat agent to start scheduling runs.'
+            description={monitor.schedule_interval
+              ? `Waiting for the first scheduled run. ${scheduleLabel(monitor.schedule_interval)}.`
+              : primaryAgent
+                ? 'Click "Run now" to trigger the first run manually.'
+                : 'Assign an agent then click "Run now" to trigger a run.'
             }
           />
         ) : (
@@ -460,6 +476,18 @@ export function MonitorDetailPage() {
                 rows={5}
                 placeholder="Describe what this monitor should check and report on each run…"
               />
+            </div>
+            <div>
+              <Label htmlFor="edit-schedule">Schedule</Label>
+              <Select
+                id="edit-schedule"
+                value={String(editScheduleInterval)}
+                onChange={e => setEditScheduleInterval(Number(e.target.value))}
+              >
+                {SCHEDULE_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </Select>
             </div>
             <div>
               <Label htmlFor="edit-wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>

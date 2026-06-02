@@ -14,11 +14,12 @@ import (
 )
 
 type createProjectRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	WorkingDir  string `json:"working_dir"`
-	Kind        string `json:"kind"`
-	Status      string `json:"status"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	WorkingDir       string `json:"working_dir"`
+	Kind             string `json:"kind"`
+	Status           string `json:"status"`
+	ScheduleInterval *int   `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
 }
 
 func (r createProjectRequest) validate() string {
@@ -93,14 +94,15 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := &model.Project{
-		ID:          uuid.New().String(),
-		Name:        strings.TrimSpace(req.Name),
-		Description: req.Description,
-		WorkingDir:  strings.TrimSpace(req.WorkingDir),
-		Kind:        kind,
-		Owner:       user.ID,
-		Status:      status,
-		CreatedAt:   time.Now(),
+		ID:               uuid.New().String(),
+		Name:             strings.TrimSpace(req.Name),
+		Description:      req.Description,
+		WorkingDir:       strings.TrimSpace(req.WorkingDir),
+		Kind:             kind,
+		ScheduleInterval: req.ScheduleInterval,
+		Owner:            user.ID,
+		Status:           status,
+		CreatedAt:        time.Now(),
 	}
 	if err := s.projects.Create(r.Context(), p); err != nil {
 		respondInternalErr(w, err)
@@ -133,6 +135,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.Name = strings.TrimSpace(req.Name)
 	existing.Description = req.Description
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
+	existing.ScheduleInterval = req.ScheduleInterval
 	if req.Kind != "" {
 		existing.Kind = model.ProjectKind(req.Kind)
 	}

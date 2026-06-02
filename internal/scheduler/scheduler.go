@@ -1,15 +1,13 @@
-// Package scheduler manages periodic heartbeat task creation for agents
-// that have a heartbeat_interval configured.
+// Package scheduler manages periodic task creation for monitors that have a
+// schedule_interval configured.
 //
 // Design:
-//   - On Start, scheduler polls the agent list and rebuilds a set of tickers
-//     whenever agents change (detected via a refresh interval).
-//   - For each (agent, project) pair where the agent has heartbeat_interval set,
-//     a ticker fires every heartbeat_interval seconds.
-//   - Before firing, the scheduler checks whether the agent already has an
-//     active (running or queued) task in that project — if so it skips.
-//   - Heartbeat tasks have a standard title and description so they're
-//     distinguishable in the UI.
+//   - On Start, scheduler polls the monitor list and rebuilds a set of tickers
+//     whenever monitors change (detected via a refresh interval).
+//   - For each monitor with schedule_interval set, a ticker fires every
+//     schedule_interval seconds using the first assigned active agent.
+//   - Before firing, the scheduler checks whether the monitor already has an
+//     active (running or queued) task — if so it skips.
 package scheduler
 
 import (
@@ -30,26 +28,23 @@ type TaskRunner interface {
 	RunTask(ctx context.Context, taskID string) error
 }
 
-// Scheduler periodically creates heartbeat tasks for agents that have a
-// heartbeat_interval configured.
+// Scheduler periodically creates tasks for monitors that have a
+// schedule_interval configured.
 type Scheduler struct {
 	agents   store.AgentRepo
 	projects store.ProjectRepo
 	tasks    store.TaskRepo
 	runner   TaskRunner
 
-	refreshInterval time.Duration // how often to re-check agent/project assignments
+	refreshInterval time.Duration
 
 	mu     sync.Mutex
-	stops  map[string]context.CancelFunc // key: "agentID:projectID"
+	stops  map[string]context.CancelFunc // key: monitorID
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // New creates a Scheduler. Call Start to begin scheduling.
-// refreshInterval controls how often agent/project assignments are re-scanned
-// to pick up changes (new agents, new heartbeat_interval values, new project
-// assignments). A value of 60s is reasonable for production.
 func New(
 	agents store.AgentRepo,
 	projects store.ProjectRepo,
@@ -71,24 +66,19 @@ func New(
 }
 
 // Start begins the scheduler loop in a background goroutine.
-// Call Stop or cancel the parent context to shut down.
 func (s *Scheduler) Start() {
 	go s.loop()
 }
 
-// Stop cancels all scheduled heartbeats and shuts down the loop.
+// Stop cancels all scheduled tickers and shuts down the loop.
 func (s *Scheduler) Stop() {
 	s.cancel()
 }
 
-// loop runs the refresh cycle.
 func (s *Scheduler) loop() {
-	// Do an initial sync immediately.
 	s.sync()
-
 	ticker := time.NewTicker(s.refreshInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -100,16 +90,16 @@ func (s *Scheduler) loop() {
 	}
 }
 
-// sync re-reads agents and projects, starts new heartbeats, and stops
-// removed ones.
+// scheduleSpec describes a single monitor's schedule.
+type scheduleSpec struct {
+	monitor  *model.Project
+	agent    *model.Agent
+	interval time.Duration
+}
+
+// sync re-reads monitors, starts new schedules, and stops removed ones.
 func (s *Scheduler) sync() {
 	ctx := s.ctx
-
-	agents, err := s.agents.List(ctx)
-	if err != nil {
-		log.Printf("scheduler: list agents: %v", err)
-		return
-	}
 
 	projects, err := s.projects.List(ctx)
 	if err != nil {
@@ -117,71 +107,67 @@ func (s *Scheduler) sync() {
 		return
 	}
 
-	// Build the desired set of (agent, project) heartbeat pairs.
-	desired := make(map[string]heartbeatSpec) // key: "agentID:projectID"
+	// Build the desired set of monitor schedules.
+	desired := make(map[string]scheduleSpec) // key: monitorID
 
-	for _, agent := range agents {
-		if agent.HeartbeatInterval == nil || *agent.HeartbeatInterval <= 0 {
+	for _, proj := range projects {
+		if proj.Kind != model.ProjectKindMonitor {
 			continue
 		}
-		if agent.Status != model.AgentStatusActive {
+		if proj.Status != model.ProjectStatusActive {
 			continue
 		}
-		interval := time.Duration(*agent.HeartbeatInterval) * time.Second
+		if proj.ScheduleInterval == nil || *proj.ScheduleInterval <= 0 {
+			continue
+		}
 
-		for _, proj := range projects {
-			if proj.Status != model.ProjectStatusActive {
-				continue
+		// Find the first active assigned agent to execute tasks.
+		assigned, err := s.projects.ListAgents(ctx, proj.ID)
+		if err != nil || len(assigned) == 0 {
+			continue
+		}
+		var execAgent *model.Agent
+		for _, a := range assigned {
+			if a.Status == model.AgentStatusActive {
+				execAgent = a
+				break
 			}
-			// Only monitors participate in heartbeat scheduling.
-			// Regular projects are human-driven; ignore heartbeat_interval there.
-			if proj.Kind != model.ProjectKindMonitor {
-				continue
-			}
-			// Check if agent is assigned to this project.
-			assigned, err := s.projects.ListAgents(ctx, proj.ID)
-			if err != nil {
-				continue
-			}
-			for _, a := range assigned {
-				if a.ID == agent.ID {
-					key := agent.ID + ":" + proj.ID
-					desired[key] = heartbeatSpec{
-						agent:    agent,
-						project:  proj,
-						interval: interval,
-					}
-					break
-				}
-			}
+		}
+		if execAgent == nil {
+			continue
+		}
+
+		desired[proj.ID] = scheduleSpec{
+			monitor:  proj,
+			agent:    execAgent,
+			interval: time.Duration(*proj.ScheduleInterval) * time.Second,
 		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Stop heartbeats no longer desired.
+	// Stop schedules no longer desired.
 	for key, stop := range s.stops {
 		if _, ok := desired[key]; !ok {
 			stop()
 			delete(s.stops, key)
-			log.Printf("scheduler: stopped heartbeat %s", key)
+			log.Printf("scheduler: stopped schedule for monitor %s", key)
 		}
 	}
 
-	// Start new heartbeats.
+	// Start new schedules.
 	for key, spec := range desired {
 		if _, running := s.stops[key]; running {
-			continue // already active
+			continue
 		}
 		hbCtx, hbCancel := context.WithCancel(s.ctx)
 		s.stops[key] = hbCancel
-		go s.heartbeatLoop(hbCtx, spec)
-		log.Printf("scheduler: started heartbeat %s every %s", key, spec.interval)
+		go s.scheduleLoop(hbCtx, spec)
+		log.Printf("scheduler: started schedule for monitor %s every %s", spec.monitor.Name, spec.interval)
 	}
 }
 
-// stopAll cancels all running heartbeat goroutines.
 func (s *Scheduler) stopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -191,71 +177,49 @@ func (s *Scheduler) stopAll() {
 	}
 }
 
-// heartbeatSpec describes a single (agent, project) heartbeat.
-type heartbeatSpec struct {
-	agent    *model.Agent
-	project  *model.Project
-	interval time.Duration
-}
-
-// heartbeatLoop fires a task for the given (agent, project) pair every interval.
-func (s *Scheduler) heartbeatLoop(ctx context.Context, spec heartbeatSpec) {
+func (s *Scheduler) scheduleLoop(ctx context.Context, spec scheduleSpec) {
 	ticker := time.NewTicker(spec.interval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			if err := s.fire(ctx, spec); err != nil {
-				log.Printf("scheduler: heartbeat fire %s/%s: %v",
-					spec.agent.ID, spec.project.ID, err)
+				log.Printf("scheduler: fire %s: %v", spec.monitor.ID, err)
 			}
 		}
 	}
 }
 
-// fire creates and enqueues a heartbeat task if the agent has no active task
-// in this project.
-func (s *Scheduler) fire(ctx context.Context, spec heartbeatSpec) error {
-	// Check for existing running/queued tasks for this agent in this project.
-	existing, err := s.tasks.List(ctx, spec.project.ID)
+// fire creates and enqueues a scheduled task if the monitor has no active task.
+func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
+	existing, err := s.tasks.List(ctx, spec.monitor.ID)
 	if err != nil {
 		return fmt.Errorf("list tasks: %w", err)
 	}
 	for _, t := range existing {
-		if t.AgentID == spec.agent.ID &&
-			(t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued) {
-			log.Printf("scheduler: skipping heartbeat for %s/%s — task already active",
-				spec.agent.ID, spec.project.ID)
+		if t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued {
+			log.Printf("scheduler: skipping %s — task already active", spec.monitor.Name)
 			return nil
 		}
 	}
 
-	// Create the heartbeat task.
 	now := time.Now()
 	task := &model.Task{
 		ID:          uuid.New().String(),
-		ProjectID:   spec.project.ID,
+		ProjectID:   spec.monitor.ID,
 		AgentID:     spec.agent.ID,
-		Title:       fmt.Sprintf("Heartbeat — %s", now.Format("2006-01-02 15:04")),
-		Description: spec.project.Description,
+		Title:       fmt.Sprintf("Scheduled run — %s", now.Format("2006-01-02 15:04")),
+		Description: spec.monitor.Description,
 		Status:      model.TaskStatusPending,
 		Input:       "{}",
 		Output:      "{}",
 		CreatedAt:   now,
 	}
 	if err := s.tasks.Create(ctx, task); err != nil {
-		return fmt.Errorf("create heartbeat task: %w", err)
+		return fmt.Errorf("create task: %w", err)
 	}
-
-	log.Printf("scheduler: firing heartbeat task %s for agent %s in project %s",
-		task.ID, spec.agent.Name, spec.project.Name)
-
-	if err := s.runner.RunTask(ctx, task.ID); err != nil {
-		return fmt.Errorf("run heartbeat task: %w", err)
-	}
-
-	return nil
+	log.Printf("scheduler: fired task %s for monitor %s (agent %s)", task.ID, spec.monitor.Name, spec.agent.Name)
+	return s.runner.RunTask(ctx, task.ID)
 }

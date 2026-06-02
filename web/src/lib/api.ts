@@ -46,6 +46,7 @@ export interface Project {
   description: string
   working_dir: string
   kind: 'project' | 'monitor'
+  schedule_interval: number | null  // seconds; null = no schedule (monitors only)
   owner: string
   status: 'active' | 'archived'
   created_at: string
