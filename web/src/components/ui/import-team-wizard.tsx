@@ -21,6 +21,7 @@ interface BundleAgent {
   persona?: string
   instructions?: string
   guardrails: string
+  hard_guardrails?: string
   heartbeat_interval?: number
   can_spawn_agents: boolean
   provider_ref: string

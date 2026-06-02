@@ -95,6 +95,19 @@ func (s *Server) approveTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Inject approval context so the agent knows it is allowed to proceed.
+	// Without this, the agent would see the same prompt on resume and may trigger the same guardrail again.
+	if task.GuardrailReason != nil && *task.GuardrailReason != "" {
+		task.Description = task.Description + "\n\n## Human Approval Granted\n" +
+			"A human has reviewed and approved proceeding with this action: " + *task.GuardrailReason + "\n" +
+			"You may now proceed. Do NOT output GUARDRAIL_TRIGGERED for this specific action."
+	}
+	task.Output = "{}"
+	if err := s.tasks.Update(r.Context(), task); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
 	if err := s.runner.ResumeTask(r.Context(), taskID); err != nil {
 		respondInternalErr(w, err)
 		return

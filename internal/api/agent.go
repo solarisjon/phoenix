@@ -20,6 +20,7 @@ type createAgentRequest struct {
 	Persona           string `json:"persona"`
 	Instructions      string `json:"instructions"`
 	Guardrails        string `json:"guardrails"`
+	HardGuardrails    string `json:"hard_guardrails"`
 	ProviderID        string `json:"provider_id"`
 	ModelOverride     string `json:"model_override"`
 	CanSpawnAgents    bool   `json:"can_spawn_agents"`
@@ -109,6 +110,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		Persona:           req.Persona,
 		Instructions:      req.Instructions,
 		Guardrails:        req.Guardrails,
+		HardGuardrails:    req.HardGuardrails,
 		ProviderID:        req.ProviderID,
 		ModelOverride:     req.ModelOverride,
 		CanSpawnAgents:    req.CanSpawnAgents,
@@ -164,6 +166,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.Persona = req.Persona
 	existing.Instructions = req.Instructions
 	existing.Guardrails = req.Guardrails
+	existing.HardGuardrails = req.HardGuardrails
 	existing.ProviderID = req.ProviderID
 	existing.ModelOverride = req.ModelOverride
 	existing.CanSpawnAgents = req.CanSpawnAgents
@@ -221,13 +224,15 @@ func (s *Server) generateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prompt := fmt.Sprintf(`You are an AI agent configuration assistant. Given a description of an AI agent's role, generate a structured JSON configuration with three fields:
+	prompt := fmt.Sprintf(`You are an AI agent configuration assistant. Given a description of an AI agent's role, generate a structured JSON configuration with four fields:
 
-- "persona": 2-3 sentences describing who the agent is, their personality, and communication style
-- "instructions": detailed operational instructions for what the agent does and how (4-8 bullet points or paragraphs)
-- "guardrails": constraints and boundaries the agent must respect (3-5 items)
+- "behaviour": a unified description of who the agent is, their personality, communication style, and detailed operational instructions (2-3 paragraphs)
+- "guardrails": advisory constraints and soft boundaries the agent should try to follow (3-5 items)
+- "hard_guardrails": mandatory rules that require human approval before the agent can act (1-3 items; use sparingly for truly sensitive operations like deleting data, sending external communications, or making production changes)
+- "persona": brief personality summary (1-2 sentences, legacy field)
+- "instructions": operational detail (legacy field)
 
-Return ONLY valid JSON with exactly these three string fields. No markdown, no explanation.
+Return ONLY valid JSON with exactly these five string fields. No markdown, no explanation.
 
 Agent description: %s`, req.Description)
 
@@ -248,19 +253,21 @@ Agent description: %s`, req.Description)
 	output = strings.TrimSpace(output)
 
 	var result struct {
-		Persona      string `json:"persona"`
-		Instructions string `json:"instructions"`
-		Guardrails   string `json:"guardrails"`
-		Behaviour    string `json:"behaviour"`
+		Persona        string `json:"persona"`
+		Instructions   string `json:"instructions"`
+		Guardrails     string `json:"guardrails"`
+		HardGuardrails string `json:"hard_guardrails"`
+		Behaviour      string `json:"behaviour"`
 	}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		// Return the raw text so the UI can show it rather than failing silently.
 		respond(w, http.StatusOK, map[string]string{
-			"behaviour":    output,
-			"persona":      output,
-			"instructions": "",
-			"guardrails":   "",
-			"raw":          output,
+			"behaviour":       output,
+			"persona":         output,
+			"instructions":    "",
+			"guardrails":      "",
+			"hard_guardrails": "",
+			"raw":             output,
 		})
 		return
 	}

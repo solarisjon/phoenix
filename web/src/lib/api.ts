@@ -16,6 +16,7 @@ export interface Agent {
   persona: string        // legacy
   instructions: string   // legacy
   guardrails: string
+  hard_guardrails: string
   provider_id: string
   model_override: string
   can_spawn_agents: boolean
@@ -31,6 +32,7 @@ export interface GeneratedAgent {
   persona: string
   instructions: string
   guardrails: string
+  hard_guardrails: string
 }
 
 export interface Team {
@@ -70,6 +72,7 @@ export interface Task {
   tokens_out: number
   source: string
   health_signal: 'all_clear' | 'needs_attention' | 'failed' | null
+  guardrail_reason: string | null
   dismissed: boolean
   created_at: string
   started_at: string | null

@@ -409,6 +409,22 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	task.TokensIn = tokensIn
 	task.TokensOut = tokensOut
 
+	// Check if the agent triggered a hard guardrail.
+	// A hard guardrail trigger is signalled by the agent outputting a line that starts
+	// with "GUARDRAIL_TRIGGERED:" (case-sensitive, matched at line boundary).
+	if reason := extractGuardrailTrigger(fullOutput); reason != "" {
+		task.GuardrailReason = &reason
+		if err := r.setStatus(ctx, task, model.TaskStatusAwaitingApproval, nil); err != nil {
+			log.Printf("runner: set awaiting_approval status: %v", err)
+		}
+		r.emit(StreamEvent{
+			TaskID:     task.ID,
+			AgentID:    task.AgentID,
+			StatusDone: func() *model.TaskStatus { s := model.TaskStatusAwaitingApproval; return &s }(),
+		})
+		return
+	}
+
 	// Derive health signal for monitor tasks.
 	if task.Source == "monitor" {
 		sig := deriveHealthSignal(fullOutput)
@@ -503,4 +519,23 @@ func deriveHealthSignal(output string) string {
 		}
 	}
 	return "all_clear"
+}
+
+// extractGuardrailTrigger scans the agent output for a hard guardrail trigger.
+// It looks for a line that starts exactly with "GUARDRAIL_TRIGGERED:" and returns
+// the reason text. Returns "" if no trigger is found.
+// The match is anchored to the start of a line to avoid false positives in explanatory text.
+func extractGuardrailTrigger(output string) string {
+	const marker = "GUARDRAIL_TRIGGERED:"
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, marker) {
+			reason := strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
+			if reason == "" {
+				reason = "Hard guardrail triggered (no reason provided)"
+			}
+			return reason
+		}
+	}
+	return ""
 }

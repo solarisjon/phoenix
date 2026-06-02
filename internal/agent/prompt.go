@@ -22,7 +22,7 @@ func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails string) pro
 }
 
 // assembleSystemPrompt combines behaviour (or legacy persona+instructions),
-// guardrails, and optional spawn/hire instructions into a single system prompt.
+// soft guardrails, hard guardrails, and optional spawn/hire instructions into a single system prompt.
 func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string) string {
 	var b strings.Builder
 
@@ -44,8 +44,18 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 	}
 
 	if a.Guardrails != "" {
-		b.WriteString("## Guardrails\n")
+		b.WriteString("## Soft Guardrails (Advisory)\n")
+		b.WriteString("These are guidance constraints. Try to follow them; if you cannot, document why in your output.\n")
 		b.WriteString(a.Guardrails)
+		b.WriteString("\n\n")
+	}
+
+	if a.HardGuardrails != "" {
+		b.WriteString("## Hard Guardrails (Mandatory — Stop and Request Approval)\n")
+		b.WriteString("If your task would violate any of the following rules, you MUST stop immediately and output EXACTLY the following as the first line of your response (and nothing else on that line):\n\n")
+		b.WriteString("  GUARDRAIL_TRIGGERED: <one-sentence reason describing the specific action that triggered this guardrail>\n\n")
+		b.WriteString("Do NOT proceed with the action. Wait for human approval before continuing.\n\n")
+		b.WriteString(a.HardGuardrails)
 		b.WriteString("\n\n")
 	}
 

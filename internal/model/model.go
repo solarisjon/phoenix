@@ -66,7 +66,8 @@ type Agent struct {
 	Behaviour         string       `json:"behaviour"`          // unified persona + instructions field
 	Persona           string       `json:"persona"`            // legacy — kept for backwards compat
 	Instructions      string       `json:"instructions"`       // legacy — kept for backwards compat
-	Guardrails        string      `json:"guardrails"`
+	Guardrails        string      `json:"guardrails"`         // soft (advisory) constraints
+	HardGuardrails    string      `json:"hard_guardrails"`    // mandatory — triggers awaiting_approval
 	ProviderID        string      `json:"provider_id"`
 	ModelOverride     string      `json:"model_override"`     // if set, overrides the provider's default model
 	CanSpawnAgents    bool        `json:"can_spawn_agents"`   // if true, agent may create tasks for other agents
@@ -122,6 +123,7 @@ type Task struct {
 	TokensOut    int        `json:"tokens_out"`
 	Source       string     `json:"source"`       // free-text provenance, empty if human-created
 	HealthSignal *string    `json:"health_signal"` // monitor runs: "all_clear" | "needs_attention" | "failed"
+	GuardrailReason *string `json:"guardrail_reason"` // set when task is paused by a hard guardrail
 	Dismissed    bool       `json:"dismissed"`    // hidden from inbox but kept for audit
 	RunnerPID    int        `json:"runner_pid"`   // OS PID of the subprocess, 0 if not running
 	TimeoutAt    *time.Time `json:"timeout_at"`   // when the task will be force-killed

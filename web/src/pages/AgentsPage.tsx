@@ -20,7 +20,7 @@ function formatInterval(secs: number): string {
 
 function GenerateModal({ providers, onApply, onClose }: {
   providers: Provider[]
-  onApply: (behaviour: string, guardrails: string) => void
+  onApply: (behaviour: string, guardrails: string, hardGuardrails: string) => void
   onClose: () => void
 }) {
   const [description, setDescription] = useState('')
@@ -36,7 +36,11 @@ function GenerateModal({ providers, onApply, onClose }: {
     setGenerating(true)
     try {
       const result = await api.agents.generate(description, providerId)
-      onApply(result.behaviour || [result.persona, result.instructions].filter(Boolean).join('\n\n'), result.guardrails)
+      onApply(
+        result.behaviour || [result.persona, result.instructions].filter(Boolean).join('\n\n'),
+        result.guardrails,
+        result.hard_guardrails ?? ''
+      )
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -84,6 +88,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     initial?.behaviour || [initial?.persona, initial?.instructions].filter(Boolean).join('\n\n') || ''
   )
   const [guardrails, setGuardrails] = useState(initial?.guardrails ?? '')
+  const [hardGuardrails, setHardGuardrails] = useState(initial?.hard_guardrails ?? '')
   const [providerID, setProviderID] = useState(initial?.provider_id ?? providers[0]?.id ?? '')
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
   const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
@@ -106,7 +111,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     setSaving(true)
     try {
       const hbSecs = heartbeatInterval.trim() ? parseInt(heartbeatInterval, 10) : null
-      const data = { name, behaviour, guardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, max_concurrent: maxConcurrent, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, heartbeat_interval: hbSecs, max_concurrent: maxConcurrent, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -117,9 +122,10 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     }
   }
 
-  const applyGenerated = (b: string, g: string) => {
+  const applyGenerated = (b: string, g: string, hg: string) => {
     setBehaviour(b)
     setGuardrails(g)
+    setHardGuardrails(hg)
     setShowGenerate(false)
   }
 
@@ -270,9 +276,17 @@ function AgentForm({ initial, providers, onSave, onClose }: {
                 placeholder="Describe who this agent is, their personality, communication style, and detailed operational instructions for what they do and how…" />
             </div>
             <div>
-              <Label htmlFor="guardrails">Guardrails</Label>
+              <Label htmlFor="guardrails">Soft Guardrails <span className="text-slate-500 font-normal">(advisory)</span></Label>
               <Textarea id="guardrails" value={guardrails} onChange={e => setGuardrails(e.target.value)} rows={3}
-                placeholder="Constraints, boundaries, escalation rules…" />
+                placeholder="Advisory constraints the agent should try to follow. Documented if unavoidable." />
+            </div>
+            <div>
+              <Label htmlFor="hard-guardrails" className="flex items-center gap-2">
+                Hard Guardrails <span className="text-amber-400 text-xs font-normal">⚠ Requires human approval</span>
+              </Label>
+              <Textarea id="hard-guardrails" value={hardGuardrails} onChange={e => setHardGuardrails(e.target.value)} rows={3}
+                className="border-amber-900/40 focus:border-amber-600/60"
+                placeholder="Mandatory rules. If triggered, the agent stops and waits for your approval before proceeding. E.g: Never delete data without approval. Never send external emails." />
             </div>
           </div>
         </div>

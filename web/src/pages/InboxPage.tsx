@@ -201,6 +201,15 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
                 <span>{timeAgo(task.created_at)}</span>
               </div>
 
+              {/* Guardrail reason (shown for awaiting_approval tasks triggered by a hard guardrail) */}
+              {task.status === 'awaiting_approval' && task.guardrail_reason && (
+                <div className="bg-amber-950/30 border border-amber-800/40 rounded-lg p-3 mb-3">
+                  <p className="text-xs font-medium text-amber-400 mb-1">⚠ Hard Guardrail Triggered</p>
+                  <p className="text-xs text-amber-200">{task.guardrail_reason}</p>
+                  <p className="text-xs text-slate-500 mt-1">Approve to allow the agent to continue with this action, or Reject to stop it.</p>
+                </div>
+              )}
+
               {/* Output preview */}
               <div className="bg-slate-800 rounded-lg p-3 mb-3 cursor-pointer" onClick={() => setDetail(true)}>
                 <p className="text-xs text-slate-400 mb-1">Output</p>
@@ -215,7 +224,9 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
                   <Button size="sm" onClick={retry} disabled={busy}>↺ Retry</Button>
                 ) : (
                   <>
-                    <Button size="sm" onClick={approve} disabled={busy}>✓ Approve</Button>
+                    <Button size="sm" onClick={approve} disabled={busy}>
+                      {task.guardrail_reason ? '✓ Approve & Continue' : '✓ Approve'}
+                    </Button>
                     <Button size="sm" variant="secondary" onClick={() => setRevising(true)} disabled={busy}>↺ Revise</Button>
                     <Button size="sm" variant="danger" onClick={reject} disabled={busy}>✕ Reject</Button>
                   </>

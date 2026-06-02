@@ -113,7 +113,7 @@ func (r *TeamRepo) RemoveAgent(ctx context.Context, teamID, agentID string) erro
 
 func (r *TeamRepo) ListAgents(ctx context.Context, teamID string) ([]*model.Agent, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails, a.behaviour,
+		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails, a.behaviour, a.hard_guardrails,
 		       a.provider_id, a.model_override, a.can_spawn_agents, a.can_hire_agents,
 		       a.heartbeat_interval, a.max_concurrent, a.created_by, a.status, a.created_at
 		FROM agents a

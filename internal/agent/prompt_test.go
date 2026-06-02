@@ -16,7 +16,7 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
 	prompt := assembleSystemPrompt(a, task, "")
 
-	for _, want := range []string{"## Persona", "You are an expert.", "## Instructions", "Always be concise.", "## Guardrails", "Never fabricate data."} {
+	for _, want := range []string{"## Persona", "You are an expert.", "## Instructions", "Always be concise.", "## Soft Guardrails", "Never fabricate data."} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q", want)
 		}
@@ -30,8 +30,26 @@ func TestAssembleSystemPrompt_EmptyFields(t *testing.T) {
 	if strings.Contains(prompt, "## Instructions") {
 		t.Error("should not include Instructions section when empty")
 	}
-	if strings.Contains(prompt, "## Guardrails") {
+	if strings.Contains(prompt, "## Soft Guardrails") {
 		t.Error("should not include Guardrails section when empty")
+	}
+}
+
+func TestAssembleSystemPrompt_HardGuardrails(t *testing.T) {
+	a := &model.Agent{
+		Behaviour:      "Helpful assistant.",
+		HardGuardrails: "Never delete data.",
+	}
+	task := &model.Task{ID: "t1", ProjectID: "p1"}
+	prompt := assembleSystemPrompt(a, task, "")
+	if !strings.Contains(prompt, "## Hard Guardrails") {
+		t.Error("missing hard guardrails section")
+	}
+	if !strings.Contains(prompt, "GUARDRAIL_TRIGGERED:") {
+		t.Error("missing GUARDRAIL_TRIGGERED marker instruction")
+	}
+	if !strings.Contains(prompt, "Never delete data.") {
+		t.Error("missing hard guardrail content")
 	}
 }
 
