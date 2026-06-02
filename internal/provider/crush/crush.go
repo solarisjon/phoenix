@@ -269,3 +269,20 @@ func (a *Adapter) buildArgs(req provider.TaskRequest, workDir string, includePro
 func (a *Adapter) EstimateCost(_ provider.TaskRequest) provider.CostEstimate {
 	return provider.CostEstimate{}
 }
+
+// ListModels runs `crush models` and returns one model name per line.
+// Implements provider.ModelLister.
+func (a *Adapter) ListModels(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx, a.cfg.BinaryPath, "models")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("crush models: %w", err)
+	}
+	var models []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			models = append(models, line)
+		}
+	}
+	return models, nil
+}

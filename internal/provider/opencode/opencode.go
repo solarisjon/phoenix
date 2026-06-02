@@ -282,3 +282,24 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 
 	ch <- provider.StreamChunk{Done: true}
 }
+
+// ListModels runs `opencode models` and returns one model name per line.
+// Implements provider.ModelLister.
+func (a *Adapter) ListModels(ctx context.Context) ([]string, error) {
+	bin := a.cfg.BinaryPath
+	if bin == "" {
+		bin = "opencode"
+	}
+	cmd := exec.CommandContext(ctx, bin, "models")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("opencode models: %w", err)
+	}
+	var models []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			models = append(models, line)
+		}
+	}
+	return models, nil
+}
