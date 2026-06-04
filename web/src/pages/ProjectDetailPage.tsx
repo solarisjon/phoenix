@@ -717,7 +717,7 @@ export function ProjectDetailPage() {
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
-  const [criticAgentId, setCriticAgentId] = useState('')
+  const [criticMode, setCriticMode] = useState<string>('none')
   const [savingCritic, setSavingCritic] = useState(false)
   const [criticMessage, setCriticMessage] = useState('')
   const [providers, setProviders] = useState<Provider[]>([])
@@ -745,8 +745,8 @@ export function ProjectDetailPage() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    setCriticAgentId(project?.critic_agent_id ?? '')
-  }, [project?.critic_agent_id])
+    setCriticMode(project?.critic_mode ?? 'none')
+  }, [project?.critic_mode])
 
   const saveCritic = async () => {
     if (!project) return
@@ -760,12 +760,12 @@ export function ProjectDetailPage() {
         kind: project.kind,
         status: project.status,
         schedule_interval: project.schedule_interval,
-        critic_agent_id: criticAgentId || null,
+        critic_mode: criticMode,
       })
       setProject(updated)
-      setCriticMessage('Critic agent saved')
+      setCriticMessage('Saved')
     } catch (e: any) {
-      setCriticMessage(e.message || 'Failed to save critic agent')
+      setCriticMessage(e.message || 'Failed to save')
     } finally {
       setSavingCritic(false)
     }
@@ -848,23 +848,62 @@ export function ProjectDetailPage() {
       <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-4">
         <div className="flex items-center justify-between gap-4 mb-3">
           <div>
-            <p className="text-xs text-slate-500 uppercase tracking-wide">Project Settings</p>
-            <p className="text-xs text-slate-600 mt-1">Optional advisory reviewer that automatically critiques completed tasks.</p>
+            <p className="text-xs text-slate-500 uppercase tracking-wide">Devil's Advocate</p>
+            <p className="text-xs text-slate-600 mt-1">After each task completes, automatically run a contrarian critic review.</p>
           </div>
         </div>
-        <div className="flex flex-col md:flex-row md:items-end gap-3">
-          <div className="flex-1">
-            <Label htmlFor="critic-agent">Critic Agent</Label>
-            <Select id="critic-agent" value={criticAgentId} onChange={e => setCriticAgentId(e.target.value)}>
-              <option value="">None</option>
-              {allAgents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-            </Select>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2">
+            {[
+              { value: 'none',    label: 'Off',                    desc: 'No critic review' },
+              { value: 'builtin', label: '😈 Built-in Devil\'s Advocate', desc: 'Ephemeral contrarian — uses the same provider as the original agent, no agent record needed' },
+            ].map(opt => (
+              <label key={opt.value} className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="critic-mode"
+                  value={opt.value}
+                  checked={criticMode === opt.value}
+                  onChange={() => setCriticMode(opt.value)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <p className="text-sm text-slate-200">{opt.label}</p>
+                  <p className="text-xs text-slate-500">{opt.desc}</p>
+                </div>
+              </label>
+            ))}
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="critic-mode"
+                value="custom"
+                checked={criticMode.startsWith('agent:')}
+                onChange={() => setCriticMode('agent:')}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <p className="text-sm text-slate-200">Custom agent</p>
+                <p className="text-xs text-slate-500 mb-1">Use a specific registered agent as the critic</p>
+                {criticMode.startsWith('agent:') && (
+                  <Select
+                    value={criticMode.replace('agent:', '')}
+                    onChange={e => setCriticMode(e.target.value ? 'agent:' + e.target.value : 'agent:')}
+                  >
+                    <option value="">Select an agent…</option>
+                    {allAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </Select>
+                )}
+              </div>
+            </label>
           </div>
-          <Button variant="secondary" onClick={saveCritic} disabled={savingCritic}>
-            {savingCritic ? 'Saving…' : 'Save Critic'}
-          </Button>
+          <div className="flex items-center gap-3 pt-1">
+            <Button variant="secondary" onClick={saveCritic} disabled={savingCritic}>
+              {savingCritic ? 'Saving…' : 'Save'}
+            </Button>
+            {criticMessage && <p className={`text-xs ${criticMessage === 'Saved' ? 'text-green-400' : 'text-red-400'}`}>{criticMessage}</p>}
+          </div>
         </div>
-        {criticMessage && <p className={`text-xs mt-2 ${criticMessage === 'Critic agent saved' ? 'text-green-400' : 'text-red-400'}`}>{criticMessage}</p>}
       </div>
 
       {/* Agents — same pattern as Monitors page */}

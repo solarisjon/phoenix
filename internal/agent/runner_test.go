@@ -219,7 +219,11 @@ func (r *mockProjectRepo) Get(_ context.Context, id string) (*model.Project, err
 }
 func (r *mockProjectRepo) Create(_ context.Context, _ *model.Project) error  { return nil }
 func (r *mockProjectRepo) Update(_ context.Context, _ *model.Project) error  { return nil }
-func (r *mockProjectRepo) Delete(_ context.Context, _ string) error           { return nil }
+func (r *mockProjectRepo) Delete(_ context.Context, _ string) error              { return nil }
+func (r *mockProjectRepo) DeleteWithTasks(_ context.Context, _ string) error     { return nil }
+func (r *mockProjectRepo) ListByStatus(_ context.Context, _, _ string) ([]*model.Project, error) {
+	return nil, nil
+}
 func (r *mockProjectRepo) AssignAgent(_ context.Context, _, _ string) error  { return nil }
 func (r *mockProjectRepo) RemoveAgent(_ context.Context, _, _ string) error  { return nil }
 func (r *mockProjectRepo) ListAgents(_ context.Context, _ string) ([]*model.Agent, error) {
@@ -275,7 +279,7 @@ func runnerWithMock(t *testing.T, prov *mockProvider, task *model.Task) (*Runner
 	// Pre-warm the registry cache with our mock provider.
 	reg.InjectForTest("prov-1", prov)
 
-	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, reg, nil)
+	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, nil, reg, nil)
 	return runner, taskRepo
 }
 
@@ -413,7 +417,7 @@ func TestRunTask_StreamEvents(t *testing.T) {
 		mu.Unlock()
 	}
 
-	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, reg, handler)
+	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, nil, reg, handler)
 	if err := runner.RunTask(context.Background(), task.ID); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}

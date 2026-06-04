@@ -99,7 +99,7 @@ web/src/
 
 ---
 
-## Data Model — Current State (migrations 001–011)
+## Data Model — Current State (migrations 001–024)
 
 ### agents
 ```sql
@@ -107,19 +107,31 @@ id, name, persona, instructions, guardrails, provider_id,
 model_override TEXT DEFAULT '',
 can_spawn_agents INTEGER DEFAULT 0,
 can_hire_agents INTEGER DEFAULT 0,
-heartbeat_interval INTEGER,
+behaviour TEXT DEFAULT '',           -- unified persona+instructions (migration 017)
+hard_guardrails TEXT DEFAULT '',     -- mandatory stop-and-ask guardrails (migration 018)
+max_concurrent INTEGER DEFAULT 0,    -- 0=unlimited (migration 014)
+template_id TEXT,                    -- deprecated, not used functionally (migration 020)
 created_by, status, created_at
 ```
+
+> `heartbeat_interval` was removed (migration 021). `template_id` is stored but not acted on — UI no longer shows it.
 
 ### tasks
 ```sql
 id, project_id, agent_id, parent_task_id, follow_up_of,
 title, description, status, input, output,
 cost_usd REAL DEFAULT 0,
+tokens_in INTEGER DEFAULT 0,         -- migration 012
+tokens_out INTEGER DEFAULT 0,        -- migration 012
 dismissed INTEGER DEFAULT 0,
 runner_pid INTEGER DEFAULT 0,
 timeout_at DATETIME,
 source TEXT DEFAULT '',              -- free-text provenance (migration 010)
+health_signal TEXT,                  -- monitor runs: all_clear|needs_attention|failed (migration 016)
+guardrail_reason TEXT,               -- set when hard guardrail fires
+is_critic_review INTEGER DEFAULT 0,  -- critic tasks flagged to prevent critic loops (migration 019)
+reviewed_task_id TEXT,               -- FK to original task this critic reviewed (migration 019)
+critic_mode TEXT DEFAULT 'inherit',  -- inherit|none|builtin|agent:<id> (migration 024)
 created_at, started_at, completed_at
 ```
 
@@ -137,7 +149,20 @@ created_at, updated_at
 id, name, description,
 working_dir TEXT DEFAULT '',
 kind TEXT DEFAULT 'project' CHECK(kind IN ('project','monitor')),  -- migration 011
-owner, status, created_at
+schedule_interval INTEGER,           -- seconds between monitor runs (migration 015); nil=no schedule
+critic_agent_id TEXT,                -- deprecated; use critic_mode (migration 019)
+critic_mode TEXT DEFAULT 'none',     -- none|builtin|agent:<id> (migration 024)
+owner, status, created_at,
+tags TEXT NOT NULL DEFAULT '[]'      -- migration 023: JSON array of tag strings
+```
+
+### memos (migration 022)
+```sql
+id, project_id, project_name, task_id, agent_id, agent_name,
+title, body,
+priority TEXT DEFAULT 'normal' CHECK(priority IN ('normal','high')),
+status TEXT DEFAULT 'unread' CHECK(status IN ('unread','read','flagged','archived')),
+created_at
 ```
 
 ### system_settings (migration 009)
@@ -168,8 +193,10 @@ POST               /api/agent-drafts/:id/approve
 POST               /api/agent-drafts/:id/reject
 POST               /api/agent-drafts/:id/dismiss
 
-GET/POST           /api/projects                  # GET: ?kind=project|monitor filter
-GET/PUT/DELETE     /api/projects/:id              # PUT: kind field accepted
+GET/POST           /api/projects                  # GET: ?kind=project|monitor&status=active|archived (default status=active)
+GET/PUT/DELETE     /api/projects/:id              # PUT: kind field accepted; DELETE hard-deletes project + all tasks
+POST               /api/projects/:id/archive      # sets status=archived; blocks if tasks running
+POST               /api/projects/:id/restore      # sets status=active
 GET/POST           /api/projects/:id/agents
 DELETE             /api/projects/:id/agents/:agentId
 POST               /api/projects/:id/teams
@@ -196,6 +223,12 @@ DELETE             /api/teams/:id/agents/:agentId
 POST               /api/teams/:id/assign/:projectId
 GET                /api/teams/:id/export
 POST               /api/import/team
+
+GET                /api/memos                    # ?status=unread|read|flagged|archived (default: all non-archived)
+POST               /api/memos                    # create memo manually
+GET                /api/memos/count              # {count} of unread+flagged (sidebar badge)
+PUT                /api/memos/:id/status         # {status: unread|read|flagged|archived}
+DELETE             /api/memos/:id
 
 GET                /api/stats/costs
 GET                /api/admin/backup
@@ -226,7 +259,11 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 
 ## Key Architectural Decisions
 
-- **Dismiss vs delete:** `dismissed=1`, preserved for audit; all list queries filter `AND dismissed = 0`
+- **Project/Monitor Tags:** Stored as `tags TEXT DEFAULT '[]'` (JSON array) on the `projects` table (migration 023). Serialised/deserialised in `project.go` via `marshalTags`/`unmarshalTags`. API accepts `tags: string[]` on create/update; `normaliseTags()` lowercases and dedupes. Frontend: `TagInput` component (inline pill editor with autocomplete from existing tags), `TagPill` for display, `FilterSortBar` + `applyFilterSort`/`collectAllTags` utilities for filter/sort/group-by-tag. Both ProjectsPage and MonitorsPage have full filter bar.
+- **Briefing / Memos:** Agents auto-post memos by embedding `MEMO_START / Title: / Priority: / body / MEMO_END` blocks in their output — runner extracts them on task completion and persists to `memos` table. Users can also manually pin any completed task via "📋 Pin to Briefing" button on task cards. `/briefing` page shows all memos with Read/Flag/Archive/Delete actions. Sidebar shows unread+flagged count badge (violet). WS event `memo.created` triggers badge refresh.
+- **Memo system prompt:** Every agent gets a `## Briefing Memos` section injected into its system prompt explaining the `MEMO_START…MEMO_END` format. Agents are instructed to use it only for genuinely important findings.
+- **Archive vs Delete:** Archive sets `projects.status='archived'` — project disappears from active views but all tasks/history preserved; recoverable from Settings → Archived tab. Delete (`DELETE /api/projects/:id`) calls `DeleteWithTasks` which hard-deletes the project AND all its tasks in a transaction. Active projects filtered by `status='active'` by default; `?status=archived` to list archived.
+- **Dismiss vs delete (tasks):** `dismissed=1`, preserved for audit; all list queries filter `AND dismissed = 0`
 - **Follow-up context:** `InjectFollowUpContext()` in `prompt.go` prepends parent output as `## Previous output` block
 - **Prompt delivery:** pi and crush receive prompt via **stdin** (not CLI arg) — avoids ARG_MAX issues with long follow-up prompts
 - **pi adapter:** always uses stdin; `buildArgs()` no longer appends prompt as positional arg
@@ -238,6 +275,8 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 - **Projects vs Monitors:** `projects.kind` field distinguishes human-driven workbenches (`'project'`) from autonomous heartbeat daemons (`'monitor'`). Projects always use `ProjectHumanView`. Monitors use `MonitorDetailPage` (run log). `ProjectAutonomousView` is deleted. `isAutonomous` flag is gone.
 - **Task source provenance:** `tasks.source` is a free-text string set by dispatching agents (e.g. Monitors) when creating tasks in other projects. Empty for human-created tasks. Displayed on task cards as `↳ <source>`.
 - **Global guardrails:** stored in `system_settings` table. When `global_guardrails_enabled=1`, the text is appended to every agent's system prompt under `## Platform-Wide Guardrails (mandatory)`. Loaded per-task in `runner.go`, injected in `prompt.go`. Takes precedence over per-agent guardrails.
+- **Devil's Advocate / Critic Mode:** `projects.critic_mode` sets the default for all tasks in the project. `tasks.critic_mode` can override per-task (`"inherit"` = use project setting). `"builtin"` launches an ephemeral DA review using `BuildBuiltinCriticRequest()` and `executeBuiltinCritic()` in `runner.go` — same provider as the original agent, hardcoded contrarian system prompt, no registered agent needed. `"agent:<id>"` uses a specific registered agent. Critic tasks are flagged `is_critic_review=true` to prevent loops. Old `critic_agent_id` FK migrated to `"agent:<id>"` string via migration 024.
+- **Agents page:** Renamed from "Agent Templates" to "Agents". `template_id` / Base Template field removed from Edit Agent form. Template/Instance badge removed from agent list. The `template_id` column remains in DB but is not surfaced in UI.
 - **Bulk inbox dismiss:** `POST /api/inbox/dismiss-all?filter=failed|awaiting|all` marks matching tasks dismissed. Static route registered before `/:taskId`.
 - **Inbox badge:** counts failed + awaiting_approval tasks AND pending agent_drafts
 - **Model override:** patched into provider config JSON at runtime via `GetWithOverride()`, not cached
@@ -271,7 +310,7 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–011
+- Migrations applied: 001–024
 
 ---
 
@@ -284,6 +323,13 @@ Recently completed (2026-05-31):
 - ✓ Database restore endpoint (#8)
 - ✓ Model picker dropdown (#18)
 - ✓ Task queuing / per-agent concurrency limits (#15)
+
+Recently completed (2026-06-04):
+- ✓ Project Archive/Restore + Settings → Archived tab
+- ✓ Briefing / Memos system (agent-posted + manual pin from task cards)
+- ✓ Project/Monitor tags — filter bar, sort (including group-by-tag), tag pills on cards
+- ✓ Devil's Advocate / Critic Mode (migration 024) — builtin ephemeral critic, no agent record needed
+- ✓ Agents page cleanup — removed template_id field from UI, renamed page from "Agent Templates" to "Agents"
 
 Open backlog — https://github.com/solarisjon/phoenix/issues:
 1. **#13** Mobile-friendly layout (sidebar collapses to bottom nav)
@@ -307,5 +353,11 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 - **can_hire_agents vs can_spawn_agents:** independent flags; spawn = task for existing agent; hire = propose new agent via drafts
 - **ProjectAutonomousView is deleted:** do not reference it. Monitor detail view (`MonitorDetailPage`) is the replacement.
 - **isAutonomous flag is gone:** `ProjectDetailPage` always uses `ProjectHumanView`. Monitors are detected by `project.kind === 'monitor'`, not by agent heartbeat_interval.
-- **project.kind filter:** `GET /api/projects?kind=monitor` returns only monitors. Without the param, returns all (backwards compatible for scheduler, stats, etc.).
+- **project.kind filter:** `GET /api/projects?kind=monitor` returns only monitors. Without the param, returns all active (backwards compatible for scheduler, stats, etc.).
+- **project.status filter:** `GET /api/projects?status=archived` returns archived projects. Default is `status=active`. Scheduler and `List()` (no status filter) return all regardless of status.
+- **Settings → Archived tab:** `ArchivedProjectsTab` component in `SettingsPage.tsx`; fetches `listArchived()` for both `'project'` and `'monitor'` kinds; offers Restore and Delete buttons.
 - **AssembleRequest signature:** takes `(agent, task, globalGuardrails string)` — third arg added 2026-05-30. All callers must pass it.
+- **critic_mode resolution:** task-level `critic_mode` takes precedence over project-level. `"inherit"` on a task means use the project setting. `"none"` disables. `"builtin"` runs `executeBuiltinCritic()` in runner using same provider as original agent — no DB agent record. `"agent:<id>"` uses a registered agent via `launchAgentCritic()`. Critic tasks have `is_critic_review=true` to prevent recursive critic loops.
+- **template_id is vestigial:** stored in DB (migration 020), never acted on. UI no longer shows it. Do not build features on top of it without implementing real inheritance first.
+- **critic_agent_id is deprecated:** migration 024 copies any existing values into `critic_mode` as `"agent:<id>"`. API still accepts it for backwards compat via `resolveCriticMode()` in `project.go`.
+- **taskSelectCols / projectSelectCols:** must stay in sync with schema. `critic_mode` added to both after migration 024.

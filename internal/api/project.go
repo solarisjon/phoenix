@@ -14,13 +14,15 @@ import (
 )
 
 type createProjectRequest struct {
-	Name             string  `json:"name"`
-	Description      string  `json:"description"`
-	WorkingDir       string  `json:"working_dir"`
-	Kind             string  `json:"kind"`
-	Status           string  `json:"status"`
-	ScheduleInterval *int    `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
-	CriticAgentID    *string `json:"critic_agent_id"`
+	Name             string   `json:"name"`
+	Description      string   `json:"description"`
+	WorkingDir       string   `json:"working_dir"`
+	Kind             string   `json:"kind"`
+	Status           string   `json:"status"`
+	ScheduleInterval *int     `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
+	CriticAgentID    *string  `json:"critic_agent_id"`   // deprecated: prefer critic_mode
+	CriticMode       string   `json:"critic_mode"`       // "none" | "builtin" | "agent:<id>"
+	Tags             []string `json:"tags"`
 }
 
 func (r createProjectRequest) validate() string {
@@ -43,8 +45,12 @@ type assignAgentRequest struct {
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	kind := r.URL.Query().Get("kind") // optional: "project" | "monitor"
-	list, err := s.projects.ListByKind(r.Context(), kind)
+	kind := r.URL.Query().Get("kind")     // optional: "project" | "monitor"
+	status := r.URL.Query().Get("status") // optional: "active" | "archived" — defaults to "active"
+	if status == "" {
+		status = string(model.ProjectStatusActive)
+	}
+	list, err := s.projects.ListByStatus(r.Context(), kind, status)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
@@ -94,6 +100,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		kind = model.ProjectKind(req.Kind)
 	}
 
+	criticMode := resolveCriticMode(req.CriticMode, req.CriticAgentID)
 	p := &model.Project{
 		ID:               uuid.New().String(),
 		Name:             strings.TrimSpace(req.Name),
@@ -104,6 +111,8 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		Owner:            user.ID,
 		Status:           status,
 		CriticAgentID:    req.CriticAgentID,
+		CriticMode:       criticMode,
+		Tags:             normaliseTags(req.Tags),
 		CreatedAt:        time.Now(),
 	}
 	if err := s.projects.Create(r.Context(), p); err != nil {
@@ -139,6 +148,8 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
 	existing.ScheduleInterval = req.ScheduleInterval
 	existing.CriticAgentID = req.CriticAgentID
+	existing.CriticMode = resolveCriticMode(req.CriticMode, req.CriticAgentID)
+	existing.Tags = normaliseTags(req.Tags)
 	if req.Kind != "" {
 		existing.Kind = model.ProjectKind(req.Kind)
 	}
@@ -179,11 +190,71 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.projects.Delete(r.Context(), id); err != nil {
+	// Hard-delete the project and all its tasks.
+	if err := s.projects.DeleteWithTasks(r.Context(), id); err != nil {
 		respondInternalErr(w, err)
 		return
 	}
 	respond(w, http.StatusNoContent, nil)
+}
+
+// archiveProject sets a project's status to 'archived', hiding it from active views.
+func (s *Server) archiveProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if p.Status == model.ProjectStatusArchived {
+		respond(w, http.StatusOK, p) // idempotent
+		return
+	}
+
+	// Refuse archiving while tasks are still running.
+	tasks, err := s.tasks.List(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	for _, t := range tasks {
+		if t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued {
+			respondErr(w, http.StatusConflict,
+				"cannot archive project while tasks are running or queued — wait for them to finish first")
+			return
+		}
+	}
+
+	p.Status = model.ProjectStatusArchived
+	if err := s.projects.Update(r.Context(), p); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, p)
+}
+
+// restoreProject sets a project's status back to 'active'.
+func (s *Server) restoreProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	p.Status = model.ProjectStatusActive
+	if err := s.projects.Update(r.Context(), p); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, p)
 }
 
 func (s *Server) assignAgent(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +329,45 @@ func (s *Server) listProjectAgents(w http.ResponseWriter, r *http.Request) {
 		agents = []*model.Agent{}
 	}
 	respond(w, http.StatusOK, agents)
+}
+
+// resolveCriticMode normalises the critic_mode value from an API request.
+// If criticMode is already set and valid, it is returned as-is.
+// If criticMode is empty but a legacy critic_agent_id is provided, we synthesise "agent:<id>".
+// Falls back to "none".
+func resolveCriticMode(criticMode string, legacyAgentID *string) string {
+	switch criticMode {
+	case model.CriticModeBuiltin:
+		return model.CriticModeBuiltin
+	case model.CriticModeNone, "":
+		// fall through to legacy check
+	default:
+		if len(criticMode) > 6 && criticMode[:6] == "agent:" {
+			return criticMode
+		}
+	}
+	if legacyAgentID != nil && *legacyAgentID != "" {
+		return "agent:" + *legacyAgentID
+	}
+	return model.CriticModeNone
+}
+
+// normaliseTags trims whitespace and removes empty/duplicate tags.
+func normaliseTags(in []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, t := range in {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t == "" {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
 }
 
 // generateProjectDescription uses an LLM to generate a description for a project/monitor.

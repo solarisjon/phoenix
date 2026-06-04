@@ -54,6 +54,8 @@ export interface Project {
   owner: string
   status: 'active' | 'archived'
   critic_agent_id: string | null
+  critic_mode: 'none' | 'builtin' | string  // "none" | "builtin" | "agent:<id>"
+  tags: string[] | null             // free-text grouping labels (null for rows predating migration 023)
   created_at: string
 }
 
@@ -77,6 +79,7 @@ export interface Task {
   dismissed: boolean
   is_critic_review: boolean
   reviewed_task_id: string | null
+  critic_mode: string  // "inherit" | "none" | "builtin" | "agent:<id>"
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -127,6 +130,20 @@ export interface CostsResponse {
   by_project: CostSummary[]
   by_day: DailyCost[]
   by_status: TaskStatusCount[]
+}
+
+export interface Memo {
+  id: string
+  project_id: string
+  project_name: string
+  task_id: string
+  agent_id: string
+  agent_name: string
+  title: string
+  body: string
+  priority: 'normal' | 'high'
+  status: 'unread' | 'read' | 'flagged' | 'archived'
+  created_at: string
 }
 
 export interface SysInfo {
@@ -227,10 +244,14 @@ export const api = {
   },
   projects: {
     list: (kind?: 'project' | 'monitor') => request<Project[]>(kind ? `/projects?kind=${kind}` : '/projects'),
+    listArchived: (kind?: 'project' | 'monitor') =>
+      request<Project[]>(kind ? `/projects?status=archived&kind=${kind}` : '/projects?status=archived'),
     get: (id: string) => request<Project>(`/projects/${id}`),
     create: (data: Partial<Project>) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Project>) => request<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
+    archive: (id: string) => request<Project>(`/projects/${id}/archive`, { method: 'POST', body: '{}' }),
+    restore: (id: string) => request<Project>(`/projects/${id}/restore`, { method: 'POST', body: '{}' }),
     listAgents: (id: string) => request<Agent[]>(`/projects/${id}/agents`),
     assignAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),
@@ -293,6 +314,14 @@ export const api = {
     approve: (id: string, providerId?: string) => request<Agent>(`/agent-drafts/${id}/approve`, { method: 'POST', body: JSON.stringify({ provider_id: providerId ?? '' }) }),
     reject: (id: string) => request<void>(`/agent-drafts/${id}/reject`, { method: 'POST', body: '{}' }),
     dismiss: (id: string) => request<void>(`/agent-drafts/${id}/dismiss`, { method: 'POST', body: '{}' }),
+  },
+  memos: {
+    list: (status?: string) => request<Memo[]>(status ? `/memos?status=${status}` : '/memos'),
+    count: () => request<{ count: number }>('/memos/count'),
+    create: (data: Partial<Memo>) => request<Memo>('/memos', { method: 'POST', body: JSON.stringify(data) }),
+    updateStatus: (id: string, status: Memo['status']) =>
+      request<Memo>(`/memos/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+    delete: (id: string) => request<void>(`/memos/${id}`, { method: 'DELETE' }),
   },
   stats: {
     costs: () => request<CostsResponse>('/stats/costs'),

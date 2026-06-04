@@ -94,7 +94,6 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
   const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
   const [canHireAgents, setCanHireAgents] = useState(initial?.can_hire_agents ?? false)
-  const [templateID, setTemplateID] = useState(initial?.template_id ?? '')
   const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
@@ -110,7 +109,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, template_id: templateID || null, max_concurrent: maxConcurrent, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, max_concurrent: maxConcurrent, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -151,13 +150,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
               <option value="disabled">Disabled</option>
             </Select>
           </div>
-          <div className="col-span-2">
-            <Label htmlFor="template-id">Base Template <span className="text-slate-500 font-normal">(optional)</span></Label>
-            <Select id="template-id" value={templateID} onChange={e => setTemplateID(e.target.value)}>
-              <option value="">None — this is a template</option>
-              {templateOptions.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-            </Select>
-          </div>
+
         </div>
 
         {/* Model override */}
@@ -353,8 +346,8 @@ export function AgentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Agent Templates</h1>
-          <p className="text-slate-400 text-sm mt-1">Configure reusable agent templates and concrete instances</p>
+          <h1 className="text-2xl font-bold text-white">Agents</h1>
+          <p className="text-slate-400 text-sm mt-1">Configure agents and their behaviours, guardrails, and capabilities</p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -395,7 +388,6 @@ export function AgentsPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium text-white">{a.name}</h3>
-                          <Badge variant={a.template_id ? 'muted' : 'info'}>{a.template_id ? 'Instance' : 'Template'}</Badge>
                         </div>
                         <p className="text-xs text-slate-500">
                           {providerName(a.provider_id)}

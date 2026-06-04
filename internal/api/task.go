@@ -21,7 +21,8 @@ type createTaskRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Input       string `json:"input"`
-	Source      string `json:"source"` // free-text provenance, e.g. "Jira triage 2026-05-30"
+	Source      string `json:"source"`      // free-text provenance, e.g. "Jira triage 2026-05-30"
+	CriticMode  string `json:"critic_mode"` // "" | "inherit" | "none" | "builtin" | "agent:<id>"
 }
 
 func (r createTaskRequest) validate() string {
@@ -291,6 +292,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		Title:       strings.TrimSpace(req.Title),
 		Description: req.Description,
 		Source:      req.Source,
+		CriticMode:  req.CriticMode,
 		Status:      model.TaskStatusPending,
 		Input:       input,
 		Output:      "{}",
