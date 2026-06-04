@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import type { Task, Agent } from '../../lib/api'
 import { phoenixWS } from '../../lib/ws'
@@ -70,11 +71,14 @@ function statusBadge(status: Task['status']) {
 }
 
 export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdate }: Props) {
+  const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [stream, setStream] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const [pinning, setPinning] = useState(false)
 
   useEffect(() => {
     if (task.status !== 'running') { setStream(''); return }
@@ -116,6 +120,28 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
       console.error('Follow-up failed:', e)
     } finally {
       setSending(false)
+    }
+  }
+
+  async function pinToBriefing() {
+    if (pinned || pinning) return
+    setPinning(true)
+    try {
+      const outputText = parseOutputText(task.output)
+      await api.memos.create({
+        project_id: task.project_id,
+        task_id: task.id,
+        agent_id: task.agent_id,
+        agent_name: agentName,
+        title: task.title,
+        body: outputText || task.description || '(no output)',
+        priority: 'normal',
+      })
+      setPinned(true)
+    } catch (e) {
+      console.error('Pin failed:', e)
+    } finally {
+      setPinning(false)
     }
   }
 
@@ -273,9 +299,9 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
         </div>
       )}
 
-      {/* Reply input — shown on completed tasks */}
+      {/* Reply input + pin — shown on completed tasks */}
       {(task.status === 'completed' || task.status === 'failed') && (
-        <div className="px-4 pb-4">
+        <div className="px-4 pb-4 space-y-2">
           <div className="flex gap-2 items-center bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
             <input
               type="text"
@@ -294,6 +320,26 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
               {sending ? '...' : '↵'}
             </button>
           </div>
+          {task.status === 'completed' && (
+            <div className="flex items-center justify-end gap-2">
+              {pinned ? (
+                <button
+                  onClick={() => navigate('/briefing')}
+                  className="text-xs text-violet-600 hover:text-violet-800 transition-colors"
+                >
+                  ✓ Pinned — view in Briefing →
+                </button>
+              ) : (
+                <button
+                  onClick={pinToBriefing}
+                  disabled={pinning}
+                  className="text-xs text-stone-400 hover:text-indigo-600 disabled:opacity-40 transition-colors"
+                >
+                  {pinning ? 'Pinning…' : '📋 Pin to Briefing'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

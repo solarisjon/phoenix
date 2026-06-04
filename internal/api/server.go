@@ -28,6 +28,7 @@ type Server struct {
 	teams          store.TeamRepo
 	agentDrafts    store.AgentDraftRepo
 	systemSettings store.SystemSettingsRepo
+	memos          store.MemoRepo
 	runner         *agent.Runner
 	registry       *registry.Registry
 	hub            *Hub
@@ -47,6 +48,7 @@ func New(
 	teams store.TeamRepo,
 	agentDrafts store.AgentDraftRepo,
 	systemSettings store.SystemSettingsRepo,
+	memos store.MemoRepo,
 	runner *agent.Runner,
 	reg *registry.Registry,
 	admin *sqlite.AdminRepo,
@@ -61,6 +63,7 @@ func New(
 		teams:          teams,
 		agentDrafts:    agentDrafts,
 		systemSettings: systemSettings,
+		memos:          memos,
 		runner:         runner,
 		registry:       reg,
 		hub:            NewHub(),
@@ -134,6 +137,8 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/projects/{id}", s.getProject)
 		r.Put("/projects/{id}", s.updateProject)
 		r.Delete("/projects/{id}", s.deleteProject)
+		r.Post("/projects/{id}/archive", s.archiveProject)
+		r.Post("/projects/{id}/restore", s.restoreProject)
 		r.Post("/projects/{id}/agents", s.assignAgent)
 		r.Delete("/projects/{id}/agents/{agentId}", s.removeAgent)
 		r.Get("/projects/{id}/agents", s.listProjectAgents)
@@ -170,6 +175,13 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/inbox/{taskId}/approve", s.approveTask)
 		r.Post("/inbox/{taskId}/reject", s.rejectTask)
 		r.Post("/inbox/{taskId}/revise", s.reviseTask)
+
+		// Memos (Briefing)
+		r.Get("/memos", s.listMemos)
+		r.Post("/memos", s.createMemo)
+		r.Get("/memos/count", s.getMemoCount)
+		r.Put("/memos/{id}/status", s.updateMemoStatus)
+		r.Delete("/memos/{id}", s.deleteMemo)
 
 		// Stats
 		r.Get("/stats/costs", s.getCosts)

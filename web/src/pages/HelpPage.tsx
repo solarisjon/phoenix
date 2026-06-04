@@ -2,6 +2,208 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
+// ---- Feature reference data ----
+
+interface FeatureSection {
+  heading: string
+  icon: string
+  features: { title: string; body: string; tip?: string }[]
+}
+
+const FEATURES: FeatureSection[] = [
+  {
+    heading: 'Core concepts',
+    icon: '◈',
+    features: [
+      {
+        title: 'Providers',
+        body: 'The AI backend that does the work. Supports OpenAI-compatible LLM APIs, local models via Ollama, and CLI coding agents — pi, claude (claudecode), opencode, and crush. Configure in Settings → Providers.',
+      },
+      {
+        title: 'Agents',
+        body: 'A reusable AI persona with a name, behaviour description, guardrails, and a provider. One agent can run tasks across many projects. Configure in Settings → Agents.',
+        tip: 'The Behaviour field replaces the old Persona + Instructions split. Write it as a single description of who the agent is and how it works.',
+      },
+      {
+        title: 'Projects',
+        body: 'Human-driven workspaces. Create a project, assign agents, then run tasks inside it. Tasks thread together over time — follow-ups carry the previous output as context automatically.',
+      },
+      {
+        title: 'Monitors',
+        body: 'Autonomous projects that run on a schedule. Set an interval (every 5 min to every day), assign an agent, and Phoenix fires tasks automatically. Monitors appear in their own section in the sidebar.',
+        tip: 'Use the Run Now button on a monitor to fire an immediate run without waiting for the next scheduled tick.',
+      },
+      {
+        title: 'Tasks',
+        body: 'A unit of work — a title, description, and assigned agent. Tasks stream output in real time. When done you can follow up, retry, or pin the output to Briefing.',
+      },
+      {
+        title: 'Teams',
+        body: 'Named groups of agents. Assign a whole team to a project at once. Teams can be exported as a JSON bundle and imported into another Phoenix instance — useful for sharing agent configurations.',
+        tip: 'API keys are never included in exports. The importer is prompted to supply them.',
+      },
+    ],
+  },
+  {
+    heading: 'Working with tasks',
+    icon: '✦',
+    features: [
+      {
+        title: 'Follow-ups',
+        body: 'Reply to any completed task to continue the thread. The agent receives the previous output as context automatically — no copy-pasting required. Follow-ups appear indented under the original task card.',
+      },
+      {
+        title: 'Quick Tasks (\u2318K)',
+        body: 'Run a one-off task without opening a project. Click the ✦ button in the bottom-right corner or press ⌘K. Quick tasks run in a sandboxed project and appear in Tasks → All.',
+      },
+      {
+        title: 'Retry',
+        body: 'Re-run any failed or completed task with the same input. Useful when a model times out or returns empty output. The original task is preserved; retry creates a fresh run.',
+      },
+      {
+        title: 'Cancel',
+        body: 'Stop a running task immediately. The subprocess is killed, the task is marked failed, and the agent is freed for the next queued task.',
+      },
+      {
+        title: 'Task queuing',
+        body: 'If an agent has a Max Concurrent limit set, extra tasks queue automatically and start as soon as the agent has capacity. The Inbox badge counts running tasks separately.',
+      },
+      {
+        title: 'Cost estimates',
+        body: 'Before running a task, Phoenix shows an estimated cost based on prompt length and the provider’s pricing. Actual cost is shown on the card after completion. Cumulative costs are visible on the Dashboard.',
+      },
+    ],
+  },
+  {
+    heading: 'Inbox',
+    icon: '⊡',
+    features: [
+      {
+        title: 'Awaiting approval',
+        body: 'When an agent triggers a Hard Guardrail it pauses and waits. You can Approve (resume from where it stopped), Reject (mark failed), or Revise (send feedback and re-run with it).',
+      },
+      {
+        title: 'Failed tasks',
+        body: 'Tasks that errored appear in the inbox. Review the output for the error message, then retry or dismiss.',
+      },
+      {
+        title: 'Agent hire proposals',
+        body: 'Agents with the “can hire” flag enabled can propose new agents. The proposal appears in the inbox for review. Approve to create the agent (you pick the provider), or reject to discard.',
+      },
+      {
+        title: 'Dismiss',
+        body: 'Dismiss hides a task from the inbox without deleting it. The task and its output remain in the project thread. Use Dismiss All to clear all failed or awaiting tasks at once.',
+      },
+    ],
+  },
+  {
+    heading: 'Briefing',
+    icon: '📋',
+    features: [
+      {
+        title: 'What is Briefing?',
+        body: 'A dedicated space for important findings, summaries, and action items surfaced by your agents. Separate from the Inbox (which tracks task state) — Briefing is about content worth reading.',
+      },
+      {
+        title: 'Agent-posted memos',
+        body: 'Agents can embed memos directly in their output using a structured block. Phoenix extracts and saves them automatically when a task completes. The sidebar badge shows how many are unread.',
+        tip: 'Tell your agent: include a MEMO_START block with a Title: line, optional Priority: high, your content, then MEMO_END. Multiple memos per task are supported.',
+      },
+      {
+        title: 'Pin to Briefing',
+        body: 'On any completed task card, click “📋 Pin to Briefing” to manually send the output as a memo. Useful when an agent didn’t post a memo but produced something worth keeping.',
+      },
+      {
+        title: 'Read, Flag, Archive, Delete',
+        body: 'Expanding a memo marks it read. Flag keeps it highlighted for follow-up. Archive hides it from the main view without deleting. Delete removes it permanently.',
+      },
+    ],
+  },
+  {
+    heading: 'Organising projects',
+    icon: '⊞',
+    features: [
+      {
+        title: 'Tags',
+        body: 'Add free-text tags to any project or monitor. Tags are lowercase and deduped automatically. Use them to group related work — e.g. “reporting”, “escalation”, “ai-research”.',
+        tip: 'The tag input autocompletes from tags already used on other projects. Type and press Enter or comma to add.',
+      },
+      {
+        title: 'Filter & Search',
+        body: 'The Projects and Monitors pages both have a search bar and tag filter. Click a tag pill to filter to projects with that tag. Multiple tags act as AND — only projects with all selected tags are shown.',
+      },
+      {
+        title: 'Sort & Group by tag',
+        body: 'Sort by name, creation date, or choose “Group by tag” to organise the list into labelled sections. Untagged projects collect at the bottom.',
+      },
+      {
+        title: 'Archive vs Delete',
+        body: 'Archive hides a project from the active list but preserves everything — all tasks, outputs, and history. Restore it any time from Settings → Archived. Delete is permanent and removes all tasks too.',
+        tip: 'Archive when a project is done but you might want to reference it later. Delete only when you’re certain you don’t need it.',
+      },
+    ],
+  },
+  {
+    heading: 'Guardrails & safety',
+    icon: '🔒',
+    features: [
+      {
+        title: 'Soft guardrails',
+        body: 'Advisory constraints on an agent. The agent tries to follow them but can deviate if needed — it will explain why in its output. Set per-agent in Settings → Agents.',
+      },
+      {
+        title: 'Hard guardrails',
+        body: 'Mandatory rules. If the agent’s task would violate one, it outputs GUARDRAIL_TRIGGERED: and pauses for human approval. You can approve, reject, or revise with feedback from the Inbox.',
+      },
+      {
+        title: 'Global guardrails',
+        body: 'Platform-wide rules that apply to every agent on every task. Set in Settings → System. When enabled, they are injected into every system prompt and override per-agent guardrails.',
+        tip: 'Use global guardrails for non-negotiable platform policies — e.g. “never commit to git without approval”.',
+      },
+    ],
+  },
+  {
+    heading: 'Agent capabilities',
+    icon: '✶',
+    features: [
+      {
+        title: 'Spawn agents',
+        body: 'An agent with “Can spawn agents” enabled can create tasks for other existing agents via the Phoenix API. Useful for orchestration — a coordinator agent delegating subtasks to specialists.',
+      },
+      {
+        title: 'Hire agents',
+        body: 'An agent with “Can hire agents” enabled can propose entirely new agents. The proposal goes to the Inbox for human review. On approval, you choose the provider and the agent is created.',
+      },
+      {
+        title: 'Critic reviews',
+        body: 'Assign a critic agent to a project. After every completed task, the critic automatically reviews the output and posts a critique as a separate task card. Useful for quality control.',
+      },
+      {
+        title: 'Model override',
+        body: 'Each agent can override the provider’s default model. Useful when you want most agents on a fast/cheap model but specific agents on a more capable one.',
+      },
+    ],
+  },
+  {
+    heading: 'Settings & system',
+    icon: '⚙',
+    features: [
+      {
+        title: 'Database backup & restore',
+        body: 'Download a consistent SQLite snapshot at any time from Settings → System. The backup is WAL-consolidated and safe to take while tasks are running. Upload a backup to stage a restore — it applies on next restart.',
+      },
+      {
+        title: 'Archived projects',
+        body: 'Archived projects and monitors live in Settings → Archived. Restore them to the active list or permanently delete them from here.',
+      },
+      {
+        title: 'Themes',
+        body: 'Switch the UI colour theme from the picker at the bottom of the sidebar. Themes are stored in the browser and apply immediately.',
+      },
+    ],
+  },
+]
+
 // ---- Step definitions ----
 
 interface Step {
@@ -203,8 +405,8 @@ export function HelpPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Getting Started</h1>
-        <p className="text-slate-400 text-sm mt-1">Follow these four steps to set up Phoenix and run your first AI task.</p>
+        <h1 className="text-2xl font-bold text-white">Help</h1>
+        <p className="text-slate-400 text-sm mt-1">Getting started guide and full feature reference.</p>
       </div>
 
       <div className="flex gap-8 items-start">
@@ -218,26 +420,41 @@ export function HelpPage() {
         />
       </div>
 
-      {/* Concepts reference */}
-      <div>
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Reference</h2>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { term: 'Provider', def: 'The AI model or CLI agent backend (OpenAI, Ollama, pi, claude…).' },
-            { term: 'Agent', def: 'A reusable AI persona with a name, instructions, and a provider.' },
-            { term: 'Project', def: 'A workspace with a working directory and assigned agents.' },
-            { term: 'Task', def: 'A unit of work. Runs inside a project, streams output live.' },
-            { term: 'Monitor', def: 'An autonomous project that runs on a schedule. Set an interval and assign agents — Phoenix fires tasks automatically.' },
-            { term: 'Inbox', def: 'Tasks awaiting approval, failed tasks, completed tasks, and pending hire proposals.' },
-            { term: 'Team', def: 'A named group of agents that can be exported and imported as a bundle.' },
-            { term: 'Follow-up', def: 'A reply task that gets the previous task\'s output as context.' },
-          ].map(({ term, def }) => (
-            <div key={term} className="flex gap-3 bg-slate-900 border border-slate-800 rounded-lg px-4 py-3">
-              <span className="text-sm font-semibold text-violet-300 w-20 flex-shrink-0">{term}</span>
-              <span className="text-sm text-slate-400">{def}</span>
-            </div>
-          ))}
+      <hr className="border-slate-800" />
+
+      {/* Feature reference */}
+      <div className="space-y-10 pt-4">
+        <div>
+          <h2 className="text-xl font-bold text-white">Feature Reference</h2>
+          <p className="text-slate-400 text-sm mt-1">Everything Phoenix can do, in one place.</p>
         </div>
+
+        {FEATURES.map(section => (
+          <div key={section.heading}>
+            {/* Section heading */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-base">{section.icon}</span>
+              <h3 className="text-sm font-semibold text-white uppercase tracking-wider">{section.heading}</h3>
+              <div className="flex-1 h-px bg-slate-800 ml-2" />
+            </div>
+
+            {/* Feature cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {section.features.map(f => (
+                <div key={f.title} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-1.5">
+                  <p className="text-sm font-semibold text-violet-300">{f.title}</p>
+                  <p className="text-sm text-slate-400 leading-relaxed">{f.body}</p>
+                  {f.tip && (
+                    <div className="flex gap-2 mt-2 bg-violet-950/30 border border-violet-800/30 rounded-lg px-3 py-2">
+                      <span className="text-violet-400 text-xs shrink-0 mt-0.5">★</span>
+                      <p className="text-xs text-violet-300/80 leading-relaxed">{f.tip}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )

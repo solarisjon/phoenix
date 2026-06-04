@@ -103,6 +103,34 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 		b.WriteString("\n")
 	}
 
+	// Every agent gets the memo capability injected — it's always available.
+	// Monitor tasks (source=="monitor") get a stronger, mandatory instruction.
+	b.WriteString("\n## Briefing Memos\n")
+	if t.Source == "monitor" {
+		b.WriteString(`You MUST end your response with a briefing memo summarising what you found and any actions taken. Use this exact format:
+
+MEMO_START
+Title: <concise one-line title>
+Priority: high
+<markdown body — key findings, actions taken, anything requiring attention>
+MEMO_END
+
+Include findings even if the run was routine — the memo is the human's window into what you did.
+You can include multiple MEMO blocks if there are distinct topics worth separating.`)
+	} else {
+		b.WriteString(`If your task produces findings, actions, summaries, or anything the user should read, you MAY embed one or more briefing memos directly in your output using this exact format:
+
+MEMO_START
+Title: <concise one-line title>
+Priority: high
+<markdown body — bullet points, headings, whatever is clearest>
+MEMO_END
+
+Omit the Priority line for normal priority. You can include multiple MEMO blocks.
+Only post a memo when there is genuinely something worth surfacing — not for routine confirmations or status updates.`)
+	}
+	b.WriteString("\n")
+
 	if globalGuardrails != "" {
 		b.WriteString("\n## Platform-Wide Guardrails (mandatory — overrides all other instructions)\n")
 		b.WriteString(globalGuardrails)
@@ -110,6 +138,52 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+// BuiltinCriticPrompt returns a system prompt for an ephemeral devil's advocate
+// critic. It is injected when critic_mode = "builtin" — no registered agent needed.
+func BuiltinCriticPrompt() string {
+	return strings.TrimSpace(`
+## Role
+You are a Devil's Advocate critic. Your sole purpose is to challenge, stress-test, and find weaknesses in the work you are reviewing. You are not here to be supportive or balanced — you are here to find problems.
+
+## Approach
+- Assume the work is flawed until proven otherwise.
+- Identify logical gaps, unstated assumptions, and missing edge cases.
+- Challenge conclusions: what evidence is missing? What alternative explanations exist?
+- Surface risks the original agent may have downplayed or ignored.
+- Point out what was NOT done that should have been.
+- Be direct and specific — vague criticism is useless.
+
+## Output format
+Structure your critique as:
+1. **Key concerns** — the most important issues, ranked by severity
+2. **Unstated assumptions** — things taken for granted that may not hold
+3. **Missing considerations** — what was overlooked?
+4. **Recommended actions** — concrete next steps to address the concerns
+
+Do not summarise or praise the original work. Focus entirely on what could be wrong or improved.
+`)
+}
+
+// BuildBuiltinCriticRequest assembles a TaskRequest for an ephemeral built-in
+// devil's advocate review of a completed task. The original task output is the prompt.
+func BuildBuiltinCriticRequest(originalTask *model.Task) provider.TaskRequest {
+	var prompt strings.Builder
+	prompt.WriteString(fmt.Sprintf("# Critic Review: %s\n\n", originalTask.Title))
+	prompt.WriteString("Review the following task output and provide a rigorous devil's advocate critique.\n\n")
+	prompt.WriteString("## Original task\n")
+	prompt.WriteString(originalTask.Title)
+	if originalTask.Description != "" {
+		prompt.WriteString("\n\n")
+		prompt.WriteString(originalTask.Description)
+	}
+	prompt.WriteString("\n\n## Task output\n")
+	prompt.WriteString(extractOutputText(originalTask.Output))
+	return provider.TaskRequest{
+		SystemPrompt: BuiltinCriticPrompt(),
+		Prompt:       prompt.String(),
+	}
 }
 
 // InjectFollowUpContext prepends the parent task's output to the request prompt

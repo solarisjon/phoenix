@@ -38,6 +38,10 @@ type EventHandler func(StreamEvent)
 // being forcibly cancelled and marked failed.
 const DefaultTaskTimeout = 30 * time.Minute
 
+// MemoHandler is called when the runner extracts a memo from task output.
+// Implementations must be non-blocking.
+type MemoHandler func(memo *model.Memo)
+
 // Runner manages agent task execution. Each task runs in its own goroutine.
 // All active goroutines are tracked so they can be cancelled on shutdown.
 type Runner struct {
@@ -45,8 +49,10 @@ type Runner struct {
 	tasks    store.TaskRepo
 	projects store.ProjectRepo
 	settings store.SystemSettingsRepo
+	memos    store.MemoRepo
 	registry *registry.Registry
 	onEvent  EventHandler
+	onMemo   MemoHandler
 	bgCtx    context.Context    // long-lived background context for task goroutines
 	bgCancel context.CancelFunc // cancelled on Shutdown
 
@@ -55,12 +61,13 @@ type Runner struct {
 	agentRunning map[string]int                     // agent ID → count of running goroutines
 }
 
-// New creates a Runner. onEvent may be nil (events are dropped).
+// New creates a Runner. onEvent and onMemo may be nil (events/memos are dropped).
 func New(
 	agents store.AgentRepo,
 	tasks store.TaskRepo,
 	projects store.ProjectRepo,
 	settings store.SystemSettingsRepo,
+	memos store.MemoRepo,
 	reg *registry.Registry,
 	onEvent EventHandler,
 ) *Runner {
@@ -70,6 +77,7 @@ func New(
 		tasks:        tasks,
 		projects:     projects,
 		settings:     settings,
+		memos:        memos,
 		registry:     reg,
 		onEvent:      onEvent,
 		bgCtx:        bgCtx,
@@ -78,6 +86,9 @@ func New(
 		agentRunning: make(map[string]int),
 	}
 }
+
+// SetMemoHandler sets the callback invoked when a memo is extracted from output.
+func (r *Runner) SetMemoHandler(h MemoHandler) { r.onMemo = h }
 
 // SetEventHandler replaces the event handler after construction.
 // Safe to call before any tasks are started.
@@ -437,25 +448,20 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
-	// After successful completion, check if project has a critic configured.
-	if !task.IsCriticReview {
-		if proj, perr := r.projects.Get(r.bgCtx, task.ProjectID); perr == nil && proj != nil && proj.CriticAgentID != nil {
-			criticTask := &model.Task{
-				ID:             uuid.New().String(),
-				ProjectID:      task.ProjectID,
-				AgentID:        *proj.CriticAgentID,
-				Title:          "Critic Review: " + task.Title,
-				Description:    "You are reviewing the output of a completed task. Provide an objective critique: what was done well, what could be improved, any risks or concerns.\n\nOriginal Task: " + task.Title + "\n\nTask Output:\n" + task.Output,
-				Status:         model.TaskStatusPending,
-				Source:         "critic",
-				IsCriticReview: true,
-				ReviewedTaskID: &task.ID,
-				CreatedAt:      time.Now(),
-			}
-			if cerr := r.tasks.Create(r.bgCtx, criticTask); cerr == nil {
-				_ = r.RunTask(r.bgCtx, criticTask.ID)
-			}
+	// Extract any MEMO blocks the agent embedded in its output and persist them.
+	// For monitor tasks, if the agent didn't post a memo, auto-create one from
+	// the output so the Briefing always gets a summary of what the monitor did.
+	if r.memos != nil {
+		posted := r.extractAndSaveMemos(task, agent, fullOutput)
+		if !posted && task.Source == "monitor" {
+			r.autoMemoForMonitor(task, agent, fullOutput)
 		}
+	}
+
+	// After successful completion, run a critic/devil's-advocate review if configured.
+	// Critic reviews are never themselves reviewed (avoids infinite loops).
+	if !task.IsCriticReview {
+		r.maybeLaunchCritic(task, agent)
 	}
 
 	r.emit(StreamEvent{
@@ -520,6 +526,320 @@ func (r *Runner) emit(ev StreamEvent) {
 	if r.onEvent != nil {
 		r.onEvent(ev)
 	}
+}
+
+// ---- Memo extraction ----
+
+// extractAndSaveMemos scans agent output for MEMO blocks and persists each one.
+// A MEMO block looks like:
+//
+//	MEMO_START
+//	Title: <single line title>
+//	Priority: high          (optional; defaults to normal)
+//	<body markdown — everything until MEMO_END>
+//	MEMO_END
+//
+// Multiple blocks are supported in a single output.
+// extractAndSaveMemos scans agent output for MEMO blocks and persists each one.
+// Returns true if at least one memo was saved.
+func (r *Runner) extractAndSaveMemos(task *model.Task, a *model.Agent, output string) bool {
+	memoBlocks := parseMemoBlocks(output)
+	if len(memoBlocks) == 0 {
+		return false
+	}
+
+	// Look up project name for display (best-effort; empty string is fine).
+	var projectName string
+	if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
+		projectName = proj.Name
+	}
+
+	saved := false
+	for _, block := range memoBlocks {
+		memo := &model.Memo{
+			ID:          uuid.New().String(),
+			ProjectID:   task.ProjectID,
+			ProjectName: projectName,
+			TaskID:      task.ID,
+			AgentID:     a.ID,
+			AgentName:   a.Name,
+			Title:       block.title,
+			Body:        block.body,
+			Priority:    block.priority,
+			Status:      model.MemoStatusUnread,
+			CreatedAt:   time.Now(),
+		}
+		if err := r.memos.Create(r.bgCtx, memo); err != nil {
+			log.Printf("runner: save memo from task %s: %v", task.ID, err)
+			continue
+		}
+		log.Printf("runner: memo saved from task %s: %q", task.ID, memo.Title)
+		if r.onMemo != nil {
+			r.onMemo(memo)
+		}
+		saved = true
+	}
+	return saved
+}
+
+// autoMemoForMonitor creates a fallback memo for a monitor task that completed
+// successfully but whose agent didn't emit a MEMO_START block. This ensures
+// the Briefing always reflects what a monitor run did, even when the agent
+// ignores or misses the memo instruction.
+func (r *Runner) autoMemoForMonitor(task *model.Task, a *model.Agent, output string) {
+	var projectName string
+	if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
+		projectName = proj.Name
+	}
+
+	// Truncate very long outputs so the memo body is readable.
+	body := output
+	const maxBody = 4000
+	if len(body) > maxBody {
+		body = body[:maxBody] + "\n\n_[output truncated — open the task for the full run log]_"
+	}
+
+	memo := &model.Memo{
+		ID:          uuid.New().String(),
+		ProjectID:   task.ProjectID,
+		ProjectName: projectName,
+		TaskID:      task.ID,
+		AgentID:     a.ID,
+		AgentName:   a.Name,
+		Title:       task.Title,
+		Body:        body,
+		Priority:    model.MemoPriorityNormal,
+		Status:      model.MemoStatusUnread,
+		CreatedAt:   time.Now(),
+	}
+	if err := r.memos.Create(r.bgCtx, memo); err != nil {
+		log.Printf("runner: auto-memo for monitor task %s: %v", task.ID, err)
+		return
+	}
+	log.Printf("runner: auto-memo created for monitor task %s: %q", task.ID, memo.Title)
+	if r.onMemo != nil {
+		r.onMemo(memo)
+	}
+}
+
+// ---- Critic / Devil's Advocate ----
+
+// maybeLaunchCritic resolves the effective critic mode for the completed task
+// (task-level overrides project-level) and launches a critic task if needed.
+func (r *Runner) maybeLaunchCritic(task *model.Task, originalAgent *model.Agent) {
+	// Resolve effective critic mode: task setting, unless it says "inherit".
+	mode := task.CriticMode
+	if mode == "" || mode == model.CriticModeInherit {
+		// Fall back to project setting.
+		if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
+			mode = proj.CriticMode
+		}
+	}
+	if mode == "" || mode == model.CriticModeNone {
+		return
+	}
+
+	switch {
+	case mode == model.CriticModeBuiltin:
+		r.launchBuiltinCritic(task, originalAgent)
+	case len(mode) > 6 && mode[:6] == "agent:":
+		agentID := mode[6:]
+		r.launchAgentCritic(task, agentID)
+	}
+}
+
+// launchBuiltinCritic spawns an ephemeral devil's advocate review using the
+// same provider as the original agent — no registered agent record needed.
+func (r *Runner) launchBuiltinCritic(task *model.Task, originalAgent *model.Agent) {
+	criticTask := &model.Task{
+		ID:             uuid.New().String(),
+		ProjectID:      task.ProjectID,
+		AgentID:        originalAgent.ID, // same agent, different system prompt injected at runtime
+		Title:          "Devil's Advocate: " + task.Title,
+		Status:         model.TaskStatusPending,
+		Source:         "critic",
+		IsCriticReview: true,
+		CriticMode:     model.CriticModeBuiltin,
+		ReviewedTaskID: &task.ID,
+		CreatedAt:      time.Now(),
+	}
+	if err := r.tasks.Create(r.bgCtx, criticTask); err != nil {
+		log.Printf("runner: create builtin critic task: %v", err)
+		return
+	}
+	// Run it directly — bypasses RunTask's status check since we just created it pending.
+	// We use bgCtx so shutdown doesn't race with the critic starting.
+	go func() {
+		r.mu.Lock()
+		r.agentRunning[originalAgent.ID]++
+		timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+		taskCtx, cancel := context.WithCancelCause(timeoutCtx)
+		r.cancels[criticTask.ID] = cancel
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			delete(r.cancels, criticTask.ID)
+			r.agentRunning[originalAgent.ID]--
+			r.mu.Unlock()
+			cancel(nil)
+			timeoutCancel()
+		}()
+		r.executeBuiltinCritic(taskCtx, criticTask, originalAgent, task)
+	}()
+}
+
+// executeBuiltinCritic runs a devil's advocate critic task using the builtin prompt.
+// It reuses the original agent's provider but substitutes the critic system prompt.
+func (r *Runner) executeBuiltinCritic(ctx context.Context, criticTask *model.Task, agent *model.Agent, reviewedTask *model.Task) {
+	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.ModelOverride)
+	if err != nil {
+		r.failTask(ctx, criticTask, fmt.Errorf("builtin critic: provider load: %w", err))
+		return
+	}
+
+	var workingDir string
+	if proj, err := r.projects.Get(ctx, criticTask.ProjectID); err == nil && proj != nil {
+		workingDir = proj.WorkingDir
+	}
+
+	now := time.Now()
+	criticTask.StartedAt = &now
+	timeoutAt := now.Add(DefaultTaskTimeout)
+	criticTask.TimeoutAt = &timeoutAt
+	if err := r.setStatus(ctx, criticTask, model.TaskStatusRunning, nil); err != nil {
+		log.Printf("runner: builtin critic set running: %v", err)
+		return
+	}
+
+	req := BuildBuiltinCriticRequest(reviewedTask)
+	req.WorkingDir = workingDir
+
+	ch, err := prov.StreamExecute(ctx, req)
+	if err != nil {
+		r.failTask(ctx, criticTask, fmt.Errorf("builtin critic stream: %w", err))
+		return
+	}
+
+	var outputBuilder []string
+	for chunk := range ch {
+		if chunk.Error != nil {
+			r.failTask(ctx, criticTask, chunk.Error)
+			return
+		}
+		if chunk.Content != "" {
+			outputBuilder = append(outputBuilder, chunk.Content)
+			r.emit(StreamEvent{TaskID: criticTask.ID, AgentID: criticTask.AgentID, Chunk: &chunk.Content})
+		}
+	}
+
+	fullOutput := strings.Join(outputBuilder, "")
+	if strings.TrimSpace(fullOutput) == "" {
+		r.failTask(ctx, criticTask, fmt.Errorf("builtin critic returned empty output"))
+		return
+	}
+
+	outputJSON, _ := json.Marshal(map[string]interface{}{"text": fullOutput})
+	completedAt := time.Now()
+	criticTask.Output = string(outputJSON)
+	criticTask.CompletedAt = &completedAt
+
+	status := model.TaskStatusCompleted
+	if err := r.setStatus(ctx, criticTask, status, nil); err != nil {
+		log.Printf("runner: builtin critic set completed: %v", err)
+	}
+	r.emit(StreamEvent{TaskID: criticTask.ID, AgentID: criticTask.AgentID, StatusDone: &status})
+}
+
+// launchAgentCritic spawns a critic task using a specific registered agent.
+func (r *Runner) launchAgentCritic(task *model.Task, criticAgentID string) {
+	criticAgent, err := r.agents.Get(r.bgCtx, criticAgentID)
+	if err != nil || criticAgent == nil {
+		log.Printf("runner: critic agent %s not found: %v", criticAgentID, err)
+		return
+	}
+	criticTask := &model.Task{
+		ID:             uuid.New().String(),
+		ProjectID:      task.ProjectID,
+		AgentID:        criticAgentID,
+		Title:          "Critic Review: " + task.Title,
+		Description:    "You are reviewing the output of a completed task. Provide an objective critique: what was done well, what could be improved, any risks or concerns.\n\nOriginal Task: " + task.Title + "\n\nTask Output:\n" + task.Output,
+		Status:         model.TaskStatusPending,
+		Source:         "critic",
+		IsCriticReview: true,
+		CriticMode:     "agent:" + criticAgentID,
+		ReviewedTaskID: &task.ID,
+		CreatedAt:      time.Now(),
+	}
+	if err := r.tasks.Create(r.bgCtx, criticTask); err != nil {
+		log.Printf("runner: create agent critic task: %v", err)
+		return
+	}
+	if err := r.RunTask(r.bgCtx, criticTask.ID); err != nil {
+		log.Printf("runner: run agent critic task: %v", err)
+	}
+}
+
+type parsedMemo struct {
+	title    string
+	body     string
+	priority model.MemoPriority
+}
+
+// parseMemoBlocks extracts all MEMO_START … MEMO_END sections from text.
+func parseMemoBlocks(output string) []parsedMemo {
+	var results []parsedMemo
+	lines := strings.Split(output, "\n")
+
+	i := 0
+	for i < len(lines) {
+		if strings.TrimSpace(lines[i]) != "MEMO_START" {
+			i++
+			continue
+		}
+		// Found a block start — collect until MEMO_END.
+		i++
+		var title string
+		priority := model.MemoPriorityNormal
+		var bodyLines []string
+		headerDone := false
+
+		for i < len(lines) {
+			if strings.TrimSpace(lines[i]) == "MEMO_END" {
+				i++
+				break
+			}
+			line := lines[i]
+			if !headerDone {
+				if strings.HasPrefix(line, "Title:") {
+					title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
+					i++
+					continue
+				}
+				if strings.HasPrefix(line, "Priority:") {
+					pval := strings.TrimSpace(strings.ToLower(strings.TrimPrefix(line, "Priority:")))
+					if pval == "high" {
+						priority = model.MemoPriorityHigh
+					}
+					i++
+					continue
+				}
+				// First non-header line starts the body.
+				headerDone = true
+			}
+			bodyLines = append(bodyLines, line)
+			i++
+		}
+
+		if title == "" || len(bodyLines) == 0 {
+			continue // skip malformed blocks
+		}
+		results = append(results, parsedMemo{
+			title:    title,
+			body:     strings.TrimSpace(strings.Join(bodyLines, "\n")),
+			priority: priority,
+		})
+	}
+	return results
 }
 
 // deriveHealthSignal inspects the output text of a completed monitor task and

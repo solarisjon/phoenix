@@ -7,14 +7,18 @@ import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
+import { TagInput, TagPill } from '@/components/ui/tag-input'
+import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
+import type { FilterSortState } from '@/components/ui/filter-sort-bar'
 import { timeAgo } from '@/lib/utils'
 
-function ProjectForm({ initial, providers, onSave, onClose }: {
-  initial?: Project; providers: Provider[]; onSave: () => void; onClose: () => void
+function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
+  initial?: Project; providers: Provider[]; allTags: string[]; onSave: () => void; onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
+  const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
   const [kind, setKind] = useState<'project' | 'monitor'>(initial?.kind ?? 'project')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -30,8 +34,8 @@ function ProjectForm({ initial, providers, onSave, onClose }: {
     if (!name.trim()) { setError('Name is required'); return }
     setSaving(true)
     try {
-      if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir, kind })
-      else await api.projects.create({ name, description, working_dir: workingDir, kind })
+      if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir, kind, tags })
+      else await api.projects.create({ name, description, working_dir: workingDir, kind, tags })
       onSave()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -105,6 +109,10 @@ function ProjectForm({ initial, providers, onSave, onClose }: {
           placeholder="What is this project trying to achieve?" />
       </div>
       <div>
+        <Label>Tags <span className="text-slate-500 font-normal">(optional)</span></Label>
+        <TagInput value={tags} onChange={setTags} suggestions={allTags} />
+      </div>
+      <div>
         <Label htmlFor="wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>
         <Input id="wdir" value={workingDir} onChange={e => setWorkingDir(e.target.value)}
           placeholder="/path/to/project — passed to coding agents as their working directory" />
@@ -145,23 +153,71 @@ export function ProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Project | undefined>()
+  const [fs, setFs] = useState<FilterSortState>({
+    search: '', activeTags: [], sort: 'created-desc',
+  })
 
   const load = async () => {
     try {
       const [projs, provs] = await Promise.all([api.projects.list('project'), api.providers.list()])
       setProjects(projs)
       setProviders(provs)
-    }
-    finally { setLoading(false) }
+    } finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [])
 
-  const remove = async (id: string) => {
-    if (!confirm('Delete this project and all its tasks?')) return
-    await api.projects.delete(id)
-    load()
+  const archive = async (id: string, name: string) => {
+    if (!confirm(`Archive "${name}"? It will disappear from this list but all tasks and history are preserved. You can restore it from Settings → Archived.`)) return
+    try { await api.projects.archive(id); load() } catch (e: any) { alert(e.message) }
   }
+
+  const remove = async (id: string, name: string) => {
+    if (!confirm(`Permanently delete "${name}" and all its tasks? This cannot be undone.`)) return
+    try { await api.projects.delete(id); load() } catch (e: any) { alert(e.message) }
+  }
+
+  const allTags = collectAllTags(projects)
+  const displayed = applyFilterSort(projects, fs)
+  const groupByTag = fs.sort === 'tag'
+
+  // When grouping by tag: build groups. Untagged items go in a final group.
+  const groups: { label: string; items: Project[] }[] = []
+  if (groupByTag) {
+    const seen = new Set<string>()
+    displayed.forEach(p => {
+      const firstTag = [...(p.tags ?? [])].sort()[0]
+      const key = firstTag ?? '(untagged)'
+      if (!seen.has(key)) { seen.add(key); groups.push({ label: key, items: [] }) }
+      groups.find(g => g.label === key)!.items.push(p)
+    })
+  }
+
+  const ProjectCard = ({ p }: { p: Project }) => (
+    <Card className="hover:border-slate-700 transition-colors">
+      <CardBody className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/projects/${p.id}`)}>
+          <div className="flex items-center gap-3 mb-1 flex-wrap">
+            <h3 className="font-medium text-white hover:text-violet-400 transition-colors">{p.name}</h3>
+            <Badge variant={p.status === 'active' ? 'success' : 'muted'}>{p.status}</Badge>
+            {p.tags?.map(t => <TagPill key={t} tag={t} />)}
+          </div>
+          {p.description && <p className="text-sm text-slate-400 line-clamp-1">{p.description}</p>}
+          {p.working_dir && (
+            <p className="text-xs text-slate-500 font-mono mt-0.5 truncate" title={p.working_dir}>
+              📁 {p.working_dir}
+            </p>
+          )}
+          <p className="text-xs text-slate-600 mt-2">Created {timeAgo(p.created_at)}</p>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="ghost" size="sm" onClick={() => { setEditing(p); setShowForm(true) }}>Edit</Button>
+          <Button variant="secondary" size="sm" onClick={() => archive(p.id, p.name)}>Archive</Button>
+          <Button variant="danger" size="sm" onClick={() => remove(p.id, p.name)}>Delete</Button>
+        </div>
+      </CardBody>
+    </Card>
+  )
 
   return (
     <div className="space-y-6">
@@ -180,39 +236,45 @@ export function ProjectsPage() {
           description="Create your first project and assign agents to start orchestrating work."
           action={<Button onClick={() => setShowForm(true)}>New Project</Button>} />
       ) : (
-        <div className="grid gap-4">
-          {projects.map(p => (
-            <Card key={p.id} className="hover:border-slate-700 transition-colors">
-              <CardBody className="flex items-start justify-between gap-4">
-                <div
-                  className="flex-1 min-w-0 cursor-pointer"
-                  onClick={() => navigate(`/projects/${p.id}`)}
-                >
-                  <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-medium text-white hover:text-violet-400 transition-colors">{p.name}</h3>
-                    <Badge variant={p.status === 'active' ? 'success' : 'muted'}>{p.status}</Badge>
+        <div className="space-y-4">
+          <FilterSortBar
+            state={fs} onChange={setFs}
+            allTags={allTags}
+            total={projects.length}
+            filtered={displayed.length}
+          />
+
+          {displayed.length === 0 ? (
+            <p className="text-slate-500 text-sm py-4">No projects match your filter.</p>
+          ) : groupByTag ? (
+            <div className="space-y-6">
+              {groups.map(g => (
+                <div key={g.label}>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">
+                    {g.label === '(untagged)' ? 'Untagged' : g.label}
+                    <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">{g.items.length}</span>
+                  </p>
+                  <div className="grid gap-3">
+                    {g.items.map(p => <ProjectCard key={p.id} p={p} />)}
                   </div>
-                  {p.description && <p className="text-sm text-slate-400 line-clamp-1">{p.description}</p>}
-                  {p.working_dir && (
-                    <p className="text-xs text-slate-500 font-mono mt-0.5 truncate" title={p.working_dir}>
-                      📁 {p.working_dir}
-                    </p>
-                  )}
-                  <p className="text-xs text-slate-600 mt-2">Created {timeAgo(p.created_at)}</p>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <Button variant="ghost" size="sm" onClick={() => { setEditing(p); setShowForm(true) }}>Edit</Button>
-                  <Button variant="danger" size="sm" onClick={() => remove(p.id)}>Delete</Button>
-                </div>
-              </CardBody>
-            </Card>
-          ))}
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {displayed.map(p => <ProjectCard key={p.id} p={p} />)}
+            </div>
+          )}
         </div>
       )}
 
       {showForm && (
         <Modal title={editing ? 'Edit Project' : 'New Project'} onClose={() => setShowForm(false)} className="max-w-2xl">
-          <ProjectForm initial={editing} providers={providers} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
+          <ProjectForm
+            initial={editing} providers={providers} allTags={allTags}
+            onSave={() => { setShowForm(false); load() }}
+            onClose={() => setShowForm(false)}
+          />
         </Modal>
       )}
     </div>

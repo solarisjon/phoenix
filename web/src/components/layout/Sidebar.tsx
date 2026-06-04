@@ -5,6 +5,7 @@ import { ThemePicker } from '@/components/ui/theme-picker'
 const nav = [
   { label: 'Dashboard', href: '/', icon: '◈' },
   { label: 'Inbox', href: '/inbox', icon: '⊡' },
+  { label: 'Briefing', href: '/briefing', icon: '📋' },
   { label: 'Projects', href: '/projects', icon: '⊞' },
   { label: 'Monitors', href: '/monitors', icon: '⟳' },
   { label: 'Tasks', href: '/tasks', icon: '✦' },
@@ -13,7 +14,11 @@ const nav = [
   { label: 'Help', href: '/help', icon: '?' },
 ]
 
-export function Sidebar({ inboxCount, activeCount }: { inboxCount: number; activeCount: number }) {
+export function Sidebar({ inboxCount, activeCount, memoCount }: {
+  inboxCount: number
+  activeCount: number
+  memoCount: number
+}) {
   return (
     <aside className="w-56 flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col">
       {/* Logo */}
@@ -55,6 +60,11 @@ export function Sidebar({ inboxCount, activeCount }: { inboxCount: number; activ
             {label === 'Inbox' && inboxCount > 0 && (
               <span className="bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
                 {inboxCount > 99 ? '99+' : inboxCount}
+              </span>
+            )}
+            {label === 'Briefing' && memoCount > 0 && (
+              <span className="bg-violet-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
+                {memoCount > 99 ? '99+' : memoCount}
               </span>
             )}
           </NavLink>

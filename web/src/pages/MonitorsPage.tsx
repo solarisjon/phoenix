@@ -8,6 +8,9 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { AgentsSection } from '@/components/shared/AgentsSection'
+import { TagInput, TagPill } from '@/components/ui/tag-input'
+import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
+import type { FilterSortState } from '@/components/ui/filter-sort-bar'
 import { timeAgo } from '@/lib/utils'
 
 const formatInterval = (secs: number | null | undefined) => {
@@ -41,15 +44,17 @@ function scheduleLabel(secs: number | null | undefined): string {
   return `Every ${Math.round(secs / 86400)}d`
 }
 
-function MonitorForm({ initial, providers, onSave, onClose }: {
+function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   initial?: Project
   providers: Provider[]
+  allTags: string[]
   onSave: () => void
   onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
+  const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
   const [scheduleInterval, setScheduleInterval] = useState<number>(initial?.schedule_interval ?? 0)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -72,6 +77,7 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
         working_dir: workingDir.trim(),
         kind: 'monitor' as const,
         schedule_interval: scheduleInterval > 0 ? scheduleInterval : null,
+        tags,
       }
       if (initial) {
         await api.projects.update(initial.id, payload)
@@ -170,6 +176,10 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
         )}
       </div>
       <div>
+        <Label>Tags <span className="text-slate-500 font-normal">(optional)</span></Label>
+        <TagInput value={tags} onChange={setTags} suggestions={allTags} />
+      </div>
+      <div>
         <Label htmlFor="mon-wdir">
           Working Directory <span className="text-slate-500 font-normal">(optional)</span>
         </Label>
@@ -189,11 +199,12 @@ function MonitorForm({ initial, providers, onSave, onClose }: {
 
 // ---- Monitor card ----
 
-function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefresh }: {
+function MonitorCard({ monitor, agents, allAgents, providers, onArchive, onDelete, onRefresh }: {
   monitor: Project
   agents: Agent[]
   allAgents: Agent[]
   providers: Provider[]
+  onArchive: () => void
   onDelete: () => void
   onRefresh: () => void
 }) {
@@ -229,6 +240,7 @@ function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefres
                 <Badge variant={monitor.status === 'active' ? 'success' : 'muted'}>
                   {monitor.status}
                 </Badge>
+                {monitor.tags?.map(t => <TagPill key={t} tag={t} />)}
               </div>
                 {monitor.description && (
                   <p className="text-sm text-slate-400 line-clamp-1 mt-1 ml-6">
@@ -258,6 +270,7 @@ function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefres
             {/* Action buttons */}
             <div className="flex gap-2 flex-shrink-0">
               <Button variant="secondary" size="sm" onClick={() => setShowEdit(true)}>Edit</Button>
+              <Button variant="secondary" size="sm" onClick={onArchive}>Archive</Button>
               <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
             </div>
           </div>
@@ -281,6 +294,7 @@ function MonitorCard({ monitor, agents, allAgents, providers, onDelete, onRefres
           <MonitorForm
             initial={monitor}
             providers={providers}
+            allTags={[]}
             onSave={() => { setShowEdit(false); onRefresh() }}
             onClose={() => setShowEdit(false)}
           />
@@ -299,6 +313,7 @@ export function MonitorsPage() {
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [fs, setFs] = useState<FilterSortState>({ search: '', activeTags: [], sort: 'created-desc' })
 
   const load = useCallback(async () => {
     try {
@@ -322,10 +337,20 @@ export function MonitorsPage() {
 
   useEffect(() => { load() }, [load])
 
+  const archiveMonitor = async (id: string, name: string) => {
+    if (!confirm(`Archive "${name}"? It will disappear from this list but all run history is preserved. You can restore it from Settings → Archived.`)) return
+    try {
+      await api.projects.archive(id)
+      load()
+    } catch (e: any) { alert(e.message) }
+  }
+
   const deleteMonitor = async (id: string, name: string) => {
-    if (!confirm(`Delete monitor "${name}" and all its run history?`)) return
-    await api.projects.delete(id)
-    load()
+    if (!confirm(`Permanently delete "${name}" and all its run history? This cannot be undone.`)) return
+    try {
+      await api.projects.delete(id)
+      load()
+    } catch (e: any) { alert(e.message) }
   }
 
   return (
@@ -349,26 +374,64 @@ export function MonitorsPage() {
           description="Create a monitor, assign a heartbeat agent, and it will run automatically on schedule."
           action={<Button onClick={() => setShowForm(true)}>New Monitor</Button>}
         />
-      ) : (
-        <div className="grid gap-4">
-          {monitors.map(m => (
-            <MonitorCard
-              key={m.id}
-              monitor={m}
-              agents={agentsByMonitor[m.id] ?? []}
-              allAgents={allAgents}
-              providers={providers}
-              onDelete={() => deleteMonitor(m.id, m.name)}
-              onRefresh={load}
-            />
-          ))}
-        </div>
-      )}
+      ) : (() => {
+        const allTags = collectAllTags(monitors)
+        const displayed = applyFilterSort(monitors, fs)
+        const groupByTag = fs.sort === 'tag'
+        const groups: { label: string; items: Project[] }[] = []
+        if (groupByTag) {
+          const seen = new Set<string>()
+          displayed.forEach(m => {
+            const key = [...(m.tags ?? [])].sort()[0] ?? '(untagged)'
+            if (!seen.has(key)) { seen.add(key); groups.push({ label: key, items: [] }) }
+            groups.find(g => g.label === key)!.items.push(m)
+          })
+        }
+        return (
+          <div className="space-y-4">
+            <FilterSortBar state={fs} onChange={setFs} allTags={allTags} total={monitors.length} filtered={displayed.length} />
+            {displayed.length === 0 ? (
+              <p className="text-slate-500 text-sm py-4">No monitors match your filter.</p>
+            ) : groupByTag ? (
+              <div className="space-y-6">
+                {groups.map(g => (
+                  <div key={g.label}>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">
+                      {g.label === '(untagged)' ? 'Untagged' : g.label}
+                      <span className="ml-2 font-normal normal-case tracking-normal text-slate-600">{g.items.length}</span>
+                    </p>
+                    <div className="grid gap-4">
+                      {g.items.map(m => (
+                        <MonitorCard key={m.id} monitor={m}
+                          agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
+                          onArchive={() => archiveMonitor(m.id, m.name)}
+                          onDelete={() => deleteMonitor(m.id, m.name)}
+                          onRefresh={load} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {displayed.map(m => (
+                  <MonitorCard key={m.id} monitor={m}
+                    agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
+                    onArchive={() => archiveMonitor(m.id, m.name)}
+                    onDelete={() => deleteMonitor(m.id, m.name)}
+                    onRefresh={load} />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {showForm && (
         <Modal title="New Monitor" onClose={() => setShowForm(false)} className="max-w-2xl">
           <MonitorForm
             providers={providers}
+            allTags={collectAllTags(monitors)}
             onSave={() => { setShowForm(false); load() }}
             onClose={() => setShowForm(false)}
           />

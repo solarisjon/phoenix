@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { AgentsPage } from './AgentsPage'
 import { ProvidersPage } from './ProvidersPage'
 import { api } from '../lib/api'
-import type { SystemSettings, SysInfo } from '../lib/api'
+import type { SystemSettings, SysInfo, Project } from '../lib/api'
+import { timeAgo } from '../lib/utils'
 
 function SystemInfoSection() {
   const [info, setInfo] = useState<SysInfo | null>(null)
@@ -373,10 +375,141 @@ function SystemTab() {
   )
 }
 
+function ArchivedProjectsTab() {
+  const navigate = useNavigate()
+  const [projects, setProjects] = useState<Project[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      // Fetch both archived projects and monitors together
+      const [archivedProjects, archivedMonitors] = await Promise.all([
+        api.projects.listArchived('project'),
+        api.projects.listArchived('monitor'),
+      ])
+      setProjects([...archivedProjects, ...archivedMonitors])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const restore = async (id: string, name: string) => {
+    if (!confirm(`Restore "${name}" back to active?`)) return
+    setBusy(id)
+    setError(null)
+    try {
+      await api.projects.restore(id)
+      await load()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const remove = async (id: string, name: string) => {
+    if (!confirm(`Permanently delete "${name}" and all its tasks? This cannot be undone.`)) return
+    setBusy(id)
+    setError(null)
+    try {
+      await api.projects.delete(id)
+      await load()
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h2 className="text-lg font-semibold text-white mb-1">Archived Projects &amp; Monitors</h2>
+        <p className="text-slate-400 text-sm">
+          Archived projects are hidden from the active views but all tasks and history are preserved.
+          Restore a project to bring it back, or delete it permanently to remove all data.
+        </p>
+      </div>
+
+      {error && (
+        <div className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-slate-500 text-sm">Loading…</div>
+      ) : projects.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+          <div className="text-3xl mb-2">🗂</div>
+          <p className="text-slate-400 text-sm">No archived projects.</p>
+          <p className="text-slate-600 text-xs mt-1">When you archive a project it will appear here.</p>
+        </div>
+      ) : (
+        <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800">
+          {projects.map(p => (
+            <div key={p.id} className="flex items-center gap-4 px-4 py-3">
+              {/* Kind icon */}
+              <span className="text-slate-600 text-base shrink-0" title={p.kind === 'monitor' ? 'Monitor' : 'Project'}>
+                {p.kind === 'monitor' ? '⟳' : '⊞'}
+              </span>
+
+              {/* Name + meta */}
+              <div className="flex-1 min-w-0">
+                <button
+                  onClick={() => navigate(p.kind === 'monitor' ? `/monitors/${p.id}` : `/projects/${p.id}`)}
+                  className="text-sm font-medium text-slate-300 hover:text-violet-400 transition-colors truncate block text-left"
+                >
+                  {p.name}
+                </button>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs text-slate-600">Archived · created {timeAgo(p.created_at)}</span>
+                  {p.working_dir && (
+                    <span className="text-xs text-slate-700 font-mono truncate" title={p.working_dir}>
+                      📁 {p.working_dir}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => restore(p.id, p.name)}
+                  disabled={busy === p.id}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-violet-600/50 text-violet-400 hover:bg-violet-600/20 disabled:opacity-50 transition-colors"
+                >
+                  {busy === p.id ? '…' : '↩ Restore'}
+                </button>
+                <button
+                  onClick={() => remove(p.id, p.name)}
+                  disabled={busy === p.id}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-red-700/50 text-red-400 hover:bg-red-700/20 disabled:opacity-50 transition-colors"
+                >
+                  {busy === p.id ? '…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const TABS = [
   { id: 'agents', label: 'Agents' },
   { id: 'providers', label: 'Providers' },
   { id: 'system', label: 'System' },
+  { id: 'archived', label: 'Archived' },
 ]
 
 export function SettingsPage() {
@@ -416,6 +549,7 @@ export function SettingsPage() {
         {tab === 'agents' && <AgentsPage />}
         {tab === 'providers' && <ProvidersPage />}
         {tab === 'system' && <SystemTab />}
+        {tab === 'archived' && <ArchivedProjectsTab />}
       </div>
     </div>
   )

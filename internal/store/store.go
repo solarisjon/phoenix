@@ -38,10 +38,15 @@ type AgentRepo interface {
 type ProjectRepo interface {
 	List(ctx context.Context) ([]*model.Project, error)
 	ListByKind(ctx context.Context, kind string) ([]*model.Project, error)
+	// ListByStatus returns projects filtered by status ('active' or 'archived').
+	// An empty status returns all projects regardless of status.
+	ListByStatus(ctx context.Context, kind, status string) ([]*model.Project, error)
 	Get(ctx context.Context, id string) (*model.Project, error)
 	Create(ctx context.Context, p *model.Project) error
 	Update(ctx context.Context, p *model.Project) error
 	Delete(ctx context.Context, id string) error
+	// DeleteWithTasks hard-deletes a project and all its tasks.
+	DeleteWithTasks(ctx context.Context, id string) error
 
 	AssignAgent(ctx context.Context, projectID, agentID string) error
 	RemoveAgent(ctx context.Context, projectID, agentID string) error
@@ -115,6 +120,18 @@ type AgentDraftRepo interface {
 type SystemSettingsRepo interface {
 	Get(ctx context.Context) (*model.SystemSettings, error)
 	Save(ctx context.Context, s *model.SystemSettings) error
+}
+
+// MemoRepo manages briefing memos.
+type MemoRepo interface {
+	// List returns memos filtered by status. Empty string = all non-archived.
+	List(ctx context.Context, status string) ([]*model.Memo, error)
+	Get(ctx context.Context, id string) (*model.Memo, error)
+	Create(ctx context.Context, m *model.Memo) error
+	UpdateStatus(ctx context.Context, id string, status model.MemoStatus) error
+	Delete(ctx context.Context, id string) error
+	// UnreadCount returns the count of unread + flagged memos for the sidebar badge.
+	UnreadCount(ctx context.Context) (int, error)
 }
 
 // StatsRepo provides aggregated cost queries.

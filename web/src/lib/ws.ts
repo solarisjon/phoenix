@@ -7,6 +7,7 @@ export type EventType =
   | 'agent.status_changed'
   | 'inbox.new_item'
   | 'agent_draft.created'
+  | 'memo.created'
 
 export interface WSEvent {
   type: EventType

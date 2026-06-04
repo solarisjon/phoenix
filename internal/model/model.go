@@ -87,6 +87,23 @@ const (
 	ProjectKindMonitor ProjectKind = "monitor" // autonomous heartbeat daemon
 )
 
+// CriticMode controls whether and how a critic/devil's-advocate review is run
+// after a task completes.
+//
+//   "none"       — no critic (default)
+//   "builtin"    — ephemeral devil's advocate; same provider as the original agent,
+//                  hardcoded contrarian system prompt, no DB agent record required
+//   "agent:<id>" — delegate to a specific registered agent
+//
+// On tasks, the special value "inherit" means "use the project's setting".
+type CriticMode = string
+
+const (
+	CriticModeNone    CriticMode = "none"
+	CriticModeBuiltin CriticMode = "builtin"
+	CriticModeInherit CriticMode = "inherit" // task-level only
+)
+
 // Project is a workspace containing tasks assigned to agents.
 type Project struct {
 	ID               string        `json:"id"`
@@ -97,7 +114,9 @@ type Project struct {
 	ScheduleInterval *int          `json:"schedule_interval"` // seconds; nil = no automatic schedule (monitors only)
 	Owner            string        `json:"owner"`
 	Status           ProjectStatus `json:"status"`
-	CriticAgentID    *string       `json:"critic_agent_id"`
+	CriticAgentID    *string       `json:"critic_agent_id"` // deprecated: use CriticMode
+	CriticMode       string        `json:"critic_mode"`     // "none" | "builtin" | "agent:<id>"
+	Tags             []string      `json:"tags"`              // free-text labels for grouping/filtering
 	CreatedAt        time.Time     `json:"created_at"`
 }
 
@@ -130,6 +149,7 @@ type Task struct {
 	TimeoutAt       *time.Time `json:"timeout_at"`       // when the task will be force-killed
 	IsCriticReview  bool       `json:"is_critic_review"`
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
+	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
 	CreatedAt       time.Time  `json:"created_at"`
 	StartedAt       *time.Time `json:"started_at"`
 	CompletedAt     *time.Time `json:"completed_at"`
@@ -159,6 +179,41 @@ const (
 	AgentDraftApproved AgentDraftStatus = "approved"
 	AgentDraftRejected AgentDraftStatus = "rejected"
 )
+
+// MemoStatus represents the read/flag/archive lifecycle of a memo.
+type MemoStatus string
+
+const (
+	MemoStatusUnread   MemoStatus = "unread"
+	MemoStatusRead     MemoStatus = "read"
+	MemoStatusFlagged  MemoStatus = "flagged"
+	MemoStatusArchived MemoStatus = "archived"
+)
+
+// MemoPriority flags whether a memo is high-priority.
+type MemoPriority string
+
+const (
+	MemoPriorityNormal MemoPriority = "normal"
+	MemoPriorityHigh   MemoPriority = "high"
+)
+
+// Memo is a briefing note posted by an agent (auto-extracted from output) or
+// pinned manually by the user from a completed task. Memos surface important
+// findings without cluttering the inbox task-lifecycle view.
+type Memo struct {
+	ID          string       `json:"id"`
+	ProjectID   string       `json:"project_id"`
+	ProjectName string       `json:"project_name"` // denormalised
+	TaskID      string       `json:"task_id"`
+	AgentID     string       `json:"agent_id"`
+	AgentName   string       `json:"agent_name"` // denormalised
+	Title       string       `json:"title"`
+	Body        string       `json:"body"`     // markdown
+	Priority    MemoPriority `json:"priority"` // "normal" | "high"
+	Status      MemoStatus   `json:"status"`   // "unread" | "read" | "flagged" | "archived"
+	CreatedAt   time.Time    `json:"created_at"`
+}
 
 // AgentDraft is a proposed new agent submitted by a hiring agent for human
 // review and approval. On approval it becomes a live Agent.

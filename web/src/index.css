@@ -238,15 +238,64 @@ header.bg-slate-950\/50 { background-color: var(--ph-surface) !important; }
 .markdown-output table {
   border-collapse: collapse;
   width: 100%;
-  margin: 0.5rem 0;
   font-size: 0.8rem;
+  /* scrolling handled by the wrapper div injected by the custom component */
 }
-.markdown-output th, .markdown-output td {
+.markdown-output th {
+  background: var(--ph-input);
+  font-weight: 600;
   border: 1px solid var(--ph-border);
-  padding: 0.35rem 0.6rem;
+  padding: 0.4rem 0.75rem;
   text-align: left;
+  white-space: nowrap;
+  color: var(--ph-text);
 }
-.markdown-output th { background: var(--ph-input); font-weight: 600; }
+.markdown-output td {
+  border: 1px solid var(--ph-border);
+  padding: 0.35rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  /* Allow long values like URLs to wrap rather than blow out the table */
+  word-break: break-word;
+  max-width: 36rem;
+}
+/* Zebra striping */
+.markdown-output tbody tr:nth-child(even) td {
+  background: rgba(255,255,255,0.025);
+}
+.markdown-output tbody tr:hover td {
+  background: rgba(139,92,246,0.07);
+}
+
+/* GFM task list checkboxes */
+.markdown-output input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 0.85em;
+  height: 0.85em;
+  border: 1.5px solid var(--ph-border);
+  border-radius: 3px;
+  margin-right: 0.35em;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+  cursor: default;
+  flex-shrink: 0;
+}
+.markdown-output input[type="checkbox"]:checked {
+  background: #7c3aed;
+  border-color: #7c3aed;
+}
+.markdown-output input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  color: white;
+  font-size: 0.65em;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+}
+/* GFM strikethrough */
+.markdown-output del { opacity: 0.55; text-decoration: line-through; }
 
 /* Compact variant — smaller spacing for thread previews */
 .markdown-output.markdown-compact { font-size: 0.8rem; line-height: 1.5; }
@@ -256,3 +305,6 @@ header.bg-slate-950\/50 { background-color: var(--ph-surface) !important; }
 .markdown-output.markdown-compact p  { margin: 0.25rem 0; }
 .markdown-output.markdown-compact ul,
 .markdown-output.markdown-compact ol { margin: 0.25rem 0; }
+.markdown-output.markdown-compact table { font-size: 0.75rem; }
+.markdown-output.markdown-compact th,
+.markdown-output.markdown-compact td  { padding: 0.25rem 0.5rem; }

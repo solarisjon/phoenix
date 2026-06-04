@@ -19,7 +19,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason,
-	created_at, started_at, completed_at, is_critic_review, reviewed_task_id `
+	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -106,12 +106,16 @@ func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	if t.IsCriticReview {
 		isCriticReview = 1
 	}
+	criticMode := t.CriticMode
+	if criticMode == "" {
+		criticMode = model.CriticModeInherit
+	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID))
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -202,7 +206,7 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 		&runnerPID, &timeoutAt,
 		&t.Source, &healthSignal, &guardrailReason,
-		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
+		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -240,6 +244,9 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 	if completedAt.Valid {
 		t.CompletedAt = &completedAt.Time
 	}
+	if t.CriticMode == "" {
+		t.CriticMode = model.CriticModeInherit
+	}
 	return &t, nil
 }
 
@@ -260,7 +267,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 			&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 			&runnerPID, &timeoutAt,
 			&t.Source, &healthSignal, &guardrailReason,
-			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
+			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode,
 		); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
 		}
@@ -293,6 +300,9 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 		}
 		if completedAt.Valid {
 			t.CompletedAt = &completedAt.Time
+		}
+		if t.CriticMode == "" {
+			t.CriticMode = model.CriticModeInherit
 		}
 		out = append(out, &t)
 	}

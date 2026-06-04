@@ -13,6 +13,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/frontend"
+	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/paths"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/scheduler"
@@ -55,13 +56,14 @@ func main() {
 	teamRepo := sqlite.NewTeamRepo(db)
 	agentDraftRepo := sqlite.NewAgentDraftRepo(db)
 	systemSettingsRepo := sqlite.NewSystemSettingsRepo(db)
+	memoRepo := sqlite.NewMemoRepo(db)
 
 	// Wire up provider registry.
 	reg := registry.NewRegistry(providerRepo)
 
 	// Build API server first so we have the hub.
 	// Runner is created with a nil handler initially; we swap it after.
-	runner := agent.New(agentRepo, taskRepo, projectRepo, systemSettingsRepo, reg, nil)
+	runner := agent.New(agentRepo, taskRepo, projectRepo, systemSettingsRepo, memoRepo, reg, nil)
 	defer runner.Shutdown()
 
 	adminRepo := sqlite.NewAdminRepo(db)
@@ -70,6 +72,7 @@ func main() {
 		providerRepo, agentRepo, projectRepo,
 		taskRepo, statsRepo, userRepo, teamRepo,
 		agentDraftRepo, systemSettingsRepo,
+		memoRepo,
 		runner, reg,
 		adminRepo,
 	)
@@ -79,6 +82,14 @@ func main() {
 	hub := apiServer.Hub()
 	runner.SetEventHandler(func(ev agent.StreamEvent) {
 		hub.BroadcastAgentEvent(ev, taskRepo)
+	})
+	// Wire the hub as the runner's memo handler so new memos
+	// trigger a real-time badge update on all connected clients.
+	runner.SetMemoHandler(func(memo *model.Memo) {
+		hub.Broadcast(api.Event{
+			Type:    api.EventMemoCreated,
+			Payload: map[string]string{"memo_id": memo.ID, "title": memo.Title},
+		})
 	})
 
 	// Start the monitor scheduler. Scans monitors every 60s and
