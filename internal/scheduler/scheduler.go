@@ -39,9 +39,16 @@ type Scheduler struct {
 	refreshInterval time.Duration
 
 	mu     sync.Mutex
-	stops  map[string]context.CancelFunc // key: monitorID
+	stops  map[string]scheduleEntry // key: monitorID
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// scheduleEntry tracks the cancel function and the interval that was active when
+// the goroutine was started, so sync() can detect interval changes.
+type scheduleEntry struct {
+	cancel   context.CancelFunc
+	interval time.Duration
 }
 
 // New creates a Scheduler. Call Start to begin scheduling.
@@ -59,7 +66,7 @@ func New(
 		tasks:           tasks,
 		runner:          runner,
 		refreshInterval: refreshInterval,
-		stops:           make(map[string]context.CancelFunc),
+		stops:           make(map[string]scheduleEntry),
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -147,22 +154,27 @@ func (s *Scheduler) sync() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Stop schedules no longer desired.
-	for key, stop := range s.stops {
-		if _, ok := desired[key]; !ok {
-			stop()
+	// Stop schedules no longer desired or whose interval changed.
+	for key, entry := range s.stops {
+		spec, ok := desired[key]
+		if !ok || entry.interval != spec.interval {
+			entry.cancel()
 			delete(s.stops, key)
-			log.Printf("scheduler: stopped schedule for monitor %s", key)
+			if !ok {
+				log.Printf("scheduler: stopped schedule for monitor %s", key)
+			} else {
+				log.Printf("scheduler: restarting schedule for monitor %s (interval changed to %s)", key, spec.interval)
+			}
 		}
 	}
 
-	// Start new schedules.
+	// Start new schedules (includes restarted ones whose entries were just deleted).
 	for key, spec := range desired {
 		if _, running := s.stops[key]; running {
 			continue
 		}
 		hbCtx, hbCancel := context.WithCancel(s.ctx)
-		s.stops[key] = hbCancel
+		s.stops[key] = scheduleEntry{cancel: hbCancel, interval: spec.interval}
 		go s.scheduleLoop(hbCtx, spec)
 		log.Printf("scheduler: started schedule for monitor %s every %s", spec.monitor.Name, spec.interval)
 	}
@@ -171,8 +183,8 @@ func (s *Scheduler) sync() {
 func (s *Scheduler) stopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for key, stop := range s.stops {
-		stop()
+	for key, entry := range s.stops {
+		entry.cancel()
 		delete(s.stops, key)
 	}
 }
@@ -194,12 +206,17 @@ func (s *Scheduler) scheduleLoop(ctx context.Context, spec scheduleSpec) {
 
 // fire creates and enqueues a scheduled task if the monitor has no active task.
 func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
-	existing, err := s.tasks.List(ctx, spec.monitor.ID)
+	// Check only currently-active tasks (running or queued). Using ListByStatuses
+	// instead of List keeps the query bounded by concurrency rather than by all
+	// historical tasks for the project.
+	activeTasks, err := s.tasks.ListByStatuses(ctx, []model.TaskStatus{
+		model.TaskStatusRunning, model.TaskStatusQueued,
+	})
 	if err != nil {
-		return fmt.Errorf("list tasks: %w", err)
+		return fmt.Errorf("list active tasks: %w", err)
 	}
-	for _, t := range existing {
-		if t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued {
+	for _, t := range activeTasks {
+		if t.ProjectID == spec.monitor.ID {
 			log.Printf("scheduler: skipping %s — task already active", spec.monitor.Name)
 			return nil
 		}

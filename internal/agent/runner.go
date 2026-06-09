@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/provider"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
 )
@@ -262,7 +263,12 @@ func (r *Runner) drainQueue(agentID string) {
 		maxC := agent.MaxConcurrent
 		canStart := maxC == 0 || running < maxC
 		if canStart {
-			r.tryStartLocked(next) // no-op if another caller already claimed it
+			if started := r.tryStartLocked(next); !started {
+				// Another concurrent drainQueue call already claimed this task.
+				// That goroutine will drain the rest when it completes.
+				r.mu.Unlock()
+				return
+			}
 		}
 		r.mu.Unlock()
 		if !canStart {
@@ -312,15 +318,26 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		}
 	}
 
-	// Assemble prompt. For follow-up tasks, inject the parent output as context.
-	req := AssembleRequest(agent, task, globalGuardrails)
-	req.WorkingDir = workingDir
-	if task.FollowUpOf != nil {
-		parent, err := r.tasks.Get(ctx, *task.FollowUpOf)
-		if err == nil && parent != nil {
-			req = InjectFollowUpContext(req, parent)
+	// Assemble prompt. Builtin-critic tasks use a specialist prompt built from
+	// the reviewed task's output; all other tasks go through the normal path.
+	var req provider.TaskRequest
+	if task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil {
+		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
+		if err != nil || reviewed == nil {
+			r.failTask(ctx, task, fmt.Errorf("builtin critic: reviewed task %s not found: %w", *task.ReviewedTaskID, err))
+			return
+		}
+		req = BuildBuiltinCriticRequest(reviewed)
+	} else {
+		req = AssembleRequest(agent, task, globalGuardrails)
+		if task.FollowUpOf != nil {
+			parent, err := r.tasks.Get(ctx, *task.FollowUpOf)
+			if err == nil && parent != nil {
+				req = InjectFollowUpContext(req, parent)
+			}
 		}
 	}
+	req.WorkingDir = workingDir
 
 	// Stream execution.
 	ch, err := prov.StreamExecute(ctx, req)
@@ -650,11 +667,12 @@ func (r *Runner) maybeLaunchCritic(task *model.Task, originalAgent *model.Agent)
 
 // launchBuiltinCritic spawns an ephemeral devil's advocate review using the
 // same provider as the original agent — no registered agent record needed.
+// Routes through RunTask so MaxConcurrent is respected like any other task.
 func (r *Runner) launchBuiltinCritic(task *model.Task, originalAgent *model.Agent) {
 	criticTask := &model.Task{
 		ID:             uuid.New().String(),
 		ProjectID:      task.ProjectID,
-		AgentID:        originalAgent.ID, // same agent, different system prompt injected at runtime
+		AgentID:        originalAgent.ID, // same agent; execute() swaps in the critic system prompt
 		Title:          "Devil's Advocate: " + task.Title,
 		Status:         model.TaskStatusPending,
 		Source:         "critic",
@@ -667,87 +685,9 @@ func (r *Runner) launchBuiltinCritic(task *model.Task, originalAgent *model.Agen
 		log.Printf("runner: create builtin critic task: %v", err)
 		return
 	}
-	// Run it directly — bypasses RunTask's status check since we just created it pending.
-	// We use bgCtx so shutdown doesn't race with the critic starting.
-	go func() {
-		r.mu.Lock()
-		r.agentRunning[originalAgent.ID]++
-		timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
-		taskCtx, cancel := context.WithCancelCause(timeoutCtx)
-		r.cancels[criticTask.ID] = cancel
-		r.mu.Unlock()
-		defer func() {
-			r.mu.Lock()
-			delete(r.cancels, criticTask.ID)
-			r.agentRunning[originalAgent.ID]--
-			r.mu.Unlock()
-			cancel(nil)
-			timeoutCancel()
-		}()
-		r.executeBuiltinCritic(taskCtx, criticTask, originalAgent, task)
-	}()
-}
-
-// executeBuiltinCritic runs a devil's advocate critic task using the builtin prompt.
-// It reuses the original agent's provider but substitutes the critic system prompt.
-func (r *Runner) executeBuiltinCritic(ctx context.Context, criticTask *model.Task, agent *model.Agent, reviewedTask *model.Task) {
-	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.ModelOverride)
-	if err != nil {
-		r.failTask(ctx, criticTask, fmt.Errorf("builtin critic: provider load: %w", err))
-		return
+	if err := r.RunTask(r.bgCtx, criticTask.ID); err != nil {
+		log.Printf("runner: run builtin critic task: %v", err)
 	}
-
-	var workingDir string
-	if proj, err := r.projects.Get(ctx, criticTask.ProjectID); err == nil && proj != nil {
-		workingDir = proj.WorkingDir
-	}
-
-	now := time.Now()
-	criticTask.StartedAt = &now
-	timeoutAt := now.Add(DefaultTaskTimeout)
-	criticTask.TimeoutAt = &timeoutAt
-	if err := r.setStatus(ctx, criticTask, model.TaskStatusRunning, nil); err != nil {
-		log.Printf("runner: builtin critic set running: %v", err)
-		return
-	}
-
-	req := BuildBuiltinCriticRequest(reviewedTask)
-	req.WorkingDir = workingDir
-
-	ch, err := prov.StreamExecute(ctx, req)
-	if err != nil {
-		r.failTask(ctx, criticTask, fmt.Errorf("builtin critic stream: %w", err))
-		return
-	}
-
-	var outputBuilder []string
-	for chunk := range ch {
-		if chunk.Error != nil {
-			r.failTask(ctx, criticTask, chunk.Error)
-			return
-		}
-		if chunk.Content != "" {
-			outputBuilder = append(outputBuilder, chunk.Content)
-			r.emit(StreamEvent{TaskID: criticTask.ID, AgentID: criticTask.AgentID, Chunk: &chunk.Content})
-		}
-	}
-
-	fullOutput := strings.Join(outputBuilder, "")
-	if strings.TrimSpace(fullOutput) == "" {
-		r.failTask(ctx, criticTask, fmt.Errorf("builtin critic returned empty output"))
-		return
-	}
-
-	outputJSON, _ := json.Marshal(map[string]interface{}{"text": fullOutput})
-	completedAt := time.Now()
-	criticTask.Output = string(outputJSON)
-	criticTask.CompletedAt = &completedAt
-
-	status := model.TaskStatusCompleted
-	if err := r.setStatus(ctx, criticTask, status, nil); err != nil {
-		log.Printf("runner: builtin critic set completed: %v", err)
-	}
-	r.emit(StreamEvent{TaskID: criticTask.ID, AgentID: criticTask.AgentID, StatusDone: &status})
 }
 
 // launchAgentCritic spawns a critic task using a specific registered agent.
