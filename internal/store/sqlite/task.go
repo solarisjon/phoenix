@@ -18,7 +18,7 @@ func NewTaskRepo(db *DB) *TaskRepo { return &TaskRepo{db} }
 const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of, title, description,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
-	source, health_signal, guardrail_reason,
+	source, health_signal, guardrail_reason, last_error,
 	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
@@ -136,13 +136,13 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 		  status = ?, output = ?, cost_usd = ?, tokens_in = ?, tokens_out = ?, dismissed = ?,
 		  runner_pid = ?, timeout_at = ?,
 		  started_at = ?, completed_at = ?,
-		  health_signal = ?, guardrail_reason = ?,
+		  health_signal = ?, guardrail_reason = ?, last_error = ?,
 		  is_critic_review = ?, reviewed_task_id = ?
 		WHERE id = ?`,
 		string(t.Status), t.Output, t.CostUSD, t.TokensIn, t.TokensOut, dismissed,
 		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt,
-		t.HealthSignal, t.GuardrailReason, isCriticReview, nullString(t.ReviewedTaskID), t.ID)
+		t.HealthSignal, t.GuardrailReason, t.LastError, isCriticReview, nullString(t.ReviewedTaskID), t.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
@@ -194,7 +194,7 @@ func (r *TaskRepo) CancelQueuedTask(ctx context.Context, taskID string) (bool, e
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
 	var status string
-	var parentID, followUpOf, healthSignal, guardrailReason, reviewedTaskID sql.NullString
+	var parentID, followUpOf, healthSignal, guardrailReason, lastError, reviewedTaskID sql.NullString
 	var dismissed int
 	var isCriticReview int
 	var runnerPID sql.NullInt64
@@ -205,7 +205,7 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		&t.Title, &t.Description, &status,
 		&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 		&runnerPID, &timeoutAt,
-		&t.Source, &healthSignal, &guardrailReason,
+		&t.Source, &healthSignal, &guardrailReason, &lastError,
 		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -228,6 +228,9 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 	}
 	if guardrailReason.Valid {
 		t.GuardrailReason = &guardrailReason.String
+	}
+	if lastError.Valid {
+		t.LastError = lastError.String
 	}
 	if reviewedTaskID.Valid {
 		t.ReviewedTaskID = &reviewedTaskID.String
@@ -255,7 +258,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 	for rows.Next() {
 		var t model.Task
 		var status string
-		var parentID, followUpOf, healthSignal, guardrailReason, reviewedTaskID sql.NullString
+		var parentID, followUpOf, healthSignal, guardrailReason, lastError, reviewedTaskID sql.NullString
 		var dismissed int
 		var isCriticReview int
 		var runnerPID sql.NullInt64
@@ -266,7 +269,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 			&t.Title, &t.Description, &status,
 			&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 			&runnerPID, &timeoutAt,
-			&t.Source, &healthSignal, &guardrailReason,
+			&t.Source, &healthSignal, &guardrailReason, &lastError,
 			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode,
 		); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
@@ -285,6 +288,9 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 		}
 		if guardrailReason.Valid {
 			t.GuardrailReason = &guardrailReason.String
+		}
+		if lastError.Valid {
+			t.LastError = lastError.String
 		}
 		if reviewedTaskID.Valid {
 			t.ReviewedTaskID = &reviewedTaskID.String

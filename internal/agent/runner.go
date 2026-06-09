@@ -466,12 +466,12 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 
 	// Extract any MEMO blocks the agent embedded in its output and persist them.
-	// For monitor tasks, if the agent didn't post a memo, auto-create one from
-	// the output so the Briefing always gets a summary of what the monitor did.
+	// For any completed task (not critic reviews), if the agent didn't post a memo,
+	// auto-create one from the output so the Briefing always reflects task completions.
 	if r.memos != nil {
 		posted := r.extractAndSaveMemos(task, agent, fullOutput)
-		if !posted && task.Source == "monitor" {
-			r.autoMemoForMonitor(task, agent, fullOutput)
+		if !posted && !task.IsCriticReview {
+			r.autoMemo(task, agent, fullOutput)
 		}
 	}
 
@@ -599,11 +599,10 @@ func (r *Runner) extractAndSaveMemos(task *model.Task, a *model.Agent, output st
 	return saved
 }
 
-// autoMemoForMonitor creates a fallback memo for a monitor task that completed
-// successfully but whose agent didn't emit a MEMO_START block. This ensures
-// the Briefing always reflects what a monitor run did, even when the agent
-// ignores or misses the memo instruction.
-func (r *Runner) autoMemoForMonitor(task *model.Task, a *model.Agent, output string) {
+// autoMemo creates a fallback memo for any task that completed successfully but
+// whose agent didn't emit a MEMO_START block. This ensures the Briefing always
+// reflects what every completed task did, even when the agent skips the memo.
+func (r *Runner) autoMemo(task *model.Task, a *model.Agent, output string) {
 	var projectName string
 	if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
 		projectName = proj.Name
@@ -630,10 +629,10 @@ func (r *Runner) autoMemoForMonitor(task *model.Task, a *model.Agent, output str
 		CreatedAt:   time.Now(),
 	}
 	if err := r.memos.Create(r.bgCtx, memo); err != nil {
-		log.Printf("runner: auto-memo for monitor task %s: %v", task.ID, err)
+		log.Printf("runner: auto-memo for task %s: %v", task.ID, err)
 		return
 	}
-	log.Printf("runner: auto-memo created for monitor task %s: %q", task.ID, memo.Title)
+	log.Printf("runner: auto-memo created for task %s: %q", task.ID, memo.Title)
 	if r.onMemo != nil {
 		r.onMemo(memo)
 	}

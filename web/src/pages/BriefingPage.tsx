@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { api, type Memo } from '@/lib/api'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { api, type Memo, type Task } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { timeAgo } from '@/lib/utils'
@@ -12,6 +12,126 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'unread',  label: 'Unread'  },
   { id: 'flagged', label: 'Flagged' },
 ]
+
+// ---- PromptContinue — inline follow-up input for a memo ----
+function PromptContinue({ memo }: { memo: Memo }) {
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const [latestFollowUp, setLatestFollowUp] = useState<Task | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Fetch the most-recent follow-up task for this memo's source task.
+  const loadLatest = useCallback(async () => {
+    if (!memo.task_id || !memo.project_id) return
+    try {
+      const all = await api.tasks.list(memo.project_id)
+      const followUps = all
+        .filter(t => t.follow_up_of === memo.task_id)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      setLatestFollowUp(followUps[0] ?? null)
+    } catch { /* ignore */ }
+  }, [memo.task_id, memo.project_id])
+
+  // Poll while latest follow-up is still in-flight.
+  useEffect(() => {
+    if (!latestFollowUp) return
+    if (latestFollowUp.status === 'running' || latestFollowUp.status === 'queued' || latestFollowUp.status === 'pending') {
+      pollRef.current = setTimeout(loadLatest, 2500)
+    }
+    return () => { if (pollRef.current) clearTimeout(pollRef.current) }
+  }, [latestFollowUp, loadLatest])
+
+  // Refresh when a WS task-status event arrives.
+  useEffect(() => {
+    return phoenixWS.on(ev => {
+      if (ev.type === 'task.status_changed') loadLatest()
+    })
+  }, [loadLatest])
+
+  // Load on mount.
+  useEffect(() => { loadLatest() }, [loadLatest])
+
+  const send = async () => {
+    if (!text.trim() || !memo.task_id) return
+    setError('')
+    setSending(true)
+    try {
+      await api.tasks.followUp(memo.task_id, text.trim(), memo.agent_id || undefined)
+      setText('')
+      await loadLatest()
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to send')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // No task link → no prompt-continue possible.
+  if (!memo.task_id) return null
+
+  const inFlight = latestFollowUp &&
+    (latestFollowUp.status === 'running' || latestFollowUp.status === 'queued' || latestFollowUp.status === 'pending')
+
+  return (
+    <div className="mt-4 border-t border-slate-800 pt-3 space-y-2">
+      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Continue with an agent</p>
+
+      {/* Latest follow-up status bubble */}
+      {latestFollowUp && (
+        <div className={`rounded-xl border px-3 py-2 text-xs ${
+          inFlight
+            ? 'bg-slate-800 border-slate-700 text-slate-400'
+            : latestFollowUp.status === 'completed'
+              ? 'bg-emerald-950/30 border-emerald-800/40 text-emerald-300'
+              : 'bg-red-950/30 border-red-800/40 text-red-400'
+        }`}>
+          {inFlight ? (
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse inline-block" />
+              {latestFollowUp.status === 'running' ? 'Agent is working…' : 'Queued…'}
+            </span>
+          ) : latestFollowUp.status === 'completed' ? (
+            <span>✓ Completed · <a
+              href={`/projects/${latestFollowUp.project_id}`}
+              className="underline hover:text-emerald-200"
+            >View in project ↗</a></span>
+          ) : (
+            <span>✕ Follow-up failed</span>
+          )}
+        </div>
+      )}
+
+      {/* Input */}
+      {!inFlight && (
+        <div className="space-y-1">
+          <div className="flex gap-2 items-end bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 focus-within:border-violet-600 transition-colors">
+            <textarea
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+              }}
+              placeholder="Ask the agent to refine or continue this memo… (Enter to send)"
+              disabled={sending}
+              rows={2}
+              className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 outline-none resize-none"
+            />
+            <button
+              onClick={send}
+              disabled={sending || !text.trim()}
+              className="flex-shrink-0 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs px-3 py-1.5 transition-colors font-medium"
+            >
+              {sending ? '…' : '↵ Send'}
+            </button>
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <p className="text-xs text-slate-600">Shift+Enter for a new line · Enter to send</p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ---- Single memo row ----
 function MemoRow({ memo, onAction }: {
@@ -120,6 +240,9 @@ function MemoRow({ memo, onAction }: {
             <ActionBtn onClick={archive} disabled={busy}>Archive</ActionBtn>
             <ActionBtn onClick={remove} disabled={busy} accent="red">Delete</ActionBtn>
           </div>
+
+          {/* Prompt-continue — refine the memo with an agent */}
+          <PromptContinue memo={memo} />
         </div>
       )}
     </div>

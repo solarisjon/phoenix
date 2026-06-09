@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
 )
@@ -134,6 +135,14 @@ type MemoRepo interface {
 	UnreadCount(ctx context.Context) (int, error)
 }
 
+// ProjectSummary holds aggregated task counts and cost for a single project.
+type ProjectSummary struct {
+	TasksByStatus map[string]int `json:"tasks_by_status"`
+	TotalTasks    int            `json:"total_tasks"`
+	TotalCostUSD  float64        `json:"total_cost_usd"`
+	LastActivity  *time.Time     `json:"last_activity"`
+}
+
 // StatsRepo provides aggregated cost queries.
 type StatsRepo interface {
 	CostByAgent(ctx context.Context) ([]*CostSummary, error)
@@ -142,4 +151,5 @@ type StatsRepo interface {
 	CostByDay(ctx context.Context, days int) ([]*DailyCost, error)
 	TaskCountByStatus(ctx context.Context) ([]*TaskCountByStatus, error)
 	TotalTaskCount(ctx context.Context) (int, error)
+	ProjectTaskSummary(ctx context.Context, projectID string) (*ProjectSummary, error)
 }

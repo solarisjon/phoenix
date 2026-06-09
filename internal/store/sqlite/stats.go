@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/solarisjon/phoenix/internal/store"
@@ -113,4 +114,45 @@ func scanCostSummaries(rows interface {
 		out = append(out, &s)
 	}
 	return out, rows.Err()
+}
+
+// ProjectTaskSummary returns task counts by status, total cost, and last
+// activity time for the given project. It never returns nil (always an empty
+// map on a project with no tasks).
+func (r *StatsRepo) ProjectTaskSummary(ctx context.Context, projectID string) (*store.ProjectSummary, error) {
+	summary := &store.ProjectSummary{TasksByStatus: map[string]int{}}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT status, COUNT(*) FROM tasks WHERE project_id = ? GROUP BY status`,
+		projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project task summary counts: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scan project task summary: %w", err)
+		}
+		summary.TasksByStatus[status] = count
+		summary.TotalTasks += count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var lastActivity sql.NullTime
+	err = r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(cost_usd), 0),
+		        MAX(COALESCE(completed_at, started_at, created_at))
+		 FROM tasks WHERE project_id = ?`,
+		projectID).Scan(&summary.TotalCostUSD, &lastActivity)
+	if err != nil {
+		return nil, fmt.Errorf("project task summary cost: %w", err)
+	}
+	if lastActivity.Valid {
+		summary.LastActivity = &lastActivity.Time
+	}
+	return summary, nil
 }

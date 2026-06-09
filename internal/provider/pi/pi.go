@@ -15,6 +15,7 @@ package pi
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/solarisjon/phoenix/internal/provider"
 )
@@ -133,15 +135,34 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 
 	go func() {
 		defer close(ch)
-		defer func() {
-			io.Copy(io.Discard, stderr) //nolint:errcheck
-			if err := cmd.Wait(); err != nil {
-				log.Printf("pi: process exited: %v", err)
-			}
+
+		// Collect stderr concurrently so it doesn't block stdout reads.
+		var stderrBuf bytes.Buffer
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			io.Copy(&stderrBuf, stderr) //nolint:errcheck
 		}()
+
 		// First chunk carries the PID; no content.
 		ch <- provider.StreamChunk{PID: pid}
-		a.parseStream(ctx, stdout, ch)
+		outputCount := a.parseStream(ctx, stdout, ch)
+
+		wg.Wait()
+		if err := cmd.Wait(); err != nil {
+			log.Printf("pi: process exited: %v", err)
+		}
+
+		if outputCount == 0 {
+			// No text output — surface stderr so the user can see the actual
+			// reason (auth error, rate limit, model error, etc.).
+			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
+				log.Printf("pi: stderr: %s", stderrMsg)
+				ch <- provider.StreamChunk{Error: fmt.Errorf("pi: no output — stderr: %s", stderrMsg)}
+				return
+			}
+		}
 	}()
 
 	return ch, nil
@@ -266,7 +287,10 @@ type piCost struct {
 	Total float64 `json:"total"`
 }
 
-func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provider.StreamChunk) {
+// parseStream reads pi NDJSON events from r, sends content chunks to ch,
+// and returns the number of text-delta chunks emitted.
+func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provider.StreamChunk) int {
+	var outputCount int
 	scanner := bufio.NewScanner(r)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 4*1024*1024)
@@ -275,7 +299,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		select {
 		case <-ctx.Done():
 			ch <- provider.StreamChunk{Error: ctx.Err(), Done: true}
-			return
+			return outputCount
 		default:
 		}
 
@@ -297,6 +321,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 			}
 			if ev.AssistantMessageEvent.Type == "text_delta" && ev.AssistantMessageEvent.Delta != "" {
 				ch <- provider.StreamChunk{Content: ev.AssistantMessageEvent.Delta}
+				outputCount++
 			}
 
 		case "message_end":
@@ -326,8 +351,9 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 
 	if err := scanner.Err(); err != nil {
 		ch <- provider.StreamChunk{Error: fmt.Errorf("pi stream: %w", err), Done: true}
-		return
+		return outputCount
 	}
 
 	ch <- provider.StreamChunk{Done: true}
+	return outputCount
 }

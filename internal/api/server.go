@@ -143,6 +143,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Delete("/projects/{id}/agents/{agentId}", s.removeAgent)
 		r.Get("/projects/{id}/agents", s.listProjectAgents)
 		r.Post("/projects/{id}/teams", s.assignTeamToProject)
+		r.Get("/projects/{id}/summary", s.getProjectSummary)
 
 		// Tasks
 		r.Get("/tasks", s.listTasks)
@@ -159,6 +160,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/tasks/{id}/retry", s.retryTask)
 		r.Post("/tasks/{id}/cancel", s.cancelTask)
 		r.Post("/tasks/{id}/dismiss", s.dismissTask)
+		r.Post("/tasks/{id}/undismiss", s.undismissTask)
 		r.Post("/tasks/{id}/followup", s.followUpTask)
 
 		// Agent drafts (pending hire proposals)

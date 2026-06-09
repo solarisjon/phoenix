@@ -381,6 +381,25 @@ func (s *Server) dismissTask(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, task)
 }
 
+func (s *Server) undismissTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	task.Dismissed = false
+	if err := s.tasks.Update(r.Context(), task); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, task)
+}
+
 func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := s.tasks.Get(r.Context(), id)
@@ -395,6 +414,17 @@ func (s *Server) retryTask(w http.ResponseWriter, r *http.Request) {
 	if task.Status != model.TaskStatusFailed && task.Status != model.TaskStatusPending {
 		respondErr(w, http.StatusConflict, "only failed or pending tasks can be retried")
 		return
+	}
+
+	// Before clearing output: preserve the failure reason so it survives the retry.
+	// This gives the human context when diagnosing tasks that fail repeatedly.
+	if task.Status == model.TaskStatusFailed {
+		var prev struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(task.Output), &prev); err == nil && prev.Error != "" {
+			task.LastError = prev.Error
+		}
 	}
 
 	// Reset state for a fresh run.

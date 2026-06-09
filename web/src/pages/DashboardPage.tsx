@@ -364,6 +364,11 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
+  const loadCosts = useCallback(async () => {
+    const c = await api.stats.costs().catch(() => null)
+    if (c) setCosts(c)
+  }, [])
+
   const load = useCallback(async () => {
     try {
       const [projs, agts, tms] = await Promise.all([api.projects.list(), api.agents.list(), api.teams.list()])
@@ -390,11 +395,26 @@ export function DashboardPage() {
 
   useEffect(() => {
     load()
+
+    // Re-fetch costs whenever a task finishes (status change event).
     const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.status_changed') load()
     })
-    return unsub
-  }, [load])
+
+    // Also refresh costs on a 60-second timer so numbers stay current
+    // even if no WebSocket events fire (e.g. all tasks already completed).
+    const timer = setInterval(loadCosts, 60_000)
+
+    // And refresh immediately when the user returns to this tab.
+    const handleVisibility = () => { if (document.visibilityState === 'visible') loadCosts() }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      unsub()
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [load, loadCosts])
 
   
 

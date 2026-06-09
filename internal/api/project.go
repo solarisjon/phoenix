@@ -433,3 +433,23 @@ Be specific and actionable. Return ONLY the description text — no JSON, no mar
 	description := strings.TrimSpace(resp.Output)
 	respond(w, http.StatusOK, map[string]string{"description": description})
 }
+
+
+func (s *Server) getProjectSummary(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	project, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if project == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	summary, err := s.stats.ProjectTaskSummary(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, summary)
+}

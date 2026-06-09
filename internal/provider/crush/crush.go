@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/solarisjon/phoenix/internal/provider"
 )
@@ -102,7 +103,11 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		cmd.Stdin = strings.NewReader(promptText)
 	}
 	// Discard stderr — MCP init errors and skill warnings are not useful to the runner.
-	cmd.Stderr = io.Discard
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("crush: stderr pipe: %w", err)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -121,14 +126,18 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 	go func() {
 		defer close(ch)
 		defer cleanup()
-		defer func() {
-			if err := cmd.Wait(); err != nil {
-				log.Printf("crush: process exited: %v", err)
-			}
-		}()
 
 		// First chunk carries the PID for crash recovery.
 		ch <- provider.StreamChunk{PID: pid}
+
+		// Collect stderr concurrently so it doesn't block stdout reads.
+		var stderrBuf bytes.Buffer
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			io.Copy(&stderrBuf, stderr) //nolint:errcheck
+		}()
 
 		scanner := bufio.NewScanner(stdout)
 		// Allow lines up to 1MB (crush may output large code blocks).
@@ -137,14 +146,37 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		lineCount := 0
 		for scanner.Scan() {
 			if ctx.Err() != nil {
+				wg.Wait()
+				if err := cmd.Wait(); err != nil {
+					log.Printf("crush: process exited: %v", err)
+				}
 				return
 			}
 			ch <- provider.StreamChunk{Content: scanner.Text() + "\n"}
 			lineCount++
 		}
 		if err := scanner.Err(); err != nil && ctx.Err() == nil {
+			wg.Wait()
+			if err := cmd.Wait(); err != nil {
+				log.Printf("crush: process exited: %v", err)
+			}
 			ch <- provider.StreamChunk{Error: fmt.Errorf("crush: read stdout: %w", err)}
 			return
+		}
+
+		wg.Wait()
+		if err := cmd.Wait(); err != nil {
+			log.Printf("crush: process exited: %v", err)
+		}
+
+		if lineCount == 0 {
+			// No stdout output — include stderr in the error so the user can
+			// see the actual reason (rate limit, auth error, model error, etc.).
+			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
+				log.Printf("crush: stderr: %s", stderrMsg)
+				ch <- provider.StreamChunk{Error: fmt.Errorf("crush: no output — stderr: %s", stderrMsg)}
+				return
+			}
 		}
 		log.Printf("crush: completed — %d lines of output", lineCount)
 	}()

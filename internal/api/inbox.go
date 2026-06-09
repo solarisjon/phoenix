@@ -26,8 +26,9 @@ func (s *Server) dismissAllInbox(w http.ResponseWriter, r *http.Request) {
 		statuses = []model.TaskStatus{model.TaskStatusAwaitingApproval}
 	case "completed":
 		statuses = []model.TaskStatus{model.TaskStatusCompleted}
-	default: // "all"
-		statuses = []model.TaskStatus{model.TaskStatusFailed, model.TaskStatusAwaitingApproval, model.TaskStatusCompleted}
+	default: // "all" — intentionally excludes failed so bulk-dismiss can't silently
+		// hide tasks that need human-initiated retry. Use filter=failed explicitly.
+		statuses = []model.TaskStatus{model.TaskStatusAwaitingApproval, model.TaskStatusCompleted}
 	}
 
 	tasks, err := s.tasks.ListByStatuses(r.Context(), statuses)
@@ -55,7 +56,12 @@ type reviseRequest struct {
 }
 
 func (s *Server) listInbox(w http.ResponseWriter, r *http.Request) {
-	tasks, err := s.tasks.ListByStatus(r.Context(), model.TaskStatusAwaitingApproval)
+	// Failed tasks appear in the inbox alongside awaiting_approval so the human
+	// sees failures in their primary daily view and can retry them immediately.
+	tasks, err := s.tasks.ListByStatuses(r.Context(), []model.TaskStatus{
+		model.TaskStatusFailed,
+		model.TaskStatusAwaitingApproval,
+	})
 	if err != nil {
 		respondInternalErr(w, err)
 		return

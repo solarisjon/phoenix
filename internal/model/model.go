@@ -144,6 +144,7 @@ type Task struct {
 	Source          string     `json:"source"`           // free-text provenance, empty if human-created
 	HealthSignal    *string    `json:"health_signal"`    // monitor runs: "all_clear" | "needs_attention" | "failed"
 	GuardrailReason *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
+	LastError       string     `json:"last_error"`       // most recent failure message; preserved across retries
 	Dismissed       bool       `json:"dismissed"`        // hidden from inbox but kept for audit
 	RunnerPID       int        `json:"runner_pid"`       // OS PID of the subprocess, 0 if not running
 	TimeoutAt       *time.Time `json:"timeout_at"`       // when the task will be force-killed

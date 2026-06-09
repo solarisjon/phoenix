@@ -166,6 +166,13 @@ export function MonitorDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [triggering, setTriggering] = useState(false)
   const [triggerError, setTriggerError] = useState('')
+  const [showRunModal, setShowRunModal] = useState(false)
+  const [runExtraPrompt, setRunExtraPrompt] = useState('')
+  const [runAiExpanding, setRunAiExpanding] = useState(false)
+  const [runAiError, setRunAiError] = useState('')
+  const [runShowAI, setRunShowAI] = useState(false)
+  const [runAiHint, setRunAiHint] = useState('')
+  const [runAiProviderID, setRunAiProviderID] = useState('')
   const [showEdit, setShowEdit] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -196,6 +203,7 @@ export function MonitorDetailPage() {
       setTasks(tsks)
       setProviders(provs)
       setAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
+      setRunAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
     } finally {
       setLoading(false)
     }
@@ -242,8 +250,61 @@ export function MonitorDetailPage() {
         project_id: id,
         agent_id: primaryAgent.id,
         title: `Manual run — ${new Date().toLocaleString()}`,
-        description: monitor.description ?? '',
+        description: monitor?.description ?? '',
       })
+      load()
+    } catch (e: unknown) {
+      setTriggerError(e instanceof Error ? e.message : 'Failed to trigger run')
+    } finally {
+      setTriggering(false)
+    }
+  }
+
+  const openRunModal = () => {
+    setRunExtraPrompt('')
+    setRunAiHint('')
+    setRunShowAI(false)
+    setRunAiError('')
+    setTriggerError('')
+    setShowRunModal(true)
+  }
+
+  const expandWithAI = async () => {
+    setRunAiExpanding(true)
+    setRunAiError('')
+    try {
+      const title = `One-off run: ${monitor?.name ?? ''}`
+      const result = await api.tasks.generateDescription(title, runAiHint, runAiProviderID)
+      setRunExtraPrompt(result.description)
+      setRunShowAI(false)
+      setRunAiHint('')
+    } catch (e: unknown) {
+      setRunAiError(e instanceof Error ? e.message : 'Generation failed')
+    } finally {
+      setRunAiExpanding(false)
+    }
+  }
+
+  const runWithExtraPrompt = async () => {
+    if (!primaryAgent || !id) return
+    setTriggering(true)
+    setTriggerError('')
+    try {
+      const base = monitor?.description ?? ''
+      const extra = runExtraPrompt.trim()
+      const combined = extra
+        ? base
+          ? `${base}\n\n## Additional instructions for this run\n${extra}`
+          : extra
+        : base
+      await api.tasks.create({
+        project_id: id,
+        agent_id: primaryAgent.id,
+        title: `Manual run — ${new Date().toLocaleString()}`,
+        description: combined,
+        source: extra ? 'Human one-off with extra prompt' : undefined,
+      })
+      setShowRunModal(false)
       load()
     } catch (e: unknown) {
       setTriggerError(e instanceof Error ? e.message : 'Failed to trigger run')
@@ -342,14 +403,25 @@ export function MonitorDetailPage() {
             )}
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={runNow}
-              disabled={triggering || !primaryAgent}
-            >
-              {triggering ? 'Triggering…' : '▶ Run now'}
-            </Button>
+            <div className="flex rounded-lg overflow-hidden border border-slate-700">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={runNow}
+                disabled={triggering || !primaryAgent}
+                className="rounded-none border-0 border-r border-slate-700"
+              >
+                {triggering ? 'Triggering…' : '▶ Run now'}
+              </Button>
+              <button
+                title="Run now with extra prompt…"
+                onClick={openRunModal}
+                disabled={triggering || !primaryAgent}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-violet-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-xs"
+              >
+                ✦
+              </button>
+            </div>
             <Button variant="secondary" size="sm" onClick={openEdit}>Edit</Button>
             <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
           </div>
@@ -505,6 +577,98 @@ export function MonitorDetailPage() {
             <div className="flex gap-3 justify-end pt-2">
               <Button variant="secondary" onClick={() => setShowEdit(false)}>Cancel</Button>
               <Button onClick={saveEdit} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Run with extra prompt modal */}
+      {showRunModal && (
+        <Modal title="Run now with extra prompt" onClose={() => setShowRunModal(false)} className="max-w-2xl">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-400">
+              Add special instructions for this one-off run. They'll be appended to the monitor's
+              base description so the agent has full context plus your extra guidance.
+            </p>
+
+            {/* Base description (read-only preview) */}
+            {monitor?.description && (
+              <div className="rounded-lg border border-slate-700 bg-slate-950 p-3">
+                <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Base monitor instructions</p>
+                <p className="text-xs text-slate-400 leading-relaxed line-clamp-4">{monitor.description}</p>
+              </div>
+            )}
+
+            {/* Extra prompt field */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Label htmlFor="run-extra-prompt">Extra instructions for this run</Label>
+                {providers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setRunShowAI(v => !v); setRunAiError('') }}
+                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors flex items-center gap-1"
+                  >
+                    ✦ {runShowAI ? 'Hide AI assist' : 'Generate with AI'}
+                  </button>
+                )}
+              </div>
+
+              {runShowAI && (
+                <div className="mb-3 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+                  <p className="text-xs text-slate-400">
+                    Describe what's special about this run in a few words — AI will expand it into detailed instructions.
+                  </p>
+                  {providers.length > 1 && (
+                    <div>
+                      <Label htmlFor="run-ai-provider">Generate using</Label>
+                      <Select
+                        id="run-ai-provider"
+                        value={runAiProviderID}
+                        onChange={e => setRunAiProviderID(e.target.value)}
+                      >
+                        {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </Select>
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="run-ai-hint">Hint <span className="text-slate-500 font-normal">(what's different about this run?)</span></Label>
+                    <Textarea
+                      id="run-ai-hint"
+                      value={runAiHint}
+                      onChange={e => setRunAiHint(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. Focus on the /var/log directory only, ignore /tmp"
+                    />
+                  </div>
+                  {runAiError && <p className="text-xs text-red-400">{runAiError}</p>}
+                  <div className="flex justify-end">
+                    <Button onClick={expandWithAI} disabled={runAiExpanding || !runAiHint.trim()}>
+                      {runAiExpanding ? 'Generating…' : '✦ Generate'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <Textarea
+                id="run-extra-prompt"
+                value={runExtraPrompt}
+                onChange={e => setRunExtraPrompt(e.target.value)}
+                rows={5}
+                placeholder="e.g. Pay special attention to error logs from the last 2 hours. Flag any OOM events."
+              />
+              <p className="text-xs text-slate-600 mt-1">
+                Leave blank to run with the standard monitor instructions only.
+              </p>
+            </div>
+
+            {triggerError && <p className="text-sm text-red-400">{triggerError}</p>}
+
+            <div className="flex gap-3 justify-end pt-2">
+              <Button variant="secondary" onClick={() => setShowRunModal(false)}>Cancel</Button>
+              <Button onClick={runWithExtraPrompt} disabled={triggering || !primaryAgent}>
+                {triggering ? 'Triggering…' : '▶ Run now'}
+              </Button>
             </div>
           </div>
         </Modal>
