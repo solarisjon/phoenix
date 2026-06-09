@@ -120,14 +120,26 @@ func (r *ProjectRepo) DeleteWithTasks(ctx context.Context, id string) error {
 	return tx.Commit()
 }
 
-func (r *ProjectRepo) AssignAgent(ctx context.Context, projectID, agentID string) error {
-	_, err := r.db.ExecContext(ctx,
+func (r *ProjectRepo) IsAgentAssigned(ctx context.Context, projectID, agentID string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM project_agents WHERE project_id = ? AND agent_id = ?`,
+		projectID, agentID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("is agent assigned: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (r *ProjectRepo) AssignAgent(ctx context.Context, projectID, agentID string) (bool, error) {
+	result, err := r.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO project_agents (project_id, agent_id) VALUES (?, ?)`,
 		projectID, agentID)
 	if err != nil {
-		return fmt.Errorf("assign agent: %w", err)
+		return false, fmt.Errorf("assign agent: %w", err)
 	}
-	return nil
+	n, _ := result.RowsAffected()
+	return n > 0, nil
 }
 
 func (r *ProjectRepo) RemoveAgent(ctx context.Context, projectID, agentID string) error {

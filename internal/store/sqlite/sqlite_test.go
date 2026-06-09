@@ -205,8 +205,10 @@ func TestProjectAgentAssignment(t *testing.T) {
 	seedProject(t, db)
 	seedAgent(t, db)
 
-	if err := repo.AssignAgent(ctx, "proj-1", "agent-1"); err != nil {
+	if added, err := repo.AssignAgent(ctx, "proj-1", "agent-1"); err != nil {
 		t.Fatalf("AssignAgent: %v", err)
+	} else if !added {
+		t.Error("expected added=true for first assign")
 	}
 
 	agents, err := repo.ListAgents(ctx, "proj-1")
@@ -214,9 +216,11 @@ func TestProjectAgentAssignment(t *testing.T) {
 		t.Fatalf("ListAgents: err=%v len=%d", err, len(agents))
 	}
 
-	// Idempotent re-assign
-	if err := repo.AssignAgent(ctx, "proj-1", "agent-1"); err != nil {
+	// Idempotent re-assign — should return added=false, no error.
+	if added, err := repo.AssignAgent(ctx, "proj-1", "agent-1"); err != nil {
 		t.Fatalf("re-assign: %v", err)
+	} else if added {
+		t.Error("expected added=false for duplicate assign")
 	}
 	agents, _ = repo.ListAgents(ctx, "proj-1")
 	if len(agents) != 1 {

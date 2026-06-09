@@ -510,20 +510,23 @@ func (s *Server) assignTeamToProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Assign each team member to the project.
+	// Assign each team member to the project; count only new assignments.
 	var assigned int
 	for _, agent := range team.Agents {
-		if err := s.projects.AssignAgent(r.Context(), projectID, agent.ID); err != nil {
-			continue // INSERT OR IGNORE handles duplicates
+		added, err := s.projects.AssignAgent(r.Context(), projectID, agent.ID)
+		if err != nil {
+			continue
 		}
-		assigned++
+		if added {
+			assigned++
+		}
 	}
 
 	respond(w, http.StatusOK, map[string]interface{}{
 		"team_id":  team.ID,
 		"team":     team.Name,
-		"assigned": assigned,
-		"total":    len(team.Agents),
+		"assigned": assigned,           // newly added this call
+		"total":    len(team.Agents),   // total agents in team
 	})
 }
 
@@ -557,6 +560,10 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusBadRequest, "project_id is required")
 		return
 	}
+	if len(team.Agents) == 0 {
+		respondErr(w, http.StatusBadRequest, "team has no agents — add agents to the team before broadcasting")
+		return
+	}
 
 	proj, err := s.projects.Get(r.Context(), req.ProjectID)
 	if err != nil || proj == nil {
@@ -564,9 +571,14 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var taskIDs []string
+	// Phase 1: create all tasks. On any failure, delete the ones already
+	// created so we never leave orphaned tasks with no corresponding response.
+	var created []*model.Task
 	for _, agent := range team.Agents {
-		_ = s.projects.AssignAgent(r.Context(), req.ProjectID, agent.ID)
+		// Enroll the agent in the project if not already assigned.
+		if _, err := s.projects.AssignAgent(r.Context(), req.ProjectID, agent.ID); err != nil {
+			log.Printf("broadcast: assign agent %s to project %s: %v", agent.ID, req.ProjectID, err)
+		}
 
 		task := &model.Task{
 			ID:          uuid.New().String(),
@@ -575,15 +587,30 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 			Title:       req.Title,
 			Description: req.Description,
 			Status:      model.TaskStatusPending,
+			Input:       "{}",
+			Output:      "{}",
 			Source:      "team_broadcast:" + teamID,
 			CreatedAt:   time.Now(),
 		}
 		if err := s.tasks.Create(r.Context(), task); err != nil {
-			respondInternalErr(w, err)
+			// Rollback: delete everything created so far.
+			for _, t := range created {
+				if delErr := s.tasks.Delete(r.Context(), t.ID); delErr != nil {
+					log.Printf("broadcast: rollback delete task %s: %v", t.ID, delErr)
+				}
+			}
+			respondInternalErr(w, fmt.Errorf("create task for agent %s: %w", agent.ID, err))
 			return
 		}
+		created = append(created, task)
+	}
+
+	// Phase 2: queue all created tasks. Runner failures are non-fatal —
+	// the task exists and the human can retry from the inbox.
+	taskIDs := make([]string, 0, len(created))
+	for _, task := range created {
 		if err := s.runner.RunTask(r.Context(), task.ID); err != nil {
-			log.Printf("broadcast: run task %s: %v", task.ID, err)
+			log.Printf("broadcast: queue task %s (agent %s): %v", task.ID, task.AgentID, err)
 		}
 		taskIDs = append(taskIDs, task.ID)
 	}

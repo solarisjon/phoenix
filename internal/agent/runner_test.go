@@ -104,6 +104,18 @@ func (r *memTaskRepo) List(_ context.Context, projectID string) ([]*model.Task, 
 	}
 	return out, nil
 }
+func (r *memTaskRepo) ListByProject(_ context.Context, projectID string, status model.TaskStatus, limit int) ([]*model.Task, error) {
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && (status == "" || t.Status == status) {
+			out = append(out, t)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
 func (r *memTaskRepo) ListAll(_ context.Context) ([]*model.Task, error) {
 	var out []*model.Task
 	for _, t := range r.tasks {
@@ -224,7 +236,8 @@ func (r *mockProjectRepo) DeleteWithTasks(_ context.Context, _ string) error    
 func (r *mockProjectRepo) ListByStatus(_ context.Context, _, _ string) ([]*model.Project, error) {
 	return nil, nil
 }
-func (r *mockProjectRepo) AssignAgent(_ context.Context, _, _ string) error  { return nil }
+func (r *mockProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, error) { return false, nil }
+func (r *mockProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) { return true, nil }
 func (r *mockProjectRepo) RemoveAgent(_ context.Context, _, _ string) error  { return nil }
 func (r *mockProjectRepo) ListAgents(_ context.Context, _ string) ([]*model.Agent, error) {
 	return nil, nil

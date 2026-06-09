@@ -86,7 +86,8 @@ func (r *fakeProjectRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 func (r *fakeProjectRepo) DeleteWithTasks(_ context.Context, _ string) error { return nil }
-func (r *fakeProjectRepo) AssignAgent(_ context.Context, _, _ string) error  { return nil }
+func (r *fakeProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, error) { return false, nil }
+func (r *fakeProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) { return true, nil }
 func (r *fakeProjectRepo) RemoveAgent(_ context.Context, _, _ string) error  { return nil }
 func (r *fakeProjectRepo) ListAgents(_ context.Context, projectID string) ([]*model.Agent, error) {
 	r.mu.Lock()
@@ -107,6 +108,20 @@ func (r *fakeTaskRepo) List(_ context.Context, projectID string) ([]*model.Task,
 		if t.ProjectID == projectID {
 			out = append(out, t)
 		}
+	}
+	return out, nil
+}
+func (r *fakeTaskRepo) ListByProject(_ context.Context, projectID string, status model.TaskStatus, limit int) ([]*model.Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && (status == "" || t.Status == status) {
+			out = append(out, t)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -223,7 +224,17 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	list, err := s.tasks.List(r.Context(), projectID)
+	// Optional ?status= and ?limit= filters.
+	status := model.TaskStatus(r.URL.Query().Get("status"))
+	limitStr := r.URL.Query().Get("limit")
+	limit := 0
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	list, err := s.tasks.ListByProject(r.Context(), projectID, status, limit)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
@@ -280,6 +291,18 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify agent is assigned to this project.
+	assigned, err := s.projects.IsAgentAssigned(r.Context(), req.ProjectID, req.AgentID)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if !assigned {
+		respondErr(w, http.StatusBadRequest,
+			"agent is not assigned to this project — call POST /projects/{id}/agents first")
+		return
+	}
+
 	input := req.Input
 	if input == "" {
 		input = "{}"
@@ -305,9 +328,12 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 
 	// Kick off execution asynchronously.
 	if err := s.runner.RunTask(r.Context(), t.ID); err != nil {
-		// Task is created but failed to start — return it with pending status.
-		// The user can see it in the UI and retry.
-		respond(w, http.StatusCreated, t)
+		// Task is created but failed to queue — return it with a warning so the
+		// caller knows it needs to be retried or monitored.
+		respond(w, http.StatusCreated, map[string]interface{}{
+			"task":    t,
+			"warning": "task created but failed to queue for execution: " + err.Error(),
+		})
 		return
 	}
 
@@ -516,7 +542,7 @@ func (s *Server) quickTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Auto-assign agent to sandbox project (idempotent).
-	if err := s.projects.AssignAgent(r.Context(), sandboxProjectID, req.AgentID); err != nil {
+	if _, err := s.projects.AssignAgent(r.Context(), sandboxProjectID, req.AgentID); err != nil {
 		respondInternalErr(w, err)
 		return
 	}

@@ -49,7 +49,8 @@ type ProjectRepo interface {
 	// DeleteWithTasks hard-deletes a project and all its tasks.
 	DeleteWithTasks(ctx context.Context, id string) error
 
-	AssignAgent(ctx context.Context, projectID, agentID string) error
+	AssignAgent(ctx context.Context, projectID, agentID string) (bool, error)
+	IsAgentAssigned(ctx context.Context, projectID, agentID string) (bool, error)
 	RemoveAgent(ctx context.Context, projectID, agentID string) error
 	ListAgents(ctx context.Context, projectID string) ([]*model.Agent, error)
 }
@@ -57,6 +58,9 @@ type ProjectRepo interface {
 // TaskRepo manages task records.
 type TaskRepo interface {
 	List(ctx context.Context, projectID string) ([]*model.Task, error)
+	// ListByProject is like List but supports optional status filter and row limit.
+	// status="" means all statuses. limit<=0 means no limit.
+	ListByProject(ctx context.Context, projectID string, status model.TaskStatus, limit int) ([]*model.Task, error)
 	ListAll(ctx context.Context) ([]*model.Task, error)
 	ListByStatus(ctx context.Context, status model.TaskStatus) ([]*model.Task, error)
 	ListByStatuses(ctx context.Context, statuses []model.TaskStatus) ([]*model.Task, error)

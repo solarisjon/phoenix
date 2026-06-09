@@ -23,9 +23,28 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT`+taskSelectCols+`FROM tasks WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+		`SELECT`+taskSelectCols+`FROM tasks WHERE project_id = ? AND dismissed = 0 ORDER BY created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+func (r *TaskRepo) ListByProject(ctx context.Context, projectID string, status model.TaskStatus, limit int) ([]*model.Task, error) {
+	query := `SELECT` + taskSelectCols + `FROM tasks WHERE project_id = ? AND dismissed = 0`
+	args := []any{projectID}
+	if status != "" {
+		query += ` AND status = ?`
+		args = append(args, string(status))
+	}
+	query += ` ORDER BY created_at DESC`
+	if limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, limit)
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by project: %w", err)
 	}
 	defer rows.Close()
 	return scanTasks(rows)

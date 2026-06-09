@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -101,6 +102,13 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	criticMode := resolveCriticMode(req.CriticMode, req.CriticAgentID)
+	if msg, err := s.validateCriticAgent(r.Context(), criticMode, req.CriticAgentID); err != nil {
+		respondInternalErr(w, err)
+		return
+	} else if msg != "" {
+		respondErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	p := &model.Project{
 		ID:               uuid.New().String(),
 		Name:             strings.TrimSpace(req.Name),
@@ -149,6 +157,15 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.ScheduleInterval = req.ScheduleInterval
 	existing.CriticAgentID = req.CriticAgentID
 	existing.CriticMode = resolveCriticMode(req.CriticMode, req.CriticAgentID)
+
+	if msg, err := s.validateCriticAgent(r.Context(), existing.CriticMode, req.CriticAgentID); err != nil {
+		respondInternalErr(w, err)
+		return
+	} else if msg != "" {
+		respondErr(w, http.StatusBadRequest, msg)
+		return
+	}
+
 	existing.Tags = normaliseTags(req.Tags)
 	if req.Kind != "" {
 		existing.Kind = model.ProjectKind(req.Kind)
@@ -289,7 +306,7 @@ func (s *Server) assignAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.projects.AssignAgent(r.Context(), projectID, req.AgentID); err != nil {
+	if _, err := s.projects.AssignAgent(r.Context(), projectID, req.AgentID); err != nil {
 		respondInternalErr(w, err)
 		return
 	}
@@ -329,6 +346,28 @@ func (s *Server) listProjectAgents(w http.ResponseWriter, r *http.Request) {
 		agents = []*model.Agent{}
 	}
 	respond(w, http.StatusOK, agents)
+}
+
+// validateCriticAgent checks that the agent referenced in critic_mode or
+// critic_agent_id actually exists. Returns an empty string if OK.
+func (s *Server) validateCriticAgent(ctx context.Context, criticMode string, legacyAgentID *string) (string, error) {
+	agentID := ""
+	if len(criticMode) > 6 && criticMode[:6] == "agent:" {
+		agentID = criticMode[6:]
+	} else if legacyAgentID != nil && *legacyAgentID != "" {
+		agentID = *legacyAgentID
+	}
+	if agentID == "" {
+		return "", nil
+	}
+	a, err := s.agents.Get(ctx, agentID)
+	if err != nil {
+		return "", err
+	}
+	if a == nil {
+		return "critic agent not found: " + agentID, nil
+	}
+	return "", nil
 }
 
 // resolveCriticMode normalises the critic_mode value from an API request.
