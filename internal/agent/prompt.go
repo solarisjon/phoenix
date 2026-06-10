@@ -131,6 +131,30 @@ Only post a memo when there is genuinely something worth surfacing — not for r
 	}
 	b.WriteString("\n")
 
+	b.WriteString(`
+## Artifacts
+
+If your task creates or produces a file, web page, Jira ticket, Confluence page, or any other concrete output, declare it using an ARTIFACT block so the human can find it easily. Embed one block per artifact directly in your output:
+
+ARTIFACT_START
+Type: file
+Path: /absolute/path/to/file.md
+Title: Short human-readable name
+ARTIFACT_END
+
+For URLs (web pages, Jira, Confluence, HTML files served over HTTP):
+
+ARTIFACT_START
+Type: url
+URL: https://example.atlassian.net/browse/PROJ-123
+Title: Jira ticket PROJ-123
+ARTIFACT_END
+
+Supported types: file, url, jira, confluence, html
+Only emit an ARTIFACT block when you have actually created or modified something — not for pre-existing resources you merely referenced.
+`)
+
+
 	if globalGuardrails != "" {
 		b.WriteString("\n## Platform-Wide Guardrails (mandatory — overrides all other instructions)\n")
 		b.WriteString(globalGuardrails)

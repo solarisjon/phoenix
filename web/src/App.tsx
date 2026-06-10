@@ -4,8 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 
 const DashboardPage     = lazy(() => import('@/pages/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const InboxPage         = lazy(() => import('@/pages/InboxPage').then(m => ({ default: m.InboxPage })))
-const ProjectsPage      = lazy(() => import('@/pages/ProjectsPage').then(m => ({ default: m.ProjectsPage })))
-const ProjectDetailPage = lazy(() => import('@/pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })))
+const ProjectsWorkspace = lazy(() => import('@/pages/ProjectsWorkspace').then(m => ({ default: m.ProjectsWorkspace })))
 const MonitorsPage      = lazy(() => import('@/pages/MonitorsPage').then(m => ({ default: m.MonitorsPage })))
 const MonitorDetailPage = lazy(() => import('@/pages/MonitorDetailPage').then(m => ({ default: m.MonitorDetailPage })))
 const TasksPage         = lazy(() => import('@/pages/TasksPage').then(m => ({ default: m.TasksPage })))
@@ -26,8 +25,8 @@ export default function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/briefing" element={<BriefingPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            <Route path="/projects" element={<ProjectsWorkspace />} />
+            <Route path="/projects/:id" element={<ProjectsWorkspace />} />
             <Route path="/monitors" element={<MonitorsPage />} />
             <Route path="/monitors/:id" element={<MonitorDetailPage />} />
             <Route path="/tasks" element={<TasksPage />} />

@@ -470,6 +470,8 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	// auto-create one from the output so the Briefing always reflects task completions.
 	if r.memos != nil {
 		posted := r.extractAndSaveMemos(task, agent, fullOutput)
+		// Extract artifact declarations and create briefing entries for each.
+		r.extractAndSaveArtifacts(task, agent, fullOutput)
 		if !posted && !task.IsCriticReview {
 			r.autoMemo(task, agent, fullOutput)
 		}
@@ -779,6 +781,101 @@ func parseMemoBlocks(output string) []parsedMemo {
 		})
 	}
 	return results
+}
+
+// ---- Artifact extraction ----
+
+// parsedArtifact holds one ARTIFACT_START … ARTIFACT_END block.
+type parsedArtifact struct {
+	artType string // "file" | "url" | "jira" | "confluence" | "html"
+	path    string // file path or URL
+	title   string
+}
+
+// parseArtifactBlocks extracts all ARTIFACT_START … ARTIFACT_END sections from text.
+//
+// Expected format in agent output:
+//
+//	ARTIFACT_START
+//	Type: file          (or "url", "jira", "confluence", "html")
+//	Path: /abs/path     (use URL: for non-file types)
+//	Title: My Document
+//	ARTIFACT_END
+func parseArtifactBlocks(output string) []parsedArtifact {
+	var results []parsedArtifact
+	lines := strings.Split(output, "\n")
+	i := 0
+	for i < len(lines) {
+		if strings.TrimSpace(lines[i]) != "ARTIFACT_START" {
+			i++
+			continue
+		}
+		i++
+		var a parsedArtifact
+		for i < len(lines) {
+			if strings.TrimSpace(lines[i]) == "ARTIFACT_END" {
+				i++
+				break
+			}
+			line := lines[i]
+			switch {
+			case strings.HasPrefix(line, "Type:"):
+				a.artType = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "Type:")))
+			case strings.HasPrefix(line, "Path:"):
+				a.path = strings.TrimSpace(strings.TrimPrefix(line, "Path:"))
+			case strings.HasPrefix(line, "URL:"):
+				a.path = strings.TrimSpace(strings.TrimPrefix(line, "URL:"))
+			case strings.HasPrefix(line, "Title:"):
+				a.title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
+			}
+			i++
+		}
+		if a.artType != "" && a.path != "" {
+			results = append(results, a)
+		}
+	}
+	return results
+}
+
+// extractAndSaveArtifacts scans agent output for ARTIFACT_START blocks and creates
+// a briefing memo entry for each one so they appear in the Briefing panel.
+func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, output string) {
+	artifacts := parseArtifactBlocks(output)
+	if len(artifacts) == 0 {
+		return
+	}
+	var projectName string
+	if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
+		projectName = proj.Name
+	}
+	for _, art := range artifacts {
+		title := art.title
+		if title == "" {
+			title = art.path
+		}
+		body := fmt.Sprintf("**Type:** %s\n\n**Location:** %s", art.artType, art.path)
+		memo := &model.Memo{
+			ID:          uuid.New().String(),
+			ProjectID:   task.ProjectID,
+			ProjectName: projectName,
+			TaskID:      task.ID,
+			AgentID:     a.ID,
+			AgentName:   a.Name,
+			Title:       "Artifact: " + title,
+			Body:        body,
+			Priority:    model.MemoPriorityNormal,
+			Status:      model.MemoStatusUnread,
+			CreatedAt:   time.Now(),
+		}
+		if err := r.memos.Create(r.bgCtx, memo); err != nil {
+			log.Printf("runner: save artifact memo for task %s: %v", task.ID, err)
+			continue
+		}
+		log.Printf("runner: artifact memo saved for task %s: %q", task.ID, memo.Title)
+		if r.onMemo != nil {
+			r.onMemo(memo)
+		}
+	}
 }
 
 // deriveHealthSignal inspects the output text of a completed monitor task and

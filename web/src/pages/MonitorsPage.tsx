@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent, type Provider } from '@/lib/api'
-import { Card, CardBody } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { api, type Project, type Agent, type Provider, type ProjectSummary } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
@@ -12,6 +11,7 @@ import { TagInput, TagPill } from '@/components/ui/tag-input'
 import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
 import type { FilterSortState } from '@/components/ui/filter-sort-bar'
 import { timeAgo } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 const formatInterval = (secs: number | null | undefined) => {
   if (!secs) return null
@@ -199,8 +199,9 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
 
 // ---- Monitor card ----
 
-function MonitorCard({ monitor, agents, allAgents, providers, onArchive, onDelete, onRefresh }: {
+function MonitorCard({ monitor, summary, agents, allAgents, providers, onArchive, onDelete, onRefresh }: {
   monitor: Project
+  summary?: ProjectSummary
   agents: Agent[]
   allAgents: Agent[]
   providers: Provider[]
@@ -212,6 +213,18 @@ function MonitorCard({ monitor, agents, allAgents, providers, onArchive, onDelet
   const [showEdit, setShowEdit] = useState(false)
 
   const interval = monitor.schedule_interval ? scheduleLabel(monitor.schedule_interval) : null
+
+  // Status dots from task health (same logic as ProjectListItem)
+  const statusMap = summary?.tasks_by_status ?? {}
+  const dots: { color: string; title: string }[] = []
+  const hasRunning = (statusMap['running'] ?? 0) + (statusMap['queued'] ?? 0) + (statusMap['pending'] ?? 0) > 0
+  const needsYou = (statusMap['awaiting_approval'] ?? 0) > 0
+  const hasFailed = (statusMap['failed'] ?? 0) > 0
+  const hasCompleted = (statusMap['completed'] ?? 0) > 0
+  if (hasRunning) dots.push({ color: 'bg-violet-400', title: 'Running' })
+  if (needsYou) dots.push({ color: 'bg-amber-400', title: 'Needs You' })
+  if (hasFailed) dots.push({ color: 'bg-red-400', title: 'Failed' })
+  if (hasCompleted && !hasRunning && !needsYou && !hasFailed) dots.push({ color: 'bg-emerald-400', title: 'All clear' })
 
   const addAgent = async (agentId: string) => {
     await api.projects.assignAgent(monitor.id, agentId)
@@ -225,69 +238,77 @@ function MonitorCard({ monitor, agents, allAgents, providers, onArchive, onDelet
 
   return (
     <>
-      <Card className="hover:border-slate-700 transition-colors">
-        <CardBody className="space-y-3">
-          {/* Header row */}
-          <div className="flex items-start justify-between gap-4">
-            {/* Clickable title area */}
-            <div
-              className="flex-1 min-w-0 cursor-pointer"
-              onClick={() => navigate(`/monitors/${monitor.id}`)}
-            >
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-base">⟳</span>
-                <h3 className="font-medium text-white">{monitor.name}</h3>
-                <Badge variant={monitor.status === 'active' ? 'success' : 'muted'}>
-                  {monitor.status}
-                </Badge>
-                {monitor.tags?.map(t => <TagPill key={t} tag={t} />)}
-              </div>
-                {monitor.description && (
-                  <p className="text-sm text-slate-400 line-clamp-1 mt-1 ml-6">
-                    {monitor.description}
-                  </p>
-                )}
-                <div className="flex items-center gap-3 ml-6 mt-1 text-xs text-slate-500">
-                  {interval
-                    ? <span className="text-violet-400 font-medium">⟳ {interval}</span>
-                    : <span className="text-amber-500">No schedule — manual only</span>
-                  }
-                  {monitor.working_dir && (
-                    <span className="font-mono truncate" title={monitor.working_dir}>
-                      📁 {monitor.working_dir.split('/').pop()}
-                    </span>
-                  )}
-                  <span>Created {timeAgo(monitor.created_at)}</span>
-                <span
-                  className="text-slate-600 hover:text-slate-400 transition-colors"
-                  onClick={e => { e.stopPropagation(); navigate(`/monitors/${monitor.id}`) }}
-                >
-                  View runs →
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden hover:border-slate-700 transition-colors">
+        {/* Header row */}
+        <div className="flex items-start gap-4 px-4 pt-4 pb-3">
+          {/* Clickable title area */}
+          <div
+            className="flex-1 min-w-0 cursor-pointer"
+            onClick={() => navigate(`/monitors/${monitor.id}`)}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-slate-400">⟳</span>
+              <h3 className="font-medium text-white">{monitor.name}</h3>
+              <Badge variant={monitor.status === 'active' ? 'success' : 'muted'}>
+                {monitor.status}
+              </Badge>
+              {monitor.tags?.map(t => <TagPill key={t} tag={t} />)}
+              {dots.length > 0 && (
+                <div className="flex items-center gap-1 ml-1">
+                  {dots.map((d, i) => (
+                    <span key={i} className={cn('w-1.5 h-1.5 rounded-full', d.color)} title={d.title} />
+                  ))}
+                </div>
+              )}
+            </div>
+            {monitor.description && (
+              <p className="text-sm text-slate-400 line-clamp-1 mt-1 ml-5">
+                {monitor.description}
+              </p>
+            )}
+            <div className="flex items-center gap-3 ml-5 mt-1.5 text-xs text-slate-500 flex-wrap">
+              {interval
+                ? <span className="text-violet-400 font-medium">⟳ {interval}</span>
+                : <span className="text-amber-500/80">Manual only</span>
+              }
+              {monitor.working_dir && (
+                <span className="font-mono truncate" title={monitor.working_dir}>
+                  📁 {monitor.working_dir.split('/').pop()}
                 </span>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex gap-2 flex-shrink-0">
-              <Button variant="secondary" size="sm" onClick={() => setShowEdit(true)}>Edit</Button>
-              <Button variant="secondary" size="sm" onClick={onArchive}>Archive</Button>
-              <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
+              )}
+              <span>Created {timeAgo(monitor.created_at)}</span>
+              {summary && summary.total_tasks > 0 && (
+                <span>{summary.total_tasks} run{summary.total_tasks !== 1 ? 's' : ''}</span>
+              )}
+              <span
+                className="text-slate-600 hover:text-slate-400 transition-colors cursor-pointer"
+                onClick={e => { e.stopPropagation(); navigate(`/monitors/${monitor.id}`) }}
+              >
+                View runs →
+              </span>
             </div>
           </div>
 
-          {/* Agents section — always visible, inline */}
-          <div className="border-t border-slate-800 pt-3">
-            <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Agents</p>
-            <AgentsSection
-              assigned={agents}
-              allAgents={allAgents}
-              showHeartbeat
-              onAdd={addAgent}
-              onRemove={removeAgent}
-            />
+          {/* Action buttons */}
+          <div className="flex gap-2 shrink-0">
+            <Button variant="secondary" size="sm" onClick={() => setShowEdit(true)}>Edit</Button>
+            <Button variant="secondary" size="sm" onClick={onArchive}>Archive</Button>
+            <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
           </div>
-        </CardBody>
-      </Card>
+        </div>
+
+        {/* Agents section */}
+        <div className="border-t border-slate-800 px-4 py-3">
+          <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Agents</p>
+          <AgentsSection
+            assigned={agents}
+            allAgents={allAgents}
+            showHeartbeat
+            onAdd={addAgent}
+            onRemove={removeAgent}
+          />
+        </div>
+      </div>
 
       {showEdit && (
         <Modal title={`Edit: ${monitor.name}`} onClose={() => setShowEdit(false)} className="max-w-2xl">
@@ -309,6 +330,7 @@ function MonitorCard({ monitor, agents, allAgents, providers, onArchive, onDelet
 export function MonitorsPage() {
   const [monitors, setMonitors] = useState<Project[]>([])
   const [agentsByMonitor, setAgentsByMonitor] = useState<Record<string, Agent[]>>({})
+  const [summaries, setSummaries] = useState<Record<string, ProjectSummary>>({})
   const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
@@ -317,14 +339,16 @@ export function MonitorsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [mons, agents, provs] = await Promise.all([
+      const [mons, agents, provs, sums] = await Promise.all([
         api.projects.list('monitor'),
         api.agents.list(),
         api.providers.list(),
+        api.projects.summaries().catch(() => ({})),
       ])
       setMonitors(mons)
       setAllAgents(agents)
       setProviders(provs)
+      setSummaries(sums)
       const agentMap: Record<string, Agent[]> = {}
       await Promise.all(mons.map(async m => {
         agentMap[m.id] = await api.projects.listAgents(m.id)
@@ -403,6 +427,7 @@ export function MonitorsPage() {
                     <div className="grid gap-4">
                       {g.items.map(m => (
                         <MonitorCard key={m.id} monitor={m}
+                          summary={summaries[m.id]}
                           agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
                           onArchive={() => archiveMonitor(m.id, m.name)}
                           onDelete={() => deleteMonitor(m.id, m.name)}
@@ -416,6 +441,7 @@ export function MonitorsPage() {
               <div className="grid gap-4">
                 {displayed.map(m => (
                   <MonitorCard key={m.id} monitor={m}
+                    summary={summaries[m.id]}
                     agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
                     onArchive={() => archiveMonitor(m.id, m.name)}
                     onDelete={() => deleteMonitor(m.id, m.name)}

@@ -134,6 +134,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/projects", s.listProjects)
 		r.Post("/projects", s.createProject)
 		r.Post("/projects/generate-description", s.generateProjectDescription)
+		r.Get("/projects/summaries", s.listProjectSummaries)
 		r.Get("/projects/{id}", s.getProject)
 		r.Put("/projects/{id}", s.updateProject)
 		r.Delete("/projects/{id}", s.deleteProject)
@@ -144,6 +145,8 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/projects/{id}/agents", s.listProjectAgents)
 		r.Post("/projects/{id}/teams", s.assignTeamToProject)
 		r.Get("/projects/{id}/summary", s.getProjectSummary)
+		r.Get("/projects/{id}/files", s.listProjectFiles)
+		r.Get("/projects/{id}/files/*", s.getProjectFileContent)
 
 		// Tasks
 		r.Get("/tasks", s.listTasks)

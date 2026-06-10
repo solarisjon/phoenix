@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/empty'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { AgentsSection } from '@/components/shared/AgentsSection'
+import { cn } from '@/lib/utils'
 
 // ---- Countdown clock ----
 
@@ -63,10 +64,20 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
 
 // ---- Run card ----
 
+const STATUS_BORDER: Record<string, string> = {
+  success: 'border-l-emerald-500',
+  warning: 'border-l-amber-500',
+  danger: 'border-l-red-500',
+  info: 'border-l-violet-500',
+  muted: 'border-l-slate-700',
+  default: 'border-l-slate-700',
+}
+
 function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
   const [expanded, setExpanded] = useState(task.status === 'running')
   const [stream, setStream] = useState('')
   const streamRef = useRef<HTMLDivElement>(null)
+  const variant = taskStatusVariant(task.status)
 
   useEffect(() => {
     if (task.status !== 'running') { setStream(''); return }
@@ -91,7 +102,10 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
     : null
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+    <div className={cn(
+      'bg-slate-900 border border-slate-800 border-l-2 rounded-xl overflow-hidden',
+      STATUS_BORDER[variant] ?? 'border-l-slate-700'
+    )}>
       <div className="flex items-center gap-4 px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
@@ -106,7 +120,7 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
                  '✗ Failed'}
               </span>
             )}
-            <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
+            <Badge variant={variant}>{taskStatusLabel(task.status)}</Badge>
             <span className="text-sm text-slate-300">{task.title}</span>
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">

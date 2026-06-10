@@ -157,6 +157,28 @@ export interface SysInfo {
   active_tasks: number
 }
 
+export interface ProjectSummary {
+  tasks_by_status: Record<string, number> | null
+  total_tasks: number
+  total_cost_usd: number
+  last_activity: string | null
+}
+
+export interface ProjectFileEntry {
+  name: string
+  rel_path: string
+  size_bytes: number
+  modified_at: string
+  ext: string
+  is_artifact: boolean
+}
+
+export interface ProjectFileContent {
+  content: string
+  ext: string
+  truncated: boolean
+}
+
 const BASE = '/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -256,6 +278,10 @@ export const api = {
     assignAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),
     assignTeam: (id: string, teamId: string) => request<{ assigned: number, total: number, team: string }>(`/projects/${id}/teams`, { method: 'POST', body: JSON.stringify({ team_id: teamId }) }),
+    summaries: () => request<Record<string, ProjectSummary>>('/projects/summaries'),
+    listFiles: (id: string) => request<ProjectFileEntry[]>(`/projects/${id}/files`),
+    getFileContent: (id: string, relPath: string) =>
+      request<ProjectFileContent>(`/projects/${id}/files/${relPath}`),
     generateDescription: (name: string, hint?: string, providerId?: string) =>
       request<{ description: string }>('/projects/generate-description', {
         method: 'POST',

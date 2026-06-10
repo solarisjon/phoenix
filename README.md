@@ -15,15 +15,19 @@ A self-hosted AI agent orchestration platform. Give agents personas and instruct
 | Feature | Description |
 |---|---|
 | **Agents** | Reusable AI personas with instructions, guardrails, and a provider. |
-| **Projects** | Human-driven workspaces with an optional working directory on disk. |
-| **Monitors** | Autonomous projects that run on a schedule — pick an agent and set an interval. |
-| **Tasks** | Run immediately, stream output live, track cost. |
+| **Projects** | Three-pane workspace (project list → task inbox → task detail). Assign agents, compose tasks, browse generated files. |
+| **Monitors** | Autonomous projects that run on a schedule — pick an agent and set an interval. Health-signal dots show run state at a glance. |
+| **Tasks** | Run immediately, stream output live, track cost. Status dots, left-border color coding, and a "Needs You" badge make state obvious. |
 | **Follow-up threads** | Chat-style refinement on any task — previous output carried forward as context. |
 | **Quick Tasks** | One-off tasks without a project (⌘K from anywhere). |
 | **Inbox** | Failed, awaiting-approval, completed tasks, and pending agent hire proposals in one place. |
+| **Critic / Devil's Advocate** | Toggle a critic on any task. `builtin` spins up an ephemeral contrarian review using the same provider; `agent:<id>` routes to a specific registered agent. |
 | **Agent spawning** | Agents delegate work to other agents via the Phoenix API. |
 | **Agent hiring** | Agents propose new hires → land in Inbox for human approval before any agent is created. |
 | **Teams** | Group agents into named teams; assign a whole team to a project at once. Export/import as bundles. |
+| **Briefing / Memos** | Agents embed `MEMO_START…MEMO_END` blocks in output → auto-saved to Briefing. Manually pin any task output. Sidebar badge counts unread. |
+| **Artifacts** | Agents embed `ARTIFACT_START…ARTIFACT_END` blocks → auto-saved to project working directory and linked in Briefing. |
+| **File browser** | Browse the project working directory from inside the workspace. Preview text, code, and markdown files in-pane. |
 | **Global guardrails** | Platform-wide rules injected into every agent's system prompt, managed in Settings. |
 | **Cost tracking** | Token costs tracked per task, per agent, per project. Charts on the dashboard. |
 | **Themes** | 5 built-in themes (Dark, Midnight, Forest, Ember, Light), live switcher. |
@@ -141,19 +145,36 @@ Enable **Allow agent to hire new agents 🧑‍💼**. When the agent identifies
 
 ## Projects
 
-Human-driven workspaces. Create a project, assign one or more agents, and run tasks. Tasks chain together as follow-up threads.
+Human-driven workspaces with a **three-pane email-inbox layout**: project list on the left, task inbox in the centre, task detail on the right. Click any task to read its full output, follow up, or refine.
 
 An optional **Working Directory** is passed to coding agents as their working directory on disk. Set it to the repo or folder the agent should operate in.
 
+**Composing a task:** Click **+ New Task** in the centre pane to open the task compose panel on the right. The agent picker shows only agents assigned to the project. A **Devil's Advocate** toggle lets you attach a critic to the task without leaving the compose view.
+
+**File browser:** The **Files** tab in the right pane lets you browse the project working directory, view text/code/markdown files in-pane, and see which files were emitted as artifacts.
+
+**Health-signal dots** on each project card (violet = running, amber = needs you, red = failed, green = all clear) let you scan state at a glance without opening a project.
+
 ### Follow-up threads
 
-On any completed or failed task, type a reply to continue the work. The previous output is automatically injected as context. Threads chain indefinitely. Available from task cards in the project view and from any task detail modal.
+On any completed or failed task, type a reply to continue the work. The previous output is automatically injected as context. Threads chain indefinitely.
+
+### Critic / Devil's Advocate
+
+On any task or in the compose view, toggle **Devil's Advocate**. Two modes:
+
+- **Built-in** — an ephemeral contrarian runs on the same provider immediately after the primary agent finishes. No registered agent required.
+- **Agent** — routes the critic pass to a specific registered agent (e.g. a QA reviewer).
+
+Critic tasks are flagged to prevent recursive loops.
 
 ---
 
 ## Monitors
 
 Autonomous projects that run on a schedule. A monitor has a name, an optional working directory, a **Schedule Interval**, and one or more assigned agents. On each tick Phoenix creates a task for the assigned agent(s); if an agent already has a running or queued task in that monitor it is skipped for that cycle. Run history is shown in the Monitor detail view.
+
+**Health-signal dots** on each monitor card (violet/amber/red/green) give instant status at a glance. Run rows in the detail view have left-border color coding matching task state.
 
 Create a monitor: Monitors → **+ New Monitor**. Set a Schedule Interval (minimum 60 s) and assign at least one agent.
 
@@ -228,9 +249,14 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | GET | `/api/projects` | List all (add `?kind=project` or `?kind=monitor` to filter) |
 | POST | `/api/projects` | Create |
 | GET/PUT/DELETE | `/api/projects/:id` | Read / update / delete |
+| GET | `/api/projects/summaries` | Task health summary keyed by project ID |
 | GET/POST | `/api/projects/:id/agents` | List / assign agents |
 | DELETE | `/api/projects/:id/agents/:agentId` | Remove agent |
 | POST | `/api/projects/:id/teams` | Assign a whole team |
+| POST | `/api/projects/:id/archive` | Archive project |
+| POST | `/api/projects/:id/restore` | Restore archived project |
+| GET | `/api/projects/:id/files` | List files in working directory |
+| GET | `/api/projects/:id/files/*` | Get file content |
 
 ### Tasks
 | Method | Path | |
@@ -265,6 +291,15 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | POST | `/api/teams/:id/assign/:projectId` | Assign whole team to project |
 | GET | `/api/teams/:id/export` | Export team bundle JSON |
 | POST | `/api/import/team` | Import a team bundle |
+
+### Briefing & Artifacts
+| Method | Path | |
+|---|---|---|
+| GET | `/api/memos` | List memos (add `?status=unread\|read\|flagged\|archived`) |
+| POST | `/api/memos` | Create memo manually |
+| GET | `/api/memos/count` | Unread + flagged count (sidebar badge) |
+| PUT | `/api/memos/:id/status` | Update memo status |
+| DELETE | `/api/memos/:id` | Delete memo |
 
 ### Stats & Admin
 | Method | Path | |
@@ -344,11 +379,11 @@ See [GitHub Issues](https://github.com/solarisjon/phoenix/issues) for the full b
 
 Upcoming:
 - Task cancellation (SIGTERM a running task)
-- Per-agent activity log
-- Token usage detail in task output
+- Per-project agent task routing (assign specific agents to specific task types)
 - Full-text task search
 - Copilot CLI adapter
 - Multi-user authentication
+- Mobile-friendly layout
 
 ---
 

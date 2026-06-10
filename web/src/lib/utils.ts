@@ -19,7 +19,7 @@ export function taskStatusVariant(status: Task['status']) {
 
 export function taskStatusLabel(status: Task['status']) {
   switch (status) {
-    case 'awaiting_approval': return 'Needs Approval'
+    case 'awaiting_approval': return 'Needs You'
     default: return status.charAt(0).toUpperCase() + status.slice(1)
   }
 }

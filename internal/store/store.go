@@ -156,4 +156,7 @@ type StatsRepo interface {
 	TaskCountByStatus(ctx context.Context) ([]*TaskCountByStatus, error)
 	TotalTaskCount(ctx context.Context) (int, error)
 	ProjectTaskSummary(ctx context.Context, projectID string) (*ProjectSummary, error)
+	// AllProjectTaskSummaries returns a map of project ID → task summary for
+	// all projects that have at least one task. Projects with no tasks are omitted.
+	AllProjectTaskSummaries(ctx context.Context) (map[string]*ProjectSummary, error)
 }

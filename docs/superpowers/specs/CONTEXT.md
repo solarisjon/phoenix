@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-05-30 (end of day)  
+**Last updated:** 2026-06-10 (v0.2)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -88,10 +88,12 @@ web/src/
     ui/theme-picker.tsx                # theme switcher
   pages/
     DashboardPage.tsx, InboxPage.tsx, TasksPage.tsx
-    ProjectDetailPage.tsx              # always human view; no isAutonomous detection
-    ProjectsPage.tsx                   # lists kind=project only; edit form has kind toggle
-    MonitorsPage.tsx                   # NEW: lists kind=monitor; create monitor form
-    MonitorDetailPage.tsx              # NEW: run log, countdown, run-now button
+    ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task inbox | task detail/compose
+                                       # replaces old ProjectsPage.tsx + ProjectDetailPage.tsx
+                                       # includes: ProjectListItem, TaskRow, TaskDetailView, TaskComposeView,
+                                       #           FileRow, FilePreviewView, AgentPickerModal
+    MonitorsPage.tsx                   # lists kind=monitor; flat dark cards with health-signal dots
+    MonitorDetailPage.tsx              # run log, countdown, run-now; RunCard with left-border status color
     AgentsPage.tsx, ProvidersPage.tsx
     SettingsPage.tsx                   # System tab: Global Guardrails section + DB backup
     TeamsPage.tsx, TeamDetailPage.tsx
@@ -197,9 +199,12 @@ GET/POST           /api/projects                  # GET: ?kind=project|monitor&s
 GET/PUT/DELETE     /api/projects/:id              # PUT: kind field accepted; DELETE hard-deletes project + all tasks
 POST               /api/projects/:id/archive      # sets status=archived; blocks if tasks running
 POST               /api/projects/:id/restore      # sets status=active
+GET                /api/projects/summaries        # task health summary keyed by project ID
 GET/POST           /api/projects/:id/agents
 DELETE             /api/projects/:id/agents/:agentId
 POST               /api/projects/:id/teams
+GET                /api/projects/:id/files        # list files in working_dir (depth ≤3, no hidden)
+GET                /api/projects/:id/files/*      # get file content (≤256KB)
 
 GET/POST           /api/tasks                    # ?project_id= filter; POST: source field optional
 POST               /api/tasks/quick              # sandbox project
@@ -282,6 +287,11 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 - **Model override:** patched into provider config JSON at runtime via `GetWithOverride()`, not cached
 - **Team export api_key:** always exported as empty string — never included in bundle
 - **Orphaned tasks on restart:** `ResetOrphanedTasks()` marks queued/running → failed; kills subprocesses via `runner_pid`
+- **Projects workspace (v0.2):** `ProjectsWorkspace.tsx` is a single-file three-pane component. Left pane = project list (`ProjectListItem`). Centre pane = task inbox (`TaskRow`) + tabs (Tasks / Files). Right pane = task detail (`TaskDetailView`), task compose (`TaskComposeView`), or file preview (`FilePreviewView`). Old `ProjectsPage.tsx` and `ProjectDetailPage.tsx` are DELETED. Route `/projects` and `/projects/:id` both render `ProjectsWorkspace` — the component selects the project from URL param if present.
+- **File browser:** `GET /api/projects/:id/files` lists working_dir contents (depth ≤3, hidden files skipped, dirs marked). `GET /api/projects/:id/files/*` returns raw content (≤256KB via `io.LimitReader`). Frontend `FileRow` shows name + size + artifact badge. `FilePreviewView` renders content in `MarkdownOutput` or plain `<pre>`.
+- **Artifact parsing:** Agents emit `ARTIFACT_START\nFilename: foo.md\nType: document\n\n<content>\nARTIFACT_END` blocks. `extractAndSaveArtifacts()` in `runner.go` parses these on task completion, writes files to `project.working_dir/<filename>`, and calls `extractAndSaveMemos` to post a briefing entry. `parseArtifactBlocks` is duplicated in `api/project.go` (for `is_artifact` flag in file listings) and `agent/runner.go` (runtime extraction) to avoid circular imports.
+- **Health-signal dots:** `ProjectListItem` and `MonitorCard` both load `api.projects.summaries()` (returns `Record<string, ProjectSummary>`) on page load. Dot logic: violet = running/queued/pending > 0, amber = awaiting_approval > 0, red = failed > 0, green = completed > 0 and no others. Same logic in both pages — keep in sync if changing.
+- **Left-border color on task/run rows:** `TaskRow` (ProjectsWorkspace) and `RunCard` (MonitorDetailPage) both use `taskStatusVariant()` → `STATUS_BORDER` map: success→emerald-500, warning→amber-500, danger→red-500, info→violet-500, muted/default→slate-600/700. Applied as `border-l-2` (TaskRow) or `border-l-2` (RunCard) with `border-l-{color}` Tailwind class.
 
 ---
 
@@ -324,6 +334,14 @@ Recently completed (2026-05-31):
 - ✓ Model picker dropdown (#18)
 - ✓ Task queuing / per-agent concurrency limits (#15)
 
+Recently completed (2026-06-10 — v0.2):
+- ✓ Projects workspace redesign — three-pane email-inbox layout (ProjectsWorkspace.tsx)
+- ✓ Task compose panel — right-pane form with roster-filtered agent picker and DA toggle
+- ✓ File browser — list and preview working directory files in-pane (Files tab)
+- ✓ Artifact parsing — agents embed ARTIFACT_START…ARTIFACT_END; runner extracts & saves to working_dir; briefing entry auto-created
+- ✓ Visual consistency — health-signal dots on Project/Monitor cards; left-border color on TaskRow/RunCard
+- ✓ Monitors visual polish — flat dark card style with status dots; MonitorDetailPage RunCard left-border color
+
 Recently completed (2026-06-04):
 - ✓ Project Archive/Restore + Settings → Archived tab
 - ✓ Briefing / Memos system (agent-posted + manual pin from task cards)
@@ -361,3 +379,7 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 - **template_id is vestigial:** stored in DB (migration 020), never acted on. UI no longer shows it. Do not build features on top of it without implementing real inheritance first.
 - **critic_agent_id is deprecated:** migration 024 copies any existing values into `critic_mode` as `"agent:<id>"`. API still accepts it for backwards compat via `resolveCriticMode()` in `project.go`.
 - **taskSelectCols / projectSelectCols:** must stay in sync with schema. `critic_mode` added to both after migration 024.
+- **ProjectsWorkspace route:** both `/projects` and `/projects/:id` render `ProjectsWorkspace`. The component reads `useParams().id` and selects the matching project — if no ID, nothing is selected. App.tsx registers both routes pointing to the same component.
+- **File content route ordering:** `GET /api/projects/:id/files` must be registered BEFORE `GET /api/projects/:id/files/*` in chi to avoid wildcard eating the bare list call.
+- **Artifact MIME detection:** `project.go` `getProjectFileContent` infers `content_type` from extension. Unknown extensions → `text/plain`. Binary files (images, etc.) are not guarded — callers should check `content_type` before rendering.
+- **summaries endpoint:** `GET /api/projects/summaries` is a static route and MUST be registered before `GET /api/projects/:id` in chi. It aggregates task counts per project into a `map[string]ProjectSummary` used for health-signal dots.

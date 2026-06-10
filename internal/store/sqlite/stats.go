@@ -116,6 +116,68 @@ func scanCostSummaries(rows interface {
 	return out, rows.Err()
 }
 
+// AllProjectTaskSummaries returns a map of project ID → summary for every
+// project that has at least one task. Projects with no tasks are omitted.
+func (r *StatsRepo) AllProjectTaskSummaries(ctx context.Context) (map[string]*store.ProjectSummary, error) {
+	out := map[string]*store.ProjectSummary{}
+
+	// Task counts grouped by (project_id, status).
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT project_id, status, COUNT(*)
+		 FROM tasks
+		 WHERE project_id IS NOT NULL
+		 GROUP BY project_id, status`)
+	if err != nil {
+		return nil, fmt.Errorf("all project task summaries: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var projectID, status string
+		var count int
+		if err := rows.Scan(&projectID, &status, &count); err != nil {
+			return nil, fmt.Errorf("scan all project summaries: %w", err)
+		}
+		if _, ok := out[projectID]; !ok {
+			out[projectID] = &store.ProjectSummary{TasksByStatus: map[string]int{}}
+		}
+		out[projectID].TasksByStatus[status] = count
+		out[projectID].TotalTasks += count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Total cost and last activity per project.
+	actRows, err := r.db.QueryContext(ctx,
+		`SELECT project_id,
+		        COALESCE(SUM(cost_usd), 0),
+		        MAX(COALESCE(completed_at, started_at, created_at))
+		 FROM tasks
+		 WHERE project_id IS NOT NULL
+		 GROUP BY project_id`)
+	if err != nil {
+		return nil, fmt.Errorf("all project summaries cost: %w", err)
+	}
+	defer actRows.Close()
+	for actRows.Next() {
+		var projectID string
+		var cost float64
+		var lastActivity sql.NullTime
+		if err := actRows.Scan(&projectID, &cost, &lastActivity); err != nil {
+			return nil, fmt.Errorf("scan all project summaries cost: %w", err)
+		}
+		if _, ok := out[projectID]; !ok {
+			out[projectID] = &store.ProjectSummary{TasksByStatus: map[string]int{}}
+		}
+		out[projectID].TotalCostUSD = cost
+		if lastActivity.Valid {
+			t := lastActivity.Time
+			out[projectID].LastActivity = &t
+		}
+	}
+	return out, actRows.Err()
+}
+
 // ProjectTaskSummary returns task counts by status, total cost, and last
 // activity time for the given project. It never returns nil (always an empty
 // map on a project with no tasks).
