@@ -24,6 +24,7 @@ type RightPane =
   | { type: 'task'; task: Task }
   | { type: 'compose' }
   | { type: 'new-project' }
+  | { type: 'edit-project' }
   | { type: 'file'; entry: ProjectFileEntry; content: string; truncated: boolean }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,7 @@ export function ProjectsWorkspace() {
           setRightPane({ type: 'file', entry, content, truncated })
         }}
         onCompose={() => setRightPane({ type: 'compose' })}
+        onEdit={() => setRightPane({ type: 'edit-project' })}
         onAgentAssigned={() => projectId && loadProject(projectId)}
       />
 
@@ -140,6 +142,16 @@ export function ProjectsWorkspace() {
         onProjectCreated={async (id) => {
           await loadBase()
           navigate(`/projects/${id}`)
+          setRightPane({ type: 'empty' })
+        }}
+        onProjectUpdated={async () => {
+          await loadBase()
+          if (projectId) await loadProject(projectId)
+          setRightPane({ type: 'empty' })
+        }}
+        onProjectRemoved={async () => {
+          await loadBase()
+          navigate('/projects')
           setRightPane({ type: 'empty' })
         }}
         onTaskUpdated={refreshTasks}
@@ -277,11 +289,12 @@ interface MiddlePaneProps {
   onTaskClick: (task: Task) => void
   onFileClick: (entry: ProjectFileEntry) => void
   onCompose: () => void
+  onEdit: () => void
   onAgentAssigned: () => void
 }
 
 function MiddlePane({
-  project, projectAgents, allAgents, tasks, selectedTask, selectedFile, onTaskClick, onFileClick, onCompose, onAgentAssigned,
+  project, projectAgents, allAgents, tasks, selectedTask, selectedFile, onTaskClick, onFileClick, onCompose, onEdit, onAgentAssigned,
 }: MiddlePaneProps) {
   const [tab, setTab] = useState<'tasks' | 'files'>('tasks')
   const [assignOpen, setAssignOpen] = useState(false)
@@ -327,7 +340,16 @@ function MiddlePane({
     <div className="flex flex-col w-80 shrink-0 border-r border-slate-800 bg-slate-900">
       {/* Project header */}
       <div className="px-4 pt-3 pb-2 border-b border-slate-800">
-        <h2 className="text-sm font-semibold text-white truncate">{project.name}</h2>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-sm font-semibold text-white truncate">{project.name}</h2>
+          <button
+            onClick={onEdit}
+            className="shrink-0 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            title="Edit project"
+          >
+            ✎ Edit
+          </button>
+        </div>
         {project.description && (
           <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{project.description}</p>
         )}
@@ -553,11 +575,13 @@ interface RightPaneAreaProps {
   onClose: () => void
   onTaskCreated: () => void
   onProjectCreated: (id: string) => void
+  onProjectUpdated: () => void
+  onProjectRemoved: () => void
   onTaskUpdated: () => void
 }
 
 function RightPaneArea({
-  pane, project, projectAgents, allAgents, onClose, onTaskCreated, onProjectCreated, onTaskUpdated,
+  pane, project, projectAgents, allAgents, onClose, onTaskCreated, onProjectCreated, onProjectUpdated, onProjectRemoved, onTaskUpdated,
 }: RightPaneAreaProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-900">
@@ -589,6 +613,15 @@ function RightPaneArea({
         <NewProjectForm
           allAgents={allAgents}
           onCreated={onProjectCreated}
+          onCancel={onClose}
+        />
+      )}
+
+      {pane.type === 'edit-project' && project && (
+        <EditProjectForm
+          project={project}
+          onSaved={onProjectUpdated}
+          onRemoved={onProjectRemoved}
           onCancel={onClose}
         />
       )}
@@ -1021,6 +1054,168 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
           className="flex-1 text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-4 py-2"
         >
           {submitting ? 'Creating…' : 'Create Project'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// EditProjectForm
+// ---------------------------------------------------------------------------
+
+interface EditProjectFormProps {
+  project: Project
+  onSaved: () => void
+  onRemoved: () => void
+  onCancel: () => void
+}
+
+function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectFormProps) {
+  const [name, setName] = useState(project.name)
+  const [description, setDescription] = useState(project.description ?? '')
+  const [workingDir, setWorkingDir] = useState(project.working_dir ?? '')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | null>(null)
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { setError('Name is required'); return }
+    setError('')
+    setSubmitting(true)
+    try {
+      await api.projects.update(project.id, {
+        name: name.trim(),
+        description: description.trim(),
+        working_dir: workingDir.trim(),
+      })
+      onSaved()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to save project')
+      setSubmitting(false)
+    }
+  }
+
+  const handleArchive = async () => {
+    setSubmitting(true)
+    try {
+      await api.projects.archive(project.id)
+      onRemoved()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to archive project')
+      setSubmitting(false)
+      setConfirmAction(null)
+    }
+  }
+
+  const handleDelete = async () => {
+    setSubmitting(true)
+    try {
+      await api.projects.delete(project.id)
+      onRemoved()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to delete project')
+      setSubmitting(false)
+      setConfirmAction(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
+        <h3 className="text-sm font-semibold text-white">Edit Project</h3>
+        <button onClick={onCancel} className="text-slate-500 hover:text-slate-300 text-lg leading-none">×</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Project name"
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Description <span className="text-slate-600">(optional)</span></label>
+          <textarea
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="What is this project about?"
+            rows={3}
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Working directory <span className="text-slate-600">(optional)</span></label>
+          <input
+            type="text"
+            value={workingDir}
+            onChange={e => setWorkingDir(e.target.value)}
+            placeholder="/path/to/project"
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500 font-mono"
+          />
+        </div>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        {/* Danger zone */}
+        <div className="pt-2 border-t border-slate-800 space-y-2">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Danger zone</p>
+
+          {confirmAction === 'archive' ? (
+            <div className="rounded border border-amber-800 bg-amber-950/40 p-3 space-y-2">
+              <p className="text-xs text-amber-300">Archive this project? It will be hidden from the main list but can be restored later.</p>
+              <div className="flex gap-2">
+                <button onClick={() => setConfirmAction(null)} className="flex-1 text-xs border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-3 py-1.5">Cancel</button>
+                <button onClick={handleArchive} disabled={submitting} className="flex-1 text-xs bg-amber-700 hover:bg-amber-600 disabled:opacity-40 text-white rounded px-3 py-1.5">Confirm Archive</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmAction('archive')}
+              className="w-full text-xs border border-slate-700 text-amber-500 hover:text-amber-300 hover:border-amber-700 rounded px-3 py-1.5 text-left"
+            >
+              Archive project…
+            </button>
+          )}
+
+          {confirmAction === 'delete' ? (
+            <div className="rounded border border-red-800 bg-red-950/40 p-3 space-y-2">
+              <p className="text-xs text-red-300">Permanently delete <strong className="text-red-200">{project.name}</strong>? This cannot be undone.</p>
+              <div className="flex gap-2">
+                <button onClick={() => setConfirmAction(null)} className="flex-1 text-xs border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-3 py-1.5">Cancel</button>
+                <button onClick={handleDelete} disabled={submitting} className="flex-1 text-xs bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white rounded px-3 py-1.5">Delete Forever</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmAction('delete')}
+              className="w-full text-xs border border-slate-700 text-red-500 hover:text-red-300 hover:border-red-700 rounded px-3 py-1.5 text-left"
+            >
+              Delete project…
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="px-4 py-3 border-t border-slate-800 shrink-0 flex gap-2">
+        <button
+          onClick={onCancel}
+          className="flex-1 text-sm border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-4 py-2"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="flex-1 text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-4 py-2"
+        >
+          {submitting ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
     </div>
