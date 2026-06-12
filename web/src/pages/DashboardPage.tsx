@@ -9,6 +9,9 @@ import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
+} from 'recharts'
 
 
 function StatCard({ label, value, sub, accent, onClick, href }: {
@@ -228,22 +231,68 @@ function fmt(usd: number): string {
   return `$${usd.toFixed(2)}`
 }
 
+function fmtTokens(n: number): string {
+  if (n === 0) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
 function CostSection({ costs }: { costs: CostsResponse }) {
   const hasSpend = costs.total_cost_usd > 0
-  // by_agent now uses INNER JOIN so only agents with tasks are returned.
-  // Sorted by cost desc, then task count desc — so $0 coding agents appear after paid ones.
   const agentRows = costs.by_agent
   const projectsWithCost = costs.by_project.filter(p => p.total_cost_usd > 0)
+  const providerRows = costs.by_provider ?? []
+  const modelRows = costs.by_model ?? []
 
-  // Only show daily breakdown if there are multiple days
-  const dailyRows = (costs.by_day ?? []).filter(d => d.cost_usd > 0)
-  const showDaily = dailyRows.length > 1
+  // Daily chart: show all days (token or cost activity)
+  const dailyRows = (costs.by_day ?? [])
+  const showDaily = dailyRows.length > 0
+
+  // Recharts custom tooltip
+  const DailyTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string; color: string }[]; label?: string }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs">
+        <p className="text-slate-400 mb-1">{label}</p>
+        {payload.map(p => (
+          <p key={p.name} style={{ color: p.color }}>
+            {p.name === 'cost_usd' ? fmt(p.value) : `${fmtTokens(p.value)} tok`}
+          </p>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">Activity & Cost</h2>
         <span className="text-xs text-slate-500">{costs.total_tasks} total tasks</span>
+      </div>
+
+      {/* Token + cost summary cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card>
+          <CardBody className="py-3">
+            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Total spend</p>
+            <p className="text-xl font-mono font-semibold text-violet-400">{fmt(costs.total_cost_usd)}</p>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardBody className="py-3">
+            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Tokens in</p>
+            <p className="text-xl font-mono font-semibold text-sky-400">{fmtTokens(costs.total_tokens_in ?? 0)}</p>
+            <p className="text-xs text-slate-600 mt-0.5">prompt / context</p>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardBody className="py-3">
+            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Tokens out</p>
+            <p className="text-xl font-mono font-semibold text-emerald-400">{fmtTokens(costs.total_tokens_out ?? 0)}</p>
+            <p className="text-xs text-slate-600 mt-0.5">completion / output</p>
+          </CardBody>
+        </Card>
       </div>
 
       {/* Task status breakdown */}
@@ -272,82 +321,165 @@ function CostSection({ costs }: { costs: CostsResponse }) {
         </Card>
       )}
 
+      {/* Daily spend chart */}
+      {showDaily && (
+        <Card>
+          <CardBody>
+            <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Daily activity (30 days)</p>
+            <ResponsiveContainer width="100%" height={140}>
+              <BarChart data={dailyRows} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={d => d.slice(5)} />
+                <YAxis tick={{ fontSize: 9, fill: '#64748b' }} />
+                <Tooltip content={<DailyTooltip />} />
+                {hasSpend
+                  ? <Bar dataKey="cost_usd" fill="#8b5cf6" radius={[2,2,0,0]} name="cost_usd" />
+                  : <Bar dataKey="tokens_in" fill="#0ea5e9" radius={[2,2,0,0]} name="tokens_in" stackId="tok" />
+                }
+                {!hasSpend && <Bar dataKey="tokens_out" fill="#10b981" radius={[2,2,0,0]} name="tokens_out" stackId="tok" />}
+              </BarChart>
+            </ResponsiveContainer>
+            {!hasSpend && (
+              <div className="flex gap-4 mt-2">
+                <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-sm bg-sky-500 inline-block" /> tokens in</span>
+                <span className="flex items-center gap-1 text-xs text-slate-500"><span className="w-2 h-2 rounded-sm bg-emerald-500 inline-block" /> tokens out</span>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
-          {/* By agent — includes $0-cost coding agents; shows task count alongside cost */}
+        {/* By provider */}
+        {providerRows.length > 0 && (
           <Card>
             <CardBody>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Activity by agent</p>
-              {agentRows.length === 0 ? (
-                <p className="text-xs text-slate-600">No agents have run tasks yet.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr>
-                      <th className="pb-2 text-left text-xs text-slate-600 font-normal">Agent</th>
-                      <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tasks</th>
-                      <th className="pb-2 text-right text-xs text-slate-600 font-normal">Cost</th>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">By provider</p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="pb-2 text-left text-xs text-slate-600 font-normal">Provider</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tok↑</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tok↓</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {providerRows.map(p => (
+                    <tr key={p.label} className="border-b border-slate-800 last:border-0">
+                      <td className="py-2 text-slate-300">{p.label}</td>
+                      <td className="py-2 text-right font-mono text-sky-400 text-xs">{fmtTokens(p.tokens_in)}</td>
+                      <td className="py-2 text-right font-mono text-emerald-400 text-xs">{fmtTokens(p.tokens_out)}</td>
+                      <td className="py-2 text-right font-mono text-white">{p.total_cost_usd > 0 ? fmt(p.total_cost_usd) : <span className="text-slate-600">—</span>}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {agentRows.map(a => (
-                      <tr key={a.id} className="border-b border-slate-800 last:border-0">
-                        <td className="py-2 text-slate-300">{a.name}</td>
-                        <td className="py-2 text-right text-slate-400">{a.task_count}</td>
-                        <td className="py-2 text-right font-mono text-white">{a.total_cost_usd > 0 ? fmt(a.total_cost_usd) : <span className="text-slate-600">—</span>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  {hasSpend && (
-                    <tfoot>
-                      <tr>
-                        <td className="pt-3 text-xs text-slate-500" colSpan={2}>Total</td>
-                        <td className="pt-3 text-right font-mono text-violet-400 font-semibold">{fmt(costs.total_cost_usd)}</td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              )}
+                  ))}
+                </tbody>
+              </table>
             </CardBody>
           </Card>
+        )}
 
-          {/* By project/monitor */}
+        {/* By model */}
+        {modelRows.length > 0 && (
           <Card>
             <CardBody>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Cost by project</p>
-              {projectsWithCost.length === 0 ? (
-                <p className="text-xs text-slate-600">No per-project cost data.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <tbody>
-                    {projectsWithCost.map(p => (
-                      <tr key={p.id} className="border-b border-slate-800 last:border-0">
-                        <td className="py-2 text-slate-300">{p.name}</td>
-                        <td className="py-2 text-right font-mono text-white">{fmt(p.total_cost_usd)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-
-              {/* Daily breakdown — only when we have multiple days */}
-              {showDaily && (
-                <>
-                  <p className="text-xs text-slate-500 uppercase tracking-wide mt-4 mb-2">Daily spend</p>
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {dailyRows.map(d => (
-                        <tr key={d.date} className="border-b border-slate-800 last:border-0">
-                          <td className="py-1.5 text-slate-400 font-mono text-xs">{d.date}</td>
-                          <td className="py-1.5 text-right font-mono text-white text-xs">{fmt(d.cost_usd)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </>
-              )}
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">By model</p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="pb-2 text-left text-xs text-slate-600 font-normal">Model</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tasks</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tok↑</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tok↓</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modelRows.map(m => (
+                    <tr key={m.label} className="border-b border-slate-800 last:border-0">
+                      <td className="py-2 text-slate-300 text-xs font-mono">{m.label}</td>
+                      <td className="py-2 text-right text-slate-400 text-xs">{m.task_count}</td>
+                      <td className="py-2 text-right font-mono text-sky-400 text-xs">{fmtTokens(m.tokens_in)}</td>
+                      <td className="py-2 text-right font-mono text-emerald-400 text-xs">{fmtTokens(m.tokens_out)}</td>
+                      <td className="py-2 text-right font-mono text-white text-xs">{m.total_cost_usd > 0 ? fmt(m.total_cost_usd) : <span className="text-slate-600">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </CardBody>
           </Card>
-        </div>
+        )}
+
+        {/* By agent */}
+        <Card>
+          <CardBody>
+            <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">By agent</p>
+            {agentRows.length === 0 ? (
+              <p className="text-xs text-slate-600">No agents have run tasks yet.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="pb-2 text-left text-xs text-slate-600 font-normal">Agent</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tasks</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tok↑+↓</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {agentRows.map(a => (
+                    <tr key={a.id} className="border-b border-slate-800 last:border-0">
+                      <td className="py-2 text-slate-300">{a.name}</td>
+                      <td className="py-2 text-right text-slate-400">{a.task_count}</td>
+                      <td className="py-2 text-right font-mono text-xs text-slate-400">
+                        {(a.tokens_in + a.tokens_out) > 0
+                          ? <span><span className="text-sky-400">{fmtTokens(a.tokens_in)}</span><span className="text-slate-600">/</span><span className="text-emerald-400">{fmtTokens(a.tokens_out)}</span></span>
+                          : <span className="text-slate-600">—</span>}
+                      </td>
+                      <td className="py-2 text-right font-mono text-white">{a.total_cost_usd > 0 ? fmt(a.total_cost_usd) : <span className="text-slate-600">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                {hasSpend && (
+                  <tfoot>
+                    <tr>
+                      <td className="pt-3 text-xs text-slate-500" colSpan={3}>Total</td>
+                      <td className="pt-3 text-right font-mono text-violet-400 font-semibold">{fmt(costs.total_cost_usd)}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* By project */}
+        {projectsWithCost.length > 0 && (
+          <Card>
+            <CardBody>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">By project</p>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="pb-2 text-left text-xs text-slate-600 font-normal">Project</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Tasks</th>
+                    <th className="pb-2 text-right text-xs text-slate-600 font-normal">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projectsWithCost.map(p => (
+                    <tr key={p.id} className="border-b border-slate-800 last:border-0">
+                      <td className="py-2 text-slate-300">{p.name}</td>
+                      <td className="py-2 text-right text-slate-400 text-xs">{p.task_count}</td>
+                      <td className="py-2 text-right font-mono text-white">{fmt(p.total_cost_usd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardBody>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

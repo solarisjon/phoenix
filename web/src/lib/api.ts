@@ -51,6 +51,9 @@ export interface Project {
   working_dir: string
   kind: 'project' | 'monitor'
   schedule_interval: number | null  // seconds; null = no schedule (monitors only)
+  schedule_kind: 'interval' | 'daily'  // monitors only; 'interval' is the default/back-compat
+  schedule_times: string[] | null   // ["07:00","12:00"] when schedule_kind === 'daily'; null/[] otherwise
+  schedule_catch_up: boolean        // daily only: run a missed time later the same day
   owner: string
   status: 'active' | 'archived'
   critic_agent_id: string | null
@@ -90,11 +93,23 @@ export interface CostSummary {
   name: string
   total_cost_usd: number
   task_count: number
+  tokens_in: number
+  tokens_out: number
+}
+
+export interface UsageSummary {
+  label: string
+  total_cost_usd: number
+  task_count: number
+  tokens_in: number
+  tokens_out: number
 }
 
 export interface DailyCost {
   date: string
   cost_usd: number
+  tokens_in: number
+  tokens_out: number
 }
 
 export interface TaskStatusCount {
@@ -125,9 +140,13 @@ export interface SystemSettings {
 
 export interface CostsResponse {
   total_cost_usd: number
+  total_tokens_in: number
+  total_tokens_out: number
   total_tasks: number
   by_agent: CostSummary[]
   by_project: CostSummary[]
+  by_provider: UsageSummary[]
+  by_model: UsageSummary[]
   by_day: DailyCost[]
   by_status: TaskStatusCount[]
 }

@@ -307,9 +307,9 @@ func TestStats(t *testing.T) {
 	}
 	NewTaskRepo(db).Create(ctx, task)
 
-	total, err := stats.TotalCost(ctx)
-	if err != nil || total != 0.042 {
-		t.Errorf("TotalCost: err=%v total=%v", err, total)
+	usage, err := stats.TotalUsage(ctx)
+	if err != nil || usage.CostUSD != 0.042 {
+		t.Errorf("TotalUsage: err=%v cost=%v", err, usage.CostUSD)
 	}
 
 	byAgent, err := stats.CostByAgent(ctx)

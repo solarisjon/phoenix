@@ -92,18 +92,38 @@ type TeamRepo interface {
 	ListAgents(ctx context.Context, teamID string) ([]*model.Agent, error)
 }
 
-// CostSummary holds aggregated cost data.
+// CostSummary holds aggregated cost and token data.
 type CostSummary struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
 	Total     float64 `json:"total_cost_usd"`
 	TaskCount int     `json:"task_count"`
+	TokensIn  int     `json:"tokens_in"`
+	TokensOut int     `json:"tokens_out"`
 }
 
-// DailyCost holds the total cost for a single calendar day.
+// UsageSummary holds aggregated usage by provider or model.
+type UsageSummary struct {
+	Label     string  `json:"label"`      // provider name or model string
+	Total     float64 `json:"total_cost_usd"`
+	TaskCount int     `json:"task_count"`
+	TokensIn  int     `json:"tokens_in"`
+	TokensOut int     `json:"tokens_out"`
+}
+
+// DailyCost holds the total cost and tokens for a single calendar day.
 type DailyCost struct {
-	Date string  `json:"date"` // YYYY-MM-DD
-	Cost float64 `json:"cost_usd"`
+	Date      string  `json:"date"` // YYYY-MM-DD
+	Cost      float64 `json:"cost_usd"`
+	TokensIn  int     `json:"tokens_in"`
+	TokensOut int     `json:"tokens_out"`
+}
+
+// TotalUsage holds cluster-wide token and cost totals.
+type TotalUsage struct {
+	CostUSD   float64 `json:"total_cost_usd"`
+	TokensIn  int     `json:"total_tokens_in"`
+	TokensOut int     `json:"total_tokens_out"`
 }
 
 // TaskCountByStatus holds task counts grouped by status.
@@ -147,14 +167,16 @@ type ProjectSummary struct {
 	LastActivity  *time.Time     `json:"last_activity"`
 }
 
-// StatsRepo provides aggregated cost queries.
+// StatsRepo provides aggregated cost and usage queries.
 type StatsRepo interface {
 	CostByAgent(ctx context.Context) ([]*CostSummary, error)
 	CostByProject(ctx context.Context) ([]*CostSummary, error)
-	TotalCost(ctx context.Context) (float64, error)
+	TotalUsage(ctx context.Context) (*TotalUsage, error)
 	CostByDay(ctx context.Context, days int) ([]*DailyCost, error)
 	TaskCountByStatus(ctx context.Context) ([]*TaskCountByStatus, error)
 	TotalTaskCount(ctx context.Context) (int, error)
+	UsageByProvider(ctx context.Context) ([]*UsageSummary, error)
+	UsageByModel(ctx context.Context) ([]*UsageSummary, error)
 	ProjectTaskSummary(ctx context.Context, projectID string) (*ProjectSummary, error)
 	// AllProjectTaskSummaries returns a map of project ID → task summary for
 	// all projects that have at least one task. Projects with no tasks are omitted.

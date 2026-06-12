@@ -14,7 +14,11 @@ func NewStatsRepo(db *DB) *StatsRepo { return &StatsRepo{db} }
 
 func (r *StatsRepo) CostByAgent(ctx context.Context) ([]*store.CostSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT a.id, a.name, COALESCE(SUM(t.cost_usd), 0), COUNT(t.id)
+		SELECT a.id, a.name,
+		       COALESCE(SUM(t.cost_usd), 0),
+		       COUNT(t.id),
+		       COALESCE(SUM(t.tokens_in), 0),
+		       COALESCE(SUM(t.tokens_out), 0)
 		FROM agents a
 		INNER JOIN tasks t ON t.agent_id = a.id
 		GROUP BY a.id, a.name
@@ -28,7 +32,11 @@ func (r *StatsRepo) CostByAgent(ctx context.Context) ([]*store.CostSummary, erro
 
 func (r *StatsRepo) CostByProject(ctx context.Context) ([]*store.CostSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT p.id, p.name, COALESCE(SUM(t.cost_usd), 0), COUNT(t.id)
+		SELECT p.id, p.name,
+		       COALESCE(SUM(t.cost_usd), 0),
+		       COUNT(t.id),
+		       COALESCE(SUM(t.tokens_in), 0),
+		       COALESCE(SUM(t.tokens_out), 0)
 		FROM projects p
 		INNER JOIN tasks t ON t.project_id = p.id
 		GROUP BY p.id, p.name
@@ -40,21 +48,70 @@ func (r *StatsRepo) CostByProject(ctx context.Context) ([]*store.CostSummary, er
 	return scanCostSummaries(rows)
 }
 
-func (r *StatsRepo) TotalCost(ctx context.Context) (float64, error) {
-	var total float64
-	err := r.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(cost_usd), 0) FROM tasks`).Scan(&total)
+func (r *StatsRepo) TotalUsage(ctx context.Context) (*store.TotalUsage, error) {
+	var u store.TotalUsage
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(cost_usd), 0),
+		        COALESCE(SUM(tokens_in), 0),
+		        COALESCE(SUM(tokens_out), 0)
+		 FROM tasks`).Scan(&u.CostUSD, &u.TokensIn, &u.TokensOut)
 	if err != nil {
-		return 0, fmt.Errorf("total cost: %w", err)
+		return nil, fmt.Errorf("total usage: %w", err)
 	}
-	return total, nil
+	return &u, nil
+}
+
+func (r *StatsRepo) UsageByProvider(ctx context.Context) ([]*store.UsageSummary, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT p.name,
+		       COALESCE(SUM(t.cost_usd), 0),
+		       COUNT(t.id),
+		       COALESCE(SUM(t.tokens_in), 0),
+		       COALESCE(SUM(t.tokens_out), 0)
+		FROM tasks t
+		JOIN agents a ON t.agent_id = a.id
+		JOIN providers p ON a.provider_id = p.id
+		GROUP BY p.id, p.name
+		ORDER BY SUM(t.cost_usd) DESC, SUM(t.tokens_in) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("usage by provider: %w", err)
+	}
+	defer rows.Close()
+	return scanUsageSummaries(rows)
+}
+
+func (r *StatsRepo) UsageByModel(ctx context.Context) ([]*store.UsageSummary, error) {
+	// Effective model: agent.model_override → providers.config.model → provider name
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT COALESCE(
+		         NULLIF(a.model_override, ''),
+		         NULLIF(json_extract(p.config, '$.model'), ''),
+		         p.name
+		       ) AS model,
+		       COALESCE(SUM(t.cost_usd), 0),
+		       COUNT(t.id),
+		       COALESCE(SUM(t.tokens_in), 0),
+		       COALESCE(SUM(t.tokens_out), 0)
+		FROM tasks t
+		JOIN agents a ON t.agent_id = a.id
+		JOIN providers p ON a.provider_id = p.id
+		GROUP BY model
+		ORDER BY SUM(t.cost_usd) DESC, SUM(t.tokens_in) DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("usage by model: %w", err)
+	}
+	defer rows.Close()
+	return scanUsageSummaries(rows)
 }
 
 func (r *StatsRepo) CostByDay(ctx context.Context, days int) ([]*store.DailyCost, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT date(created_at) AS day, COALESCE(SUM(cost_usd), 0)
+		SELECT date(created_at) AS day,
+		       COALESCE(SUM(cost_usd), 0),
+		       COALESCE(SUM(tokens_in), 0),
+		       COALESCE(SUM(tokens_out), 0)
 		FROM tasks
 		WHERE created_at >= date('now', ?)
-		  AND cost_usd > 0
 		GROUP BY day
 		ORDER BY day ASC`,
 		fmt.Sprintf("-%d days", days))
@@ -65,7 +122,7 @@ func (r *StatsRepo) CostByDay(ctx context.Context, days int) ([]*store.DailyCost
 	var out []*store.DailyCost
 	for rows.Next() {
 		var d store.DailyCost
-		if err := rows.Scan(&d.Date, &d.Cost); err != nil {
+		if err := rows.Scan(&d.Date, &d.Cost, &d.TokensIn, &d.TokensOut); err != nil {
 			return nil, fmt.Errorf("scan daily cost: %w", err)
 		}
 		out = append(out, &d)
@@ -108,8 +165,24 @@ func scanCostSummaries(rows interface {
 	var out []*store.CostSummary
 	for rows.Next() {
 		var s store.CostSummary
-		if err := rows.Scan(&s.ID, &s.Name, &s.Total, &s.TaskCount); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Total, &s.TaskCount, &s.TokensIn, &s.TokensOut); err != nil {
 			return nil, fmt.Errorf("scan cost summary: %w", err)
+		}
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
+func scanUsageSummaries(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) ([]*store.UsageSummary, error) {
+	var out []*store.UsageSummary
+	for rows.Next() {
+		var s store.UsageSummary
+		if err := rows.Scan(&s.Label, &s.Total, &s.TaskCount, &s.TokensIn, &s.TokensOut); err != nil {
+			return nil, fmt.Errorf("scan usage summary: %w", err)
 		}
 		out = append(out, &s)
 	}
