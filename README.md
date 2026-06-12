@@ -1,6 +1,8 @@
 # Phoenix
 
-A self-hosted AI agent orchestration platform. Give agents personas and instructions, assign them to projects, run tasks — backed by local coding tools or any LLM endpoint.
+A self-hosted **harness engineering** platform for AI agents. Define agents with personas, instructions, and guardrails; wire them to projects and monitors; let them run tasks autonomously or on a schedule — backed by local coding tools or any LLM endpoint.
+
+**Harness engineering** means treating AI agents as a repeatable, inspectable harness around your workflows: each run is tracked, costs are measured, outputs are auditable, and humans stay in the loop via guardrails and approval gates.
 
 **Single binary. SQLite. No cloud dependency.**
 
@@ -16,8 +18,8 @@ A self-hosted AI agent orchestration platform. Give agents personas and instruct
 |---|---|
 | **Agents** | Reusable AI personas with instructions, guardrails, and a provider. |
 | **Projects** | Three-pane workspace (project list → task inbox → task detail). Assign agents, compose tasks, browse generated files. |
-| **Monitors** | Autonomous projects that run on a schedule — pick an agent and set an interval. Health-signal dots show run state at a glance. |
-| **Tasks** | Run immediately, stream output live, track cost. Status dots, left-border color coding, and a "Needs You" badge make state obvious. |
+| **Monitors** | Harness engineering for recurring work — autonomous projects on a schedule. Set a fixed interval or a daily trigger time (e.g. 07:00). Catch-up mode fires the run on the next available tick if the machine was offline at the scheduled time. Health-signal dots show run state at a glance. |
+| **Tasks** | Run immediately, stream output live, track cost and token usage. Status dots, left-border color coding, and a "Needs You" badge make state obvious. |
 | **Follow-up threads** | Chat-style refinement on any task — previous output carried forward as context. |
 | **Quick Tasks** | One-off tasks without a project (⌘K from anywhere). |
 | **Inbox** | Failed, awaiting-approval, completed tasks, and pending agent hire proposals in one place. |
@@ -29,7 +31,7 @@ A self-hosted AI agent orchestration platform. Give agents personas and instruct
 | **Artifacts** | Agents embed `ARTIFACT_START…ARTIFACT_END` blocks → auto-saved to project working directory and linked in Briefing. |
 | **File browser** | Browse the project working directory from inside the workspace. Preview text, code, and markdown files in-pane. |
 | **Global guardrails** | Platform-wide rules injected into every agent's system prompt, managed in Settings. |
-| **Cost tracking** | Token costs tracked per task, per agent, per project. Charts on the dashboard. |
+| **Usage tracking** | Tokens and cost tracked per task, per agent, per project, per provider, and per model. Dashboard shows totals, daily bar chart, and full breakdowns — making the economics of your harness visible. |
 | **Themes** | 5 built-in themes (Dark, Midnight, Forest, Ember, Light), live switcher. |
 | **DB backup** | `GET /api/admin/backup` streams a consistent SQLite snapshot safe during live operation. |
 
@@ -172,11 +174,20 @@ Critic tasks are flagged to prevent recursive loops.
 
 ## Monitors
 
-Autonomous projects that run on a schedule. A monitor has a name, an optional working directory, a **Schedule Interval**, and one or more assigned agents. On each tick Phoenix creates a task for the assigned agent(s); if an agent already has a running or queued task in that monitor it is skipped for that cycle. Run history is shown in the Monitor detail view.
+Autonomous projects that run on a schedule — the core of **harness engineering** in Phoenix. A monitor has a name, an optional working directory, a schedule, and one or more assigned agents. On each tick Phoenix creates a task for the assigned agent(s); if an agent already has a running or queued task in that monitor it is skipped for that cycle.
+
+**Schedule types:**
+
+| Type | How it works |
+|---|---|
+| **Interval** | Run every N seconds (minimum 60 s). Classic heartbeat monitoring. |
+| **Time of day** | Trigger once per day at a fixed wall-clock time (e.g. `07:00`). Ideal for daily briefings, morning summaries, and digest tasks. |
+
+**Catch-up mode** (time-of-day only): if the machine was offline or Phoenix wasn't running at the scheduled time, the run fires on the next available tick — once. Multiple missed days do not stack up.
 
 **Health-signal dots** on each monitor card (violet/amber/red/green) give instant status at a glance. Run rows in the detail view have left-border color coding matching task state.
 
-Create a monitor: Monitors → **+ New Monitor**. Set a Schedule Interval (minimum 60 s) and assign at least one agent.
+Create a monitor: Monitors → **+ New Monitor**. Set a schedule and assign at least one agent.
 
 ---
 
@@ -384,6 +395,8 @@ Upcoming:
 - Copilot CLI adapter
 - Multi-user authentication
 - Mobile-friendly layout
+- Structured logging (slog + request-ID propagation)
+- GitHub Actions CI pipeline
 
 ---
 
