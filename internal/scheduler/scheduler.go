@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,8 +29,12 @@ type TaskRunner interface {
 	RunTask(ctx context.Context, taskID string) error
 }
 
-// Scheduler periodically creates tasks for monitors that have a
-// schedule_interval configured.
+// Scheduler periodically creates tasks for monitors that have a schedule
+// configured. Two schedule kinds are supported:
+//
+//   - interval: a per-monitor ticker fires every schedule_interval seconds.
+//   - daily:    each refresh tick evaluates the monitor's HH:MM times against
+//     the wall clock, with optional same-day catch-up for missed runs.
 type Scheduler struct {
 	agents   store.AgentRepo
 	projects store.ProjectRepo
@@ -38,8 +43,13 @@ type Scheduler struct {
 
 	refreshInterval time.Duration
 
+	// dailyPunctualWindow is how long after a scheduled daily time a non-catch-up
+	// monitor may still fire. Sized to comfortably exceed refreshInterval so the
+	// minute is never skipped between ticks.
+	dailyPunctualWindow time.Duration
+
 	mu     sync.Mutex
-	stops  map[string]scheduleEntry // key: monitorID
+	stops  map[string]scheduleEntry // key: monitorID (interval schedules only)
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -61,14 +71,15 @@ func New(
 ) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		agents:          agents,
-		projects:        projects,
-		tasks:           tasks,
-		runner:          runner,
-		refreshInterval: refreshInterval,
-		stops:           make(map[string]scheduleEntry),
-		ctx:             ctx,
-		cancel:          cancel,
+		agents:              agents,
+		projects:            projects,
+		tasks:               tasks,
+		runner:              runner,
+		refreshInterval:     refreshInterval,
+		dailyPunctualWindow: refreshInterval + time.Minute,
+		stops:               make(map[string]scheduleEntry),
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
 }
 
@@ -101,10 +112,20 @@ func (s *Scheduler) loop() {
 type scheduleSpec struct {
 	monitor  *model.Project
 	agent    *model.Agent
-	interval time.Duration
+	interval time.Duration // interval kind only
+
+	kind    string      // model.ScheduleKindInterval or ScheduleKindDaily
+	times   []timeOfDay // daily kind only
+	catchUp bool        // daily kind only
 }
 
-// sync re-reads monitors, starts new schedules, and stops removed ones.
+// timeOfDay is a wall-clock HH:MM with no date.
+type timeOfDay struct {
+	h, m int
+}
+
+// sync re-reads monitors, starts/stops interval schedules, and evaluates daily
+// schedules against the wall clock.
 func (s *Scheduler) sync() {
 	ctx := s.ctx
 
@@ -114,17 +135,15 @@ func (s *Scheduler) sync() {
 		return
 	}
 
-	// Build the desired set of monitor schedules.
-	desired := make(map[string]scheduleSpec) // key: monitorID
+	// Build the desired set of interval schedules and collect daily schedules.
+	desired := make(map[string]scheduleSpec) // key: monitorID (interval only)
+	var dailySpecs []scheduleSpec
 
 	for _, proj := range projects {
 		if proj.Kind != model.ProjectKindMonitor {
 			continue
 		}
 		if proj.Status != model.ProjectStatusActive {
-			continue
-		}
-		if proj.ScheduleInterval == nil || *proj.ScheduleInterval <= 0 {
 			continue
 		}
 
@@ -144,15 +163,38 @@ func (s *Scheduler) sync() {
 			continue
 		}
 
-		desired[proj.ID] = scheduleSpec{
-			monitor:  proj,
-			agent:    execAgent,
-			interval: time.Duration(*proj.ScheduleInterval) * time.Second,
+		kind := proj.ScheduleKind
+		if kind == "" {
+			kind = model.ScheduleKindInterval
+		}
+
+		switch kind {
+		case model.ScheduleKindDaily:
+			times := parseTimes(proj.ScheduleTimes)
+			if len(times) == 0 {
+				continue
+			}
+			dailySpecs = append(dailySpecs, scheduleSpec{
+				monitor: proj,
+				agent:   execAgent,
+				kind:    model.ScheduleKindDaily,
+				times:   times,
+				catchUp: proj.ScheduleCatchUp,
+			})
+		default: // interval
+			if proj.ScheduleInterval == nil || *proj.ScheduleInterval <= 0 {
+				continue
+			}
+			desired[proj.ID] = scheduleSpec{
+				monitor:  proj,
+				agent:    execAgent,
+				interval: time.Duration(*proj.ScheduleInterval) * time.Second,
+				kind:     model.ScheduleKindInterval,
+			}
 		}
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Stop schedules no longer desired or whose interval changed.
 	for key, entry := range s.stops {
@@ -177,6 +219,16 @@ func (s *Scheduler) sync() {
 		s.stops[key] = scheduleEntry{cancel: hbCancel, interval: spec.interval}
 		go s.scheduleLoop(hbCtx, spec)
 		log.Printf("scheduler: started schedule for monitor %s every %s", spec.monitor.Name, spec.interval)
+	}
+
+	s.mu.Unlock()
+
+	// Evaluate daily schedules synchronously against the wall clock. sync() is
+	// only ever called from the single-threaded refresh loop, so there is no
+	// risk of a daily monitor being evaluated concurrently with itself.
+	now := time.Now()
+	for _, spec := range dailySpecs {
+		s.evaluateDaily(ctx, spec, now)
 	}
 }
 
@@ -240,4 +292,86 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 	}
 	log.Printf("scheduler: fired task %s for monitor %s (agent %s)", task.ID, spec.monitor.Name, spec.agent.Name)
 	return s.runner.RunTask(ctx, task.ID)
+}
+
+// evaluateDaily fires a daily monitor if a scheduled time has passed today and
+// the monitor has not yet run for that occurrence. With catch-up enabled the
+// most recent missed occurrence still fires (once); with catch-up disabled it
+// only fires within dailyPunctualWindow of the scheduled time.
+func (s *Scheduler) evaluateDaily(ctx context.Context, spec scheduleSpec, now time.Time) {
+	occ, ok := mostRecentOccurrence(spec.times, now)
+	if !ok {
+		return // no scheduled time has passed yet today
+	}
+
+	last, err := s.lastMonitorRun(ctx, spec.monitor.ID)
+	if err != nil {
+		log.Printf("scheduler: daily last-run %s: %v", spec.monitor.ID, err)
+		return
+	}
+	if last != nil && !last.Before(occ) {
+		return // already ran at or after the due occurrence
+	}
+
+	if !spec.catchUp && now.Sub(occ) > s.dailyPunctualWindow {
+		return // missed the punctual window and catch-up is disabled
+	}
+
+	if err := s.fire(ctx, spec); err != nil {
+		log.Printf("scheduler: daily fire %s: %v", spec.monitor.ID, err)
+	}
+}
+
+// lastMonitorRun returns the creation time of the most recent monitor-sourced
+// task for the project, or nil if there is none.
+func (s *Scheduler) lastMonitorRun(ctx context.Context, projectID string) (*time.Time, error) {
+	tasks, err := s.tasks.List(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	var latest *time.Time
+	for _, t := range tasks {
+		if t.Source != "monitor" {
+			continue
+		}
+		ts := t.CreatedAt
+		if latest == nil || ts.After(*latest) {
+			cp := ts
+			latest = &cp
+		}
+	}
+	return latest, nil
+}
+
+// parseTimes converts HH:MM strings into timeOfDay values, skipping invalid entries.
+func parseTimes(strs []string) []timeOfDay {
+	out := make([]timeOfDay, 0, len(strs))
+	for _, raw := range strs {
+		t, err := time.Parse("15:04", strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		out = append(out, timeOfDay{h: t.Hour(), m: t.Minute()})
+	}
+	return out
+}
+
+// mostRecentOccurrence returns the latest occurrence today (in now's location)
+// at or before now, and whether any time qualified.
+func mostRecentOccurrence(times []timeOfDay, now time.Time) (time.Time, bool) {
+	y, mo, d := now.Date()
+	loc := now.Location()
+	var best time.Time
+	found := false
+	for _, t := range times {
+		occ := time.Date(y, mo, d, t.h, t.m, 0, 0, loc)
+		if occ.After(now) {
+			continue
+		}
+		if !found || occ.After(best) {
+			best = occ
+			found = true
+		}
+	}
+	return best, found
 }

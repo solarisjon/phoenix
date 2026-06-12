@@ -87,6 +87,18 @@ const (
 	ProjectKindMonitor ProjectKind = "monitor" // autonomous heartbeat daemon
 )
 
+// ScheduleKind selects how a monitor's automatic runs are timed. A monitor uses
+// exactly one kind at a time.
+type ScheduleKind = string
+
+const (
+	// ScheduleKindInterval fires every ScheduleInterval seconds (default).
+	ScheduleKindInterval ScheduleKind = "interval"
+	// ScheduleKindDaily fires at each HH:MM listed in ScheduleTimes, in the
+	// server's local timezone.
+	ScheduleKindDaily ScheduleKind = "daily"
+)
+
 // CriticMode controls whether and how a critic/devil's-advocate review is run
 // after a task completes.
 //
@@ -112,6 +124,9 @@ type Project struct {
 	WorkingDir       string        `json:"working_dir"`       // optional: filesystem path passed to coding agents
 	Kind             ProjectKind   `json:"kind"`              // "project" | "monitor"
 	ScheduleInterval *int          `json:"schedule_interval"` // seconds; nil = no automatic schedule (monitors only)
+	ScheduleKind     ScheduleKind  `json:"schedule_kind"`     // "interval" | "daily" (monitors only)
+	ScheduleTimes    []string      `json:"schedule_times"`    // ["07:00","12:00"] local time, used when ScheduleKind == "daily"
+	ScheduleCatchUp  bool          `json:"schedule_catch_up"` // daily only: run a missed time at next opportunity (same calendar day)
 	Owner            string        `json:"owner"`
 	Status           ProjectStatus `json:"status"`
 	CriticAgentID    *string       `json:"critic_agent_id"` // deprecated: use CriticMode

@@ -435,3 +435,185 @@ func TestSync_StopsRemovedMonitor(t *testing.T) {
 		t.Error("expected schedule to be stopped after monitor was removed")
 	}
 }
+
+// ---- Daily schedule helpers + tests ----
+
+func makeDailyMonitor(id string, times []string, catchUp bool) *model.Project {
+	return &model.Project{
+		ID:              id,
+		Name:            "monitor-" + id,
+		Kind:            model.ProjectKindMonitor,
+		Status:          model.ProjectStatusActive,
+		ScheduleKind:    model.ScheduleKindDaily,
+		ScheduleTimes:   times,
+		ScheduleCatchUp: catchUp,
+	}
+}
+
+func dailySpecFor(proj *model.Project, agent *model.Agent) scheduleSpec {
+	return scheduleSpec{
+		monitor: proj,
+		agent:   agent,
+		kind:    model.ScheduleKindDaily,
+		times:   parseTimes(proj.ScheduleTimes),
+		catchUp: proj.ScheduleCatchUp,
+	}
+}
+
+func at(t time.Time, h, m int) time.Time {
+	y, mo, d := t.Date()
+	return time.Date(y, mo, d, h, m, 0, 0, t.Location())
+}
+
+// TestMostRecentOccurrence checks selection of the latest passed time today.
+func TestMostRecentOccurrence(t *testing.T) {
+	now := at(time.Now(), 13, 30)
+	times := []timeOfDay{{0, 0}, {6, 0}, {12, 0}, {18, 0}}
+
+	occ, ok := mostRecentOccurrence(times, now)
+	if !ok {
+		t.Fatal("expected an occurrence at 13:30")
+	}
+	if occ != at(now, 12, 0) {
+		t.Errorf("occurrence = %s, want 12:00", occ.Format("15:04"))
+	}
+
+	// Before the first time of the day → no occurrence yet.
+	early := at(now, 5, 0)
+	if _, ok := mostRecentOccurrence([]timeOfDay{{6, 0}}, early); ok {
+		t.Error("expected no occurrence before the first scheduled time")
+	}
+}
+
+// TestParseTimes verifies invalid entries are skipped.
+func TestParseTimes(t *testing.T) {
+	got := parseTimes([]string{"07:00", "bad", "23:59", "24:00", "12:5"})
+	want := []timeOfDay{{7, 0}, {23, 59}}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %d times %v, want %d %v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("times[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestEvaluateDaily_PunctualFire fires when within the punctual window and no
+// prior run exists, with catch-up disabled.
+func TestEvaluateDaily_PunctualFire(t *testing.T) {
+	proj := makeDailyMonitor("daily-1", []string{"07:00"}, false)
+	agent := makeActiveAgent("ag-d1")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-1": {agent}})
+	taskRepo := &fakeTaskRepo{}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	now := at(time.Now(), 7, 0).Add(30 * time.Second) // 07:00:30
+	s.evaluateDaily(context.Background(), dailySpecFor(proj, agent), now)
+
+	if runner.count() != 1 {
+		t.Fatalf("RunTask called %d times, want 1", runner.count())
+	}
+}
+
+// TestEvaluateDaily_PunctualSkipsStale does not fire a long-missed run when
+// catch-up is disabled.
+func TestEvaluateDaily_PunctualSkipsStale(t *testing.T) {
+	proj := makeDailyMonitor("daily-2", []string{"07:00"}, false)
+	agent := makeActiveAgent("ag-d2")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-2": {agent}})
+	taskRepo := &fakeTaskRepo{}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	now := at(time.Now(), 9, 0) // two hours after 07:00, outside punctual window
+	s.evaluateDaily(context.Background(), dailySpecFor(proj, agent), now)
+
+	if runner.count() != 0 {
+		t.Fatalf("RunTask called %d times, want 0 (stale, catch-up off)", runner.count())
+	}
+}
+
+// TestEvaluateDaily_CatchUpFiresMissed fires a missed run later the same day
+// when catch-up is enabled.
+func TestEvaluateDaily_CatchUpFiresMissed(t *testing.T) {
+	proj := makeDailyMonitor("daily-3", []string{"07:00"}, true)
+	agent := makeActiveAgent("ag-d3")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-3": {agent}})
+	taskRepo := &fakeTaskRepo{}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	now := at(time.Now(), 8, 30) // laptop woke at 08:30, missed 07:00
+	s.evaluateDaily(context.Background(), dailySpecFor(proj, agent), now)
+
+	if runner.count() != 1 {
+		t.Fatalf("RunTask called %d times, want 1 (catch-up)", runner.count())
+	}
+}
+
+// TestEvaluateDaily_DedupSameOccurrence does not fire twice for the same
+// occurrence once a run has been recorded.
+func TestEvaluateDaily_DedupSameOccurrence(t *testing.T) {
+	proj := makeDailyMonitor("daily-4", []string{"07:00"}, true)
+	agent := makeActiveAgent("ag-d4")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-4": {agent}})
+	taskRepo := &fakeTaskRepo{}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	spec := dailySpecFor(proj, agent)
+	now := at(time.Now(), 8, 0)
+	s.evaluateDaily(context.Background(), spec, now)
+	// Second evaluation a minute later must not create another task.
+	s.evaluateDaily(context.Background(), spec, now.Add(time.Minute))
+
+	if runner.count() != 1 {
+		t.Fatalf("RunTask called %d times, want 1 (deduped)", runner.count())
+	}
+}
+
+// TestEvaluateDaily_MultiDayOffSingleRun ensures a multi-day outage triggers a
+// single catch-up run, not one per missed day.
+func TestEvaluateDaily_MultiDayOffSingleRun(t *testing.T) {
+	proj := makeDailyMonitor("daily-5", []string{"07:00"}, true)
+	agent := makeActiveAgent("ag-d5")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-5": {agent}})
+	// Last monitor run was three days ago.
+	taskRepo := &fakeTaskRepo{tasks: []*model.Task{
+		{ID: "old", ProjectID: "daily-5", Source: "monitor", Status: model.TaskStatusCompleted, CreatedAt: time.Now().Add(-72 * time.Hour)},
+	}}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	spec := dailySpecFor(proj, agent)
+	now := at(time.Now(), 9, 0)
+	s.evaluateDaily(context.Background(), spec, now)
+	s.evaluateDaily(context.Background(), spec, now.Add(time.Minute))
+
+	if runner.count() != 1 {
+		t.Fatalf("RunTask called %d times, want 1 (single catch-up after multi-day outage)", runner.count())
+	}
+}
+
+// TestEvaluateDaily_MultipleTimesPicksLatest fires for the most recent passed
+// time when several are configured.
+func TestEvaluateDaily_MultipleTimesPicksLatest(t *testing.T) {
+	proj := makeDailyMonitor("daily-6", []string{"00:00", "06:00", "12:00", "18:00"}, true)
+	agent := makeActiveAgent("ag-d6")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-6": {agent}})
+	// Already ran at 06:05 today.
+	taskRepo := &fakeTaskRepo{tasks: []*model.Task{
+		{ID: "ran-06", ProjectID: "daily-6", Source: "monitor", Status: model.TaskStatusCompleted, CreatedAt: at(time.Now(), 6, 5)},
+	}}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	spec := dailySpecFor(proj, agent)
+	// At 12:30 the 12:00 occurrence is due and has not run yet.
+	s.evaluateDaily(context.Background(), spec, at(time.Now(), 12, 30))
+	if runner.count() != 1 {
+		t.Fatalf("RunTask called %d times, want 1 (12:00 due)", runner.count())
+	}
+}

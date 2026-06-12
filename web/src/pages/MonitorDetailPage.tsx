@@ -10,38 +10,79 @@ import { EmptyState } from '@/components/ui/empty'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { AgentsSection } from '@/components/shared/AgentsSection'
+import {
+  ScheduleEditor,
+  scheduleFromProject,
+  schedulePayload,
+  scheduleError,
+  scheduleSummary,
+  type ScheduleValue,
+} from '@/components/monitor/ScheduleEditor'
 import { cn } from '@/lib/utils'
 
 // ---- Countdown clock ----
 
-function Countdown({ agent, tasks, scheduleInterval }: { agent: Agent; tasks: Task[]; scheduleInterval: number }) {
+// nextDailyRun returns the timestamp (ms) of the next upcoming daily time given
+// sorted "HH:MM" strings, or null if none are configured.
+function nextDailyRun(times: string[], now: Date): number | null {
+  const valid = times
+    .map(t => /^(\d{2}):(\d{2})$/.exec(t.trim()))
+    .filter((m): m is RegExpExecArray => m !== null)
+    .map(m => ({ h: Number(m[1]), m: Number(m[2]) }))
+  if (valid.length === 0) return null
+  for (const { h, m } of valid) {
+    const cand = new Date(now)
+    cand.setHours(h, m, 0, 0)
+    if (cand.getTime() > now.getTime()) return cand.getTime()
+  }
+  // All times today have passed; first time tomorrow.
+  const first = valid[0]
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(first.h, first.m, 0, 0)
+  return tomorrow.getTime()
+}
+
+function Countdown({ monitor, tasks }: { monitor: Project; tasks: Task[] }) {
   const [remaining, setRemaining] = useState<number | null>(null)
 
   useEffect(() => {
-    const interval = scheduleInterval * 1000
+    const isDaily = monitor.schedule_kind === 'daily'
+    const intervalMs = (monitor.schedule_interval ?? 0) * 1000
 
     const calc = () => {
+      if (isDaily) {
+        const next = nextDailyRun(monitor.schedule_times ?? [], new Date())
+        setRemaining(next === null ? null : Math.max(0, next - Date.now()))
+        return
+      }
       const scheduled = tasks
         .filter(t => t.title.startsWith('Scheduled run'))
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       if (!scheduled.length) { setRemaining(null); return }
       const last = new Date(scheduled[0].created_at).getTime()
-      const next = last + interval
+      const next = last + intervalMs
       setRemaining(Math.max(0, next - Date.now()))
     }
 
     calc()
     const timer = setInterval(calc, 1000)
     return () => clearInterval(timer)
-  }, [agent, tasks, scheduleInterval])
+  }, [monitor, tasks])
 
   if (remaining === null) return <span className="text-slate-500 text-sm">No runs yet</span>
   if (remaining === 0) return <span className="text-violet-400 text-sm animate-pulse">Firing soon…</span>
 
   const totalSecs = Math.floor(remaining / 1000)
-  const m = Math.floor(totalSecs / 60)
+  const days = Math.floor(totalSecs / 86400)
+  const hrs = Math.floor((totalSecs % 86400) / 3600)
+  const m = Math.floor((totalSecs % 3600) / 60)
   const s = totalSecs % 60
-  const display = m > 0 ? `${m}m ${s}s` : `${s}s`
+  let display: string
+  if (days > 0) display = `${days}d ${hrs}h`
+  else if (hrs > 0) display = `${hrs}h ${m}m`
+  else if (m > 0) display = `${m}m ${s}s`
+  else display = `${s}s`
 
   return (
     <span className="text-slate-300 text-sm font-mono">Next run in {display}</span>
@@ -190,7 +231,7 @@ export function MonitorDetailPage() {
   const [showEdit, setShowEdit] = useState(false)
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
-  const [editScheduleInterval, setEditScheduleInterval] = useState<number>(0)
+  const [editSchedule, setEditSchedule] = useState<ScheduleValue>({ kind: 'interval', intervalSeconds: 0, times: [], catchUp: false })
   const [editWorkingDir, setEditWorkingDir] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -234,26 +275,11 @@ export function MonitorDetailPage() {
 
   const primaryAgent = agents[0] ?? null
 
-  const SCHEDULE_OPTIONS = [
-    { label: 'No schedule (manual only)', value: 0 },
-    { label: 'Every 5 minutes', value: 300 },
-    { label: 'Every 15 minutes', value: 900 },
-    { label: 'Every 30 minutes', value: 1800 },
-    { label: 'Every hour', value: 3600 },
-    { label: 'Every 6 hours', value: 21600 },
-    { label: 'Every 12 hours', value: 43200 },
-    { label: 'Every day', value: 86400 },
-  ]
-
-  const scheduleLabel = (secs: number | null | undefined): string => {
-    if (!secs) return 'No schedule'
-    const opt = SCHEDULE_OPTIONS.find(o => o.value === secs)
-    if (opt) return opt.label
-    if (secs < 60) return `Every ${secs}s`
-    if (secs < 3600) return `Every ${Math.round(secs / 60)}m`
-    if (secs < 86400) return `Every ${Math.round(secs / 3600)}h`
-    return `Every ${Math.round(secs / 86400)}d`
-  }
+  const hasSchedule = monitor
+    ? (monitor.schedule_kind === 'daily'
+        ? (monitor.schedule_times?.length ?? 0) > 0
+        : !!monitor.schedule_interval)
+    : false
 
   const runNow = async () => {
     if (!primaryAgent || !id) return
@@ -332,7 +358,7 @@ export function MonitorDetailPage() {
     setEditName(monitor.name)
     setEditDesc(monitor.description ?? '')
     setEditWorkingDir(monitor.working_dir ?? '')
-    setEditScheduleInterval(monitor.schedule_interval ?? 0)
+    setEditSchedule(scheduleFromProject(monitor))
     setSaveError('')
     setShowAI(false)
     setAiHint('')
@@ -343,6 +369,8 @@ export function MonitorDetailPage() {
   const saveEdit = async () => {
     if (!id || !monitor) return
     if (!editName.trim()) { setSaveError('Name is required'); return }
+    const schedErr = scheduleError(editSchedule)
+    if (schedErr) { setSaveError(schedErr); return }
     setSaving(true)
     setSaveError('')
     try {
@@ -351,7 +379,7 @@ export function MonitorDetailPage() {
         description: editDesc,
         working_dir: editWorkingDir.trim(),
         kind: 'monitor',
-        schedule_interval: editScheduleInterval > 0 ? editScheduleInterval : null,
+        ...schedulePayload(editSchedule),
       })
       setShowEdit(false)
       load()
@@ -445,8 +473,8 @@ export function MonitorDetailPage() {
         <div className="flex items-center gap-6 ml-8 flex-wrap">
           <div>
             <p className="text-xs text-slate-500 mb-0.5">Schedule</p>
-            {monitor.schedule_interval
-              ? <p className="text-sm text-violet-400 font-medium">⟳ {scheduleLabel(monitor.schedule_interval)}</p>
+            {hasSchedule
+              ? <p className="text-sm text-violet-400 font-medium">⟳ {scheduleSummary(monitor)}</p>
               : <p className="text-sm text-slate-500">Manual only</p>
             }
           </div>
@@ -462,10 +490,10 @@ export function MonitorDetailPage() {
               <p className="text-xs text-slate-400 font-mono">{monitor.working_dir}</p>
             </div>
           )}
-          {monitor.schedule_interval && primaryAgent && (
+          {hasSchedule && primaryAgent && (
             <div>
               <p className="text-xs text-slate-500 mb-0.5">Next run</p>
-              <Countdown agent={primaryAgent} tasks={tasks} scheduleInterval={monitor.schedule_interval} />
+              <Countdown monitor={monitor} tasks={tasks} />
             </div>
           )}
         </div>
@@ -497,8 +525,8 @@ export function MonitorDetailPage() {
           <EmptyState
             icon="⟳"
             title="No runs yet"
-            description={monitor.schedule_interval
-              ? `Waiting for the first scheduled run. ${scheduleLabel(monitor.schedule_interval)}.`
+            description={hasSchedule
+              ? `Waiting for the first scheduled run. ${scheduleSummary(monitor)}.`
               : primaryAgent
                 ? 'Click "Run now" to trigger the first run manually.'
                 : 'Assign an agent then click "Run now" to trigger a run.'
@@ -572,16 +600,7 @@ export function MonitorDetailPage() {
               />
             </div>
             <div>
-              <Label htmlFor="edit-schedule">Schedule</Label>
-              <Select
-                id="edit-schedule"
-                value={String(editScheduleInterval)}
-                onChange={e => setEditScheduleInterval(Number(e.target.value))}
-              >
-                {SCHEDULE_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </Select>
+              <ScheduleEditor value={editSchedule} onChange={setEditSchedule} idPrefix="edit" />
             </div>
             <div>
               <Label htmlFor="edit-wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>

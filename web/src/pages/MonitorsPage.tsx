@@ -10,40 +10,18 @@ import { AgentsSection } from '@/components/shared/AgentsSection'
 import { TagInput, TagPill } from '@/components/ui/tag-input'
 import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
 import type { FilterSortState } from '@/components/ui/filter-sort-bar'
+import {
+  ScheduleEditor,
+  scheduleFromProject,
+  schedulePayload,
+  scheduleError,
+  scheduleSummary,
+  type ScheduleValue,
+} from '@/components/monitor/ScheduleEditor'
 import { timeAgo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
-const formatInterval = (secs: number | null | undefined) => {
-  if (!secs) return null
-  if (secs < 60) return `every ${secs}s`
-  if (secs < 3600) return `every ${Math.round(secs / 60)}m`
-  return `every ${Math.round(secs / 3600)}h`
-}
-
 // ---- Create / Edit Monitor form (name + description + working dir only) ----
-
-// Schedule options: label → seconds
-const SCHEDULE_OPTIONS = [
-  { label: 'No schedule (manual only)', value: 0 },
-  { label: 'Every 5 minutes', value: 300 },
-  { label: 'Every 15 minutes', value: 900 },
-  { label: 'Every 30 minutes', value: 1800 },
-  { label: 'Every hour', value: 3600 },
-  { label: 'Every 6 hours', value: 21600 },
-  { label: 'Every 12 hours', value: 43200 },
-  { label: 'Every day', value: 86400 },
-]
-
-function scheduleLabel(secs: number | null | undefined): string {
-  if (!secs) return 'No schedule'
-  const opt = SCHEDULE_OPTIONS.find(o => o.value === secs)
-  if (opt) return opt.label
-  if (secs < 60) return `Every ${secs}s`
-  if (secs < 3600) return `Every ${Math.round(secs / 60)}m`
-  if (secs < 86400) return `Every ${Math.round(secs / 3600)}h`
-  return `Every ${Math.round(secs / 86400)}d`
-}
-
 function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   initial?: Project
   providers: Provider[]
@@ -55,7 +33,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   const [description, setDescription] = useState(initial?.description ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
   const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
-  const [scheduleInterval, setScheduleInterval] = useState<number>(initial?.schedule_interval ?? 0)
+  const [schedule, setSchedule] = useState<ScheduleValue>(scheduleFromProject(initial))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showAI, setShowAI] = useState(false)
@@ -68,6 +46,8 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
 
   const save = async () => {
     if (!name.trim()) { setError('Name is required'); return }
+    const schedErr = scheduleError(schedule)
+    if (schedErr) { setError(schedErr); return }
     setSaving(true)
     setError('')
     try {
@@ -76,7 +56,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
         description,
         working_dir: workingDir.trim(),
         kind: 'monitor' as const,
-        schedule_interval: scheduleInterval > 0 ? scheduleInterval : null,
+        ...schedulePayload(schedule),
         tags,
       }
       if (initial) {
@@ -161,19 +141,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
           placeholder="What does this monitor watch and do?" />
       </div>
       <div>
-        <Label htmlFor="mon-schedule">Schedule</Label>
-        <Select
-          id="mon-schedule"
-          value={String(scheduleInterval)}
-          onChange={e => setScheduleInterval(Number(e.target.value))}
-        >
-          {SCHEDULE_OPTIONS.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </Select>
-        {scheduleInterval === 0 && (
-          <p className="text-xs text-slate-500 mt-1">You can trigger runs manually from the monitor page.</p>
-        )}
+        <ScheduleEditor value={schedule} onChange={setSchedule} idPrefix="mon" />
       </div>
       <div>
         <Label>Tags <span className="text-slate-500 font-normal">(optional)</span></Label>
@@ -212,7 +180,10 @@ function MonitorCard({ monitor, summary, agents, allAgents, providers, onArchive
   const navigate = useNavigate()
   const [showEdit, setShowEdit] = useState(false)
 
-  const interval = monitor.schedule_interval ? scheduleLabel(monitor.schedule_interval) : null
+  const hasSchedule = monitor.schedule_kind === 'daily'
+    ? (monitor.schedule_times?.length ?? 0) > 0
+    : !!monitor.schedule_interval
+  const scheduleText = scheduleSummary(monitor)
 
   // Status dots from task health (same logic as ProjectListItem)
   const statusMap = summary?.tasks_by_status ?? {}
@@ -267,8 +238,8 @@ function MonitorCard({ monitor, summary, agents, allAgents, providers, onArchive
               </p>
             )}
             <div className="flex items-center gap-3 ml-5 mt-1.5 text-xs text-slate-500 flex-wrap">
-              {interval
-                ? <span className="text-violet-400 font-medium">⟳ {interval}</span>
+              {hasSchedule
+                ? <span className="text-violet-400 font-medium">⟳ {scheduleText}</span>
                 : <span className="text-amber-500/80">Manual only</span>
               }
               {monitor.working_dir && (

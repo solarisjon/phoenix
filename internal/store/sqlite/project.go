@@ -15,6 +15,7 @@ type ProjectRepo struct{ db *DB }
 func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
 const projectSelectCols = `id, name, description, working_dir, kind, schedule_interval,
+	schedule_kind, schedule_times, schedule_catch_up,
 	owner, status, critic_agent_id, critic_mode, tags, created_at`
 
 // ListByKind returns projects filtered by kind, active only.
@@ -63,11 +64,19 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 	if kind == "" {
 		kind = string(model.ProjectKindProject)
 	}
+	scheduleKind := p.ScheduleKind
+	if scheduleKind == "" {
+		scheduleKind = model.ScheduleKindInterval
+	}
 	tagsJSON := marshalTags(p.Tags)
+	timesJSON := marshalStringSlice(p.ScheduleTimes)
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, working_dir, kind, schedule_interval, owner, status, critic_agent_id, critic_mode, tags)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (id, name, description, working_dir, kind, schedule_interval,
+		 schedule_kind, schedule_times, schedule_catch_up,
+		 owner, status, critic_agent_id, critic_mode, tags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval,
+		scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, tagsJSON)
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
@@ -80,12 +89,19 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 	if kind == "" {
 		kind = string(model.ProjectKindProject)
 	}
+	scheduleKind := p.ScheduleKind
+	if scheduleKind == "" {
+		scheduleKind = model.ScheduleKindInterval
+	}
 	tagsJSON := marshalTags(p.Tags)
+	timesJSON := marshalStringSlice(p.ScheduleTimes)
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE projects SET name = ?, description = ?, working_dir = ?, kind = ?,
-		 schedule_interval = ?, status = ?, critic_agent_id = ?, critic_mode = ?, tags = ? WHERE id = ?`,
+		 schedule_interval = ?, schedule_kind = ?, schedule_times = ?, schedule_catch_up = ?,
+		 status = ?, critic_agent_id = ?, critic_mode = ?, tags = ? WHERE id = ?`,
 		p.Name, p.Description, p.WorkingDir, kind,
-		p.ScheduleInterval, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, tagsJSON, p.ID)
+		p.ScheduleInterval, scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
+		string(p.Status), nullString(p.CriticAgentID), p.CriticMode, tagsJSON, p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
@@ -173,9 +189,12 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 func scanProject(row *sql.Row) (*model.Project, error) {
 	var p model.Project
 	var status, kind, tagsJSON string
+	var scheduleKind, timesJSON string
+	var catchUp int
 	var criticAgentID sql.NullString
 	err := row.Scan(
 		&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval,
+		&scheduleKind, &timesJSON, &catchUp,
 		&p.Owner, &status, &criticAgentID, &p.CriticMode, &tagsJSON, &p.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -195,6 +214,12 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 	if p.CriticMode == "" {
 		p.CriticMode = model.CriticModeNone
 	}
+	p.ScheduleKind = scheduleKind
+	if p.ScheduleKind == "" {
+		p.ScheduleKind = model.ScheduleKindInterval
+	}
+	p.ScheduleTimes = unmarshalStringSlice(timesJSON)
+	p.ScheduleCatchUp = catchUp != 0
 	p.Tags = unmarshalTags(tagsJSON)
 	return &p, nil
 }
@@ -204,9 +229,12 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 	for rows.Next() {
 		var p model.Project
 		var status, kind, tagsJSON string
+		var scheduleKind, timesJSON string
+		var catchUp int
 		var criticAgentID sql.NullString
 		if err := rows.Scan(
 			&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval,
+			&scheduleKind, &timesJSON, &catchUp,
 			&p.Owner, &status, &criticAgentID, &p.CriticMode, &tagsJSON, &p.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
@@ -222,32 +250,55 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 		if p.CriticMode == "" {
 			p.CriticMode = model.CriticModeNone
 		}
+		p.ScheduleKind = scheduleKind
+		if p.ScheduleKind == "" {
+			p.ScheduleKind = model.ScheduleKindInterval
+		}
+		p.ScheduleTimes = unmarshalStringSlice(timesJSON)
+		p.ScheduleCatchUp = catchUp != 0
 		p.Tags = unmarshalTags(tagsJSON)
 		out = append(out, &p)
 	}
 	return out, rows.Err()
 }
 
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // marshalTags encodes a tag slice to a JSON array string. Never errors — returns '[]' on nil.
 func marshalTags(tags []string) string {
-	if len(tags) == 0 {
+	return marshalStringSlice(tags)
+}
+
+// unmarshalTags decodes a JSON array string to a tag slice. Returns nil on empty / invalid input.
+func unmarshalTags(raw string) []string {
+	return unmarshalStringSlice(raw)
+}
+
+// marshalStringSlice encodes a string slice to a JSON array string. Never errors — returns '[]' on nil.
+func marshalStringSlice(vals []string) string {
+	if len(vals) == 0 {
 		return "[]"
 	}
-	b, err := json.Marshal(tags)
+	b, err := json.Marshal(vals)
 	if err != nil {
 		return "[]"
 	}
 	return string(b)
 }
 
-// unmarshalTags decodes a JSON array string to a tag slice. Returns nil on empty / invalid input.
-func unmarshalTags(raw string) []string {
+// unmarshalStringSlice decodes a JSON array string to a slice. Returns nil on empty / invalid input.
+func unmarshalStringSlice(raw string) []string {
 	if raw == "" || raw == "[]" || raw == "null" {
 		return nil
 	}
-	var tags []string
-	if err := json.Unmarshal([]byte(raw), &tags); err != nil {
+	var vals []string
+	if err := json.Unmarshal([]byte(raw), &vals); err != nil {
 		return nil
 	}
-	return tags
+	return vals
 }

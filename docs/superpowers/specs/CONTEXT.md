@@ -62,7 +62,7 @@ internal/
     runner.go                          # goroutine lifecycle, task execution, PID tracking, timeout
     prompt.go                          # system prompt assembly; global guardrails injection; hiring instructions
   scheduler/
-    scheduler.go                       # heartbeat ticker; scans every 60s; skips if agent busy
+    scheduler.go                       # scans every 60s; interval monitors use per-monitor tickers; daily monitors evaluated centrally against wall clock (catch-up + dedup)
   provider/
     provider.go                        # Provider interface + shared types (TaskRequest, StreamChunk, etc.)
     envexpand.go                       # ${ENV_VAR} expansion in configs
@@ -152,6 +152,9 @@ id, name, description,
 working_dir TEXT DEFAULT '',
 kind TEXT DEFAULT 'project' CHECK(kind IN ('project','monitor')),  -- migration 011
 schedule_interval INTEGER,           -- seconds between monitor runs (migration 015); nil=no schedule
+schedule_kind TEXT NOT NULL DEFAULT 'interval',  -- migration 026: 'interval' | 'daily'
+schedule_times TEXT NOT NULL DEFAULT '[]',       -- migration 026: JSON array of "HH:MM" local times (daily only)
+schedule_catch_up INTEGER NOT NULL DEFAULT 0,    -- migration 026: daily only; run a missed time once at next opportunity same day
 critic_agent_id TEXT,                -- deprecated; use critic_mode (migration 019)
 critic_mode TEXT DEFAULT 'none',     -- none|builtin|agent:<id> (migration 024)
 owner, status, created_at,

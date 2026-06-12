@@ -25,6 +25,9 @@ type createProjectRequest struct {
 	Kind             string   `json:"kind"`
 	Status           string   `json:"status"`
 	ScheduleInterval *int     `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
+	ScheduleKind     string   `json:"schedule_kind"`     // "interval" | "daily"
+	ScheduleTimes    []string `json:"schedule_times"`    // ["07:00","12:00"] when schedule_kind == "daily"
+	ScheduleCatchUp  bool     `json:"schedule_catch_up"` // daily only: catch up a missed run same calendar day
 	CriticAgentID    *string  `json:"critic_agent_id"`   // deprecated: prefer critic_mode
 	CriticMode       string   `json:"critic_mode"`       // "none" | "builtin" | "agent:<id>"
 	Tags             []string `json:"tags"`
@@ -42,7 +45,48 @@ func (r createProjectRequest) validate() string {
 		r.Status != string(model.ProjectStatusArchived) {
 		return "status must be 'active' or 'archived'"
 	}
+	if r.ScheduleKind != "" &&
+		r.ScheduleKind != model.ScheduleKindInterval &&
+		r.ScheduleKind != model.ScheduleKindDaily {
+		return "schedule_kind must be 'interval' or 'daily'"
+	}
+	if r.ScheduleKind == model.ScheduleKindDaily {
+		for _, t := range r.ScheduleTimes {
+			if !validHHMM(t) {
+				return "schedule_times entries must be in HH:MM 24-hour format (e.g. '07:00')"
+			}
+		}
+	}
 	return ""
+}
+
+// validHHMM reports whether s is a valid 24-hour time of day "HH:MM".
+func validHHMM(s string) bool {
+	if _, err := time.Parse("15:04", strings.TrimSpace(s)); err != nil {
+		return false
+	}
+	return true
+}
+
+// normaliseScheduleTimes trims, validates, de-duplicates, and sorts daily
+// schedule times into canonical "HH:MM" form.
+func normaliseScheduleTimes(in []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, raw := range in {
+		t, err := time.Parse("15:04", strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		hhmm := t.Format("15:04")
+		if _, dup := seen[hhmm]; dup {
+			continue
+		}
+		seen[hhmm] = struct{}{}
+		out = append(out, hhmm)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type assignAgentRequest struct {
@@ -120,6 +164,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		WorkingDir:       strings.TrimSpace(req.WorkingDir),
 		Kind:             kind,
 		ScheduleInterval: req.ScheduleInterval,
+		ScheduleKind:     resolveScheduleKind(req.ScheduleKind),
+		ScheduleTimes:    normaliseScheduleTimes(req.ScheduleTimes),
+		ScheduleCatchUp:  req.ScheduleCatchUp,
 		Owner:            user.ID,
 		Status:           status,
 		CriticAgentID:    req.CriticAgentID,
@@ -159,6 +206,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.Description = req.Description
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
 	existing.ScheduleInterval = req.ScheduleInterval
+	existing.ScheduleKind = resolveScheduleKind(req.ScheduleKind)
+	existing.ScheduleTimes = normaliseScheduleTimes(req.ScheduleTimes)
+	existing.ScheduleCatchUp = req.ScheduleCatchUp
 	existing.CriticAgentID = req.CriticAgentID
 	existing.CriticMode = resolveCriticMode(req.CriticMode, req.CriticAgentID)
 
@@ -393,6 +443,15 @@ func resolveCriticMode(criticMode string, legacyAgentID *string) string {
 		return "agent:" + *legacyAgentID
 	}
 	return model.CriticModeNone
+}
+
+// resolveScheduleKind normalises the schedule_kind value, defaulting to
+// "interval" for empty or unrecognised input (backward compatible).
+func resolveScheduleKind(kind string) string {
+	if kind == model.ScheduleKindDaily {
+		return model.ScheduleKindDaily
+	}
+	return model.ScheduleKindInterval
 }
 
 // normaliseTags trims whitespace and removes empty/duplicate tags.
