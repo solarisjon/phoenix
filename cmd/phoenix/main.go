@@ -6,12 +6,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
-
+	"syscall"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/api"
+	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/frontend"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/paths"
@@ -29,8 +31,10 @@ func main() {
 	log.Printf("Config dir : %s", paths.ConfigDir())
 	log.Printf("Data dir   : %s", paths.DataDir())
 
+	cfg := config.Load(paths.DataFile("phoenix.db"))
+
 	// Open database.
-	dbPath := paths.DataFile("phoenix.db")
+	dbPath := cfg.DBPath
 	db, err := sqlite.Open(dbPath)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
@@ -75,6 +79,7 @@ func main() {
 		memoRepo,
 		runner, reg,
 		adminRepo,
+		cfg.HTTPTimeout,
 	)
 
 	// Wire the hub as the runner's event handler so stream events
@@ -92,16 +97,14 @@ func main() {
 		})
 	})
 
-	// Start the monitor scheduler. Scans monitors every 60s and
+	// Start the monitor scheduler. Scans monitors every SchedulerInterval and
 	// fires tasks for monitors with schedule_interval set.
-	sched := scheduler.New(agentRepo, projectRepo, taskRepo, runner, 60*time.Second)
+	sched := scheduler.New(agentRepo, projectRepo, taskRepo, runner, cfg.SchedulerInterval)
 	sched.Start()
 	defer sched.Stop()
 
-	port := os.Getenv("PHOENIX_PORT")
-	if port == "" {
-		port = "8080"
-	}
+	// Apply configurable task timeout.
+	runner.SetTaskTimeout(cfg.TaskTimeout)
 
 	mux := http.NewServeMux()
 
@@ -132,9 +135,30 @@ func main() {
 		fileServer.ServeHTTP(w, r2)
 	}))
 
-	addr := fmt.Sprintf(":%s", port)
-	log.Printf("Phoenix listening on http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("server error: %v", err)
+	addr := fmt.Sprintf(":%s", cfg.Port)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
 	}
+
+	// Capture SIGINT / SIGTERM so we can drain in-flight requests cleanly.
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		log.Printf("Phoenix listening on http://localhost%s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	<-sigCtx.Done()
+	log.Println("Shutting down...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP shutdown error: %v", err)
+	}
+	log.Println("Shutdown complete")
 }

@@ -57,6 +57,7 @@ type Runner struct {
 	bgCtx    context.Context    // long-lived background context for task goroutines
 	bgCancel context.CancelFunc // cancelled on Shutdown
 
+	taskTimeout  time.Duration
 	mu           sync.Mutex
 	cancels      map[string]context.CancelCauseFunc // task ID → cancel-with-cause
 	agentRunning map[string]int                     // agent ID → count of running goroutines
@@ -83,9 +84,18 @@ func New(
 		onEvent:      onEvent,
 		bgCtx:        bgCtx,
 		bgCancel:     bgCancel,
+		taskTimeout:  DefaultTaskTimeout,
 		cancels:      make(map[string]context.CancelCauseFunc),
 		agentRunning: make(map[string]int),
 	}
+}
+
+// SetTaskTimeout overrides the per-task execution deadline.
+// Must be called before any tasks are started.
+func (r *Runner) SetTaskTimeout(d time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.taskTimeout = d
 }
 
 // SetMemoHandler sets the callback invoked when a memo is extracted from output.
@@ -227,7 +237,7 @@ func (r *Runner) tryStartLocked(task *model.Task) bool {
 	if _, already := r.cancels[task.ID]; already {
 		return false
 	}
-	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, DefaultTaskTimeout)
+	timeoutCtx, timeoutCancel := context.WithTimeout(r.bgCtx, r.taskTimeout)
 	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
 	r.cancels[task.ID] = cancel
 	r.agentRunning[task.AgentID]++
@@ -303,7 +313,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	// Transition to Running.
 	now := time.Now()
 	task.StartedAt = &now
-	timeoutAt := now.Add(DefaultTaskTimeout)
+	timeoutAt := now.Add(r.taskTimeout)
 	task.TimeoutAt = &timeoutAt
 	if err := r.setStatus(ctx, task, model.TaskStatusRunning, nil); err != nil {
 		log.Printf("runner: set running status: %v", err)

@@ -35,9 +35,11 @@ type Server struct {
 	router         http.Handler
 	admin          *sqlite.AdminRepo
 	startTime      time.Time
+	httpTimeout    time.Duration
 }
 
 // New creates a Server and registers all routes.
+// httpTimeout controls the per-request handler deadline (0 uses 60s default).
 func New(
 	providers store.ProviderRepo,
 	agents store.AgentRepo,
@@ -52,7 +54,11 @@ func New(
 	runner *agent.Runner,
 	reg *registry.Registry,
 	admin *sqlite.AdminRepo,
+	httpTimeout time.Duration,
 ) *Server {
+	if httpTimeout <= 0 {
+		httpTimeout = 60 * time.Second
+	}
 	s := &Server{
 		providers:      providers,
 		agents:         agents,
@@ -69,6 +75,7 @@ func New(
 		hub:            NewHub(),
 		admin:          admin,
 		startTime:      time.Now(),
+		httpTimeout:    httpTimeout,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -90,7 +97,7 @@ func (s *Server) buildRouter() http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(middleware.Timeout(s.httpTimeout))
 	r.Use(corsMiddleware)
 
 	r.Route("/api", func(r chi.Router) {

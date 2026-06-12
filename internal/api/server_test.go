@@ -48,7 +48,7 @@ func testServer(t *testing.T) *Server {
 	agentDraftRepo := sqllite.NewAgentDraftRepo(db)
 	systemSettingsRepo := sqllite.NewSystemSettingsRepo(db)
 	adminRepo := sqllite.NewAdminRepo(db)
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, runner, reg, adminRepo)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, runner, reg, adminRepo, 0)
 }
 
 type mockProv struct{}

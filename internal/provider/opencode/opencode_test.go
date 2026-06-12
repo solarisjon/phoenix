@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -264,6 +265,9 @@ func TestEstimateCost(t *testing.T) {
 // ---- Integration test (skipped unless opencode is available) ----
 
 func TestIntegration_RealOpencode(t *testing.T) {
+	if os.Getenv("PHOENIX_INTEGRATION_TESTS") != "1" {
+		t.Skip("set PHOENIX_INTEGRATION_TESTS=1 to run integration tests")
+	}
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skip("opencode not in PATH, skipping integration test")
 	}

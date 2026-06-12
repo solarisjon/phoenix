@@ -1,0 +1,36 @@
+# golangci-lint configuration for Phoenix.
+# Run: golangci-lint run ./...
+# Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+version: "2"
+
+linters:
+  enable:
+    - govet       # reports likely bugs (shadow, printf mismatches, …)
+    - staticcheck # advanced static analysis (SA, S, ST rules)
+    - errcheck    # checks for unchecked errors
+    - ineffassign # detects assignments whose value is never used
+    - unused      # finds unused code
+    - misspell    # spell-checker for comments and strings
+    - gocritic    # opinionated but practical code quality checks
+
+linters-settings:
+  govet:
+    enable-all: false  # only standard checks; shadow is noisy on existing code
+  gocritic:
+    disabled-checks:
+      - commentedOutCode  # too noisy on work-in-progress code
+
+issues:
+  # Show all issues, not just the first N per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  # Exclude some well-known false-positive patterns.
+  exclude-rules:
+    # Test helpers intentionally return without checking errors.
+    - path: "_test\\.go"
+      linters: [errcheck]
+    # Generated or embedded files.
+    - path: "internal/frontend"
+      linters: [errcheck, unused]
