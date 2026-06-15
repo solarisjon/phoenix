@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -219,6 +220,53 @@ func (r *Runner) CancelTask(taskID string) {
 	}
 }
 
+// ForceCancel immediately marks a task as failed regardless of its current state.
+// It sends a cancel signal to any running goroutine, kills the subprocess PID if
+// one is recorded, and directly updates the DB — bypassing the normal goroutine
+// cleanup path. Use this to unstick a task that won't respond to regular cancel.
+func (r *Runner) ForceCancel(taskID string) error {
+	// 1. Cancel any running goroutine (best-effort).
+	r.mu.Lock()
+	if cancel, ok := r.cancels[taskID]; ok {
+		cancel(ErrTaskCancelledByUser)
+	}
+	r.mu.Unlock()
+
+	// 2. Kill the subprocess PID if it was recorded.
+	task, err := r.tasks.Get(r.bgCtx, taskID)
+	if err != nil {
+		return fmt.Errorf("force cancel: get task: %w", err)
+	}
+	if task == nil {
+		return fmt.Errorf("force cancel: task %s not found", taskID)
+	}
+	if task.RunnerPID > 0 {
+		if proc, procErr := os.FindProcess(task.RunnerPID); procErr == nil {
+			if killErr := proc.Kill(); killErr != nil {
+				log.Printf("runner: force cancel: kill pid %d: %v", task.RunnerPID, killErr)
+			} else {
+				log.Printf("runner: force cancel: killed pid %d for task %s", task.RunnerPID, taskID)
+			}
+		}
+	}
+
+	// 3. Write failed status directly to DB so the UI sees it immediately.
+	updated, err := r.tasks.ForceFailTask(r.bgCtx, taskID)
+	if err != nil {
+		return fmt.Errorf("force cancel: db update: %w", err)
+	}
+	if updated {
+		status := model.TaskStatusFailed
+		r.emit(StreamEvent{
+			TaskID:     taskID,
+			StatusDone: &status,
+			Err:        ErrTaskCancelledByUser,
+		})
+		log.Printf("runner: force cancelled task %s", taskID)
+	}
+	return nil
+}
+
 // Shutdown cancels all running tasks and clears the cancel map.
 func (r *Runner) Shutdown() {
 	// Cancelling bgCtx cascades to all task contexts.
@@ -371,7 +419,29 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 	req.WorkingDir = workingDir
 
-	// For monitor tasks, compute a hash of the assembled prompt and check
+	// Token budget guardrail: if the agent has a max_tokens_per_run ceiling,
+	// estimate the assembled prompt size (chars/4 ≈ tokens) and truncate the
+	// context from the oldest end until it fits. If it still doesn't fit after
+	// clearing all context, the task fails with a clear error rather than
+	// sending an oversized prompt silently.
+	if agent.MaxTokensPerRun > 0 {
+		estimateTokens := func(r provider.TaskRequest) int {
+			n := len(r.SystemPrompt) + len(r.Prompt)
+			for _, m := range r.Context {
+				n += len(m.Content)
+			}
+			return n / 4
+		}
+		for estimateTokens(req) > agent.MaxTokensPerRun && len(req.Context) > 0 {
+			req.Context = req.Context[1:] // drop oldest context turn
+		}
+		if estimateTokens(req) > agent.MaxTokensPerRun {
+			r.failTask(ctx, task, fmt.Errorf("token budget exceeded: estimated input tokens (%d) exceed max_tokens_per_run (%d) even after clearing all context — shorten the task description or raise the limit",
+				estimateTokens(req), agent.MaxTokensPerRun))
+			return
+		}
+		req.MaxOutputTokens = agent.MaxTokensPerRun
+	}
 	// whether a previous run produced identical output. If so, skip the LLM
 	// call entirely and reuse the cached result — cost $0.
 	if task.Source == "monitor" {

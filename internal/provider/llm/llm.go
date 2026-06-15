@@ -163,6 +163,10 @@ func (a *Adapter) buildRequestBody(req provider.TaskRequest, stream bool) chatRe
 	if stream {
 		cr.StreamOptions = &streamOptions{IncludeUsage: true}
 	}
+	if req.MaxOutputTokens > 0 {
+		n := req.MaxOutputTokens
+		cr.MaxTokens = &n
+	}
 	return cr
 }
 
@@ -327,6 +331,7 @@ type chatRequest struct {
 	Messages      []chatMessage  `json:"messages"`
 	Stream        bool           `json:"stream"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+	MaxTokens     *int           `json:"max_tokens,omitempty"`
 }
 
 type chatMessage struct {

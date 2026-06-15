@@ -22,6 +22,7 @@ export interface Agent {
   can_spawn_agents: boolean
   can_hire_agents: boolean
   max_concurrent: number
+  max_tokens_per_run: number
   status: 'active' | 'paused' | 'disabled'
   created_at: string
   template_id: string | null
@@ -352,6 +353,7 @@ export const api = {
     listByAgent: (agentId: string) => request<Task[]>(`/agents/${agentId}/tasks`),
     listRunning: () => request<Task[]>('/tasks/running'),
     cancel: (id: string) => request<void>(`/tasks/${id}/cancel`, { method: 'POST', body: '{}' }),
+    forceReset: (id: string) => request<Task>(`/tasks/${id}/force-reset`, { method: 'POST', body: '{}' }),
   },
   inbox: {
     list: () => request<Task[]>('/inbox'),

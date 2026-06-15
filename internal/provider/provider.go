@@ -26,6 +26,11 @@ type TaskRequest struct {
 	// the working directory when spawning their subprocess. Empty = default
 	// (adapter's own default, usually the process working directory).
 	WorkingDir string
+
+	// MaxOutputTokens, when > 0, is passed to the provider as a cap on
+	// generated tokens (maps to max_tokens / max_completion_tokens in the
+	// OpenAI wire format). 0 means no cap.
+	MaxOutputTokens int
 }
 
 // TaskResponse is the result returned by a provider after execution.

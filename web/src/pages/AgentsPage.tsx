@@ -95,6 +95,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
   const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
   const [canHireAgents, setCanHireAgents] = useState(initial?.can_hire_agents ?? false)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
+  const [maxTokensPerRun, setMaxTokensPerRun] = useState<number>(initial?.max_tokens_per_run ?? 0)
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -109,7 +110,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, max_concurrent: maxConcurrent, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, max_concurrent: maxConcurrent, max_tokens_per_run: maxTokensPerRun, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -190,6 +191,28 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Limits how many tasks this agent runs simultaneously. Extra tasks queue until a slot opens. Set to 0 for unlimited.
+          </p>
+        </div>
+
+        {/* Max tokens per run */}
+        <div className="border-t border-slate-800 pt-4">
+          <Label htmlFor="max-tokens-per-run">Max Tokens Per Run</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input
+              id="max-tokens-per-run"
+              type="number"
+              min="0"
+              step="1000"
+              value={maxTokensPerRun}
+              onChange={e => setMaxTokensPerRun(Math.max(0, parseInt(e.target.value) || 0))}
+              className="w-32"
+            />
+            <span className="text-slate-500 text-sm">
+              {maxTokensPerRun === 0 ? '(unlimited)' : `≈ ${maxTokensPerRun.toLocaleString()} tokens`}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Hard ceiling on estimated input tokens per run. Oldest context turns are dropped to fit. Also caps output tokens sent to the LLM. Set to 0 for unlimited.
           </p>
         </div>
 
