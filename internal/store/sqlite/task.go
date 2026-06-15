@@ -199,6 +199,25 @@ func (r *TaskRepo) FindByPromptHash(ctx context.Context, projectID, hash string)
 	return scanTask(row)
 }
 
+// LastMonitorRunAt returns the creation time of the most recent monitor-sourced
+// task for the project, regardless of dismissed status. Dismissed tasks must
+// count so that a user clearing the inbox doesn't cause the monitor to re-fire.
+func (r *TaskRepo) LastMonitorRunAt(ctx context.Context, projectID string) (*time.Time, error) {
+	var ts time.Time
+	err := r.db.QueryRowContext(ctx,
+		`SELECT created_at FROM tasks
+		 WHERE project_id = ? AND source = 'monitor'
+		 ORDER BY created_at DESC LIMIT 1`,
+		projectID).Scan(&ts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("last monitor run at: %w", err)
+	}
+	return &ts, nil
+}
+
 func (r *TaskRepo) ProjectSpendForPeriod(ctx context.Context, projectID, period string) (float64, error) {
 	var query string
 	switch period {
@@ -240,6 +259,25 @@ func (r *TaskRepo) CancelQueuedTask(ctx context.Context, taskID string) (bool, e
 	n, err := res.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("cancel queued task rows: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ForceFailTask unconditionally marks a task as failed if it is not already terminal.
+// It also clears runner_pid so orphaned subprocess records are not left around.
+func (r *TaskRepo) ForceFailTask(ctx context.Context, taskID string) (bool, error) {
+	now := time.Now()
+	errJSON := `{"error":"task force-cancelled by user"}`
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET status='failed', output=?, completed_at=?, runner_pid=0
+		 WHERE id=? AND status NOT IN ('completed','failed')`,
+		errJSON, now, taskID)
+	if err != nil {
+		return false, fmt.Errorf("force fail task: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("force fail task rows: %w", err)
 	}
 	return n > 0, nil
 }

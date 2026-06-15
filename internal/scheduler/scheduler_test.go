@@ -226,6 +226,26 @@ func (r *fakeTaskRepo) ProjectSpendForPeriod(_ context.Context, _ string, _ stri
 	return 0, nil
 }
 
+func (r *fakeTaskRepo) ForceFailTask(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (r *fakeTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*time.Time, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var latest *time.Time
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && t.Source == "monitor" {
+			ts := t.CreatedAt
+			if latest == nil || ts.After(*latest) {
+				cp := ts
+				latest = &cp
+			}
+		}
+	}
+	return latest, nil
+}
+
 // countingRunner counts RunTask calls and records the task IDs.
 type countingRunner struct {
 	mu      sync.Mutex
@@ -623,5 +643,36 @@ func TestEvaluateDaily_MultipleTimesPicksLatest(t *testing.T) {
 	s.evaluateDaily(context.Background(), spec, at(time.Now(), 12, 30))
 	if runner.count() != 1 {
 		t.Fatalf("RunTask called %d times, want 1 (12:00 due)", runner.count())
+	}
+}
+
+// TestEvaluateDaily_DismissedRunStillCounts verifies that a monitor does NOT
+// re-fire after its task has been dismissed from the inbox. Regression test for
+// the bug where lastMonitorRun used tasks.List (dismissed=0 filter), causing
+// dismissed runs to be invisible and the monitor to re-fire on the next sync.
+func TestEvaluateDaily_DismissedRunStillCounts(t *testing.T) {
+	proj := makeDailyMonitor("daily-dismissed", []string{"05:00"}, true)
+	agent := makeActiveAgent("ag-dismissed")
+	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-dismissed": {agent}})
+
+	// The task ran today at 05:01 but was dismissed by the user from the inbox.
+	now := at(time.Now(), 8, 0)
+	dismissedRun := &model.Task{
+		ID:        "dismissed-run",
+		ProjectID: "daily-dismissed",
+		Source:    "monitor",
+		Status:    model.TaskStatusCompleted,
+		CreatedAt: at(now, 5, 1),
+		Dismissed: true,
+	}
+	taskRepo := &fakeTaskRepo{tasks: []*model.Task{dismissedRun}}
+	runner := &countingRunner{}
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+
+	spec := dailySpecFor(proj, agent)
+	s.evaluateDaily(context.Background(), spec, now)
+
+	if runner.count() != 0 {
+		t.Fatalf("RunTask called %d times, want 0 — dismissed run must count as the daily occurrence", runner.count())
 	}
 }

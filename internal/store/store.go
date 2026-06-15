@@ -76,11 +76,21 @@ type TaskRepo interface {
 	// CancelQueuedTask atomically sets a task to failed only if it is still queued.
 	// Returns true if the task was cancelled, false if it was already in another state.
 	CancelQueuedTask(ctx context.Context, taskID string) (bool, error)
+	// ForceFailTask unconditionally marks a task as failed regardless of its current
+	// status, as long as it is not already in a terminal state (completed/failed).
+	// Used to unstick tasks whose runner goroutine has died or won't terminate.
+	// Returns true if the row was updated.
+	ForceFailTask(ctx context.Context, taskID string) (bool, error)
 	// ListCompletedForInbox returns up to limit recently completed, undismissed tasks, newest first.
 	ListCompletedForInbox(ctx context.Context, limit int) ([]*model.Task, error)
 	// FindByPromptHash returns the most recent completed task for the given project
 	// whose prompt_hash matches, or nil if none exists. Used for monitor output diffing.
 	FindByPromptHash(ctx context.Context, projectID, hash string) (*model.Task, error)
+	// LastMonitorRunAt returns the creation time of the most recent monitor-sourced
+	// task for the project, regardless of dismissed status. Returns nil if none exists.
+	// Used by the daily scheduler dedup check — dismissed runs must count so that
+	// a user dismissing the inbox entry does not cause the monitor to re-fire.
+	LastMonitorRunAt(ctx context.Context, projectID string) (*time.Time, error)
 	// ProjectSpendForPeriod returns the total cost_usd for the given project within
 	// the named period: "day" (calendar day), "week" (rolling 7 days),
 	// "month" (calendar month), or "total" (all time).

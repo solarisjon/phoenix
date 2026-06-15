@@ -323,24 +323,10 @@ func (s *Scheduler) evaluateDaily(ctx context.Context, spec scheduleSpec, now ti
 }
 
 // lastMonitorRun returns the creation time of the most recent monitor-sourced
-// task for the project, or nil if there is none.
+// task for the project, regardless of dismissed status. Dismissed tasks must
+// count — a user clearing the inbox should not cause the monitor to re-fire.
 func (s *Scheduler) lastMonitorRun(ctx context.Context, projectID string) (*time.Time, error) {
-	tasks, err := s.tasks.List(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-	var latest *time.Time
-	for _, t := range tasks {
-		if t.Source != "monitor" {
-			continue
-		}
-		ts := t.CreatedAt
-		if latest == nil || ts.After(*latest) {
-			cp := ts
-			latest = &cp
-		}
-	}
-	return latest, nil
+	return s.tasks.LastMonitorRunAt(ctx, projectID)
 }
 
 // parseTimes converts HH:MM strings into timeOfDay values, skipping invalid entries.
