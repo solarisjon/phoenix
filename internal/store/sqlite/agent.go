@@ -18,7 +18,7 @@ func (r *AgentRepo) List(ctx context.Context) ([]*model.Agent, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 		       provider_id, model_override, can_spawn_agents, can_hire_agents,
-		       max_concurrent, max_tokens_per_run, fallback_model, created_by, status, created_at, template_id
+		       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
 		FROM agents ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
@@ -31,7 +31,7 @@ func (r *AgentRepo) Get(ctx context.Context, id string) (*model.Agent, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 		       provider_id, model_override, can_spawn_agents, can_hire_agents,
-		       max_concurrent, max_tokens_per_run, fallback_model, created_by, status, created_at, template_id
+		       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
 		FROM agents WHERE id = ?`, id)
 	return scanAgent(row)
 }
@@ -47,10 +47,10 @@ func (r *AgentRepo) Create(ctx context.Context, a *model.Agent) error {
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO agents
-		  (id, name, persona, instructions, guardrails, behaviour, hard_guardrails, provider_id, model_override, can_spawn_agents, can_hire_agents, max_concurrent, max_tokens_per_run, fallback_model, created_by, status, template_id)
+		  (id, name, persona, instructions, guardrails, behaviour, hard_guardrails, provider_id, model_override, can_spawn_agents, can_hire_agents, max_concurrent, max_cost_per_run, fallback_model, created_by, status, template_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Name, a.Persona, a.Instructions, a.Guardrails, a.Behaviour, a.HardGuardrails,
-		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxTokensPerRun, a.FallbackModel, a.CreatedBy, string(a.Status), nullString(a.TemplateID))
+		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxCostPerRun, a.FallbackModel, a.CreatedBy, string(a.Status), nullString(a.TemplateID))
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -69,10 +69,10 @@ func (r *AgentRepo) Update(ctx context.Context, a *model.Agent) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE agents SET
 		  name = ?, persona = ?, instructions = ?, guardrails = ?, behaviour = ?, hard_guardrails = ?,
-		  provider_id = ?, model_override = ?, can_spawn_agents = ?, can_hire_agents = ?, max_concurrent = ?, max_tokens_per_run = ?, fallback_model = ?, status = ?, template_id = ?
+		  provider_id = ?, model_override = ?, can_spawn_agents = ?, can_hire_agents = ?, max_concurrent = ?, max_cost_per_run = ?, fallback_model = ?, status = ?, template_id = ?
 		WHERE id = ?`,
 		a.Name, a.Persona, a.Instructions, a.Guardrails, a.Behaviour, a.HardGuardrails,
-		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxTokensPerRun, a.FallbackModel, string(a.Status), nullString(a.TemplateID), a.ID)
+		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxCostPerRun, a.FallbackModel, string(a.Status), nullString(a.TemplateID), a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
@@ -93,7 +93,7 @@ func scanAgent(row *sql.Row) (*model.Agent, error) {
 	var templateID sql.NullString
 	var canSpawn, canHire int
 	err := row.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails, &a.Behaviour, &a.HardGuardrails,
-		&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.MaxTokensPerRun, &a.FallbackModel, &a.CreatedBy, &status, &a.CreatedAt, &templateID)
+		&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.MaxCostPerRun, &a.FallbackModel, &a.CreatedBy, &status, &a.CreatedAt, &templateID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -118,7 +118,7 @@ func scanAgents(rows *sql.Rows) ([]*model.Agent, error) {
 		var templateID sql.NullString
 		var canSpawn, canHire int
 		if err := rows.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails, &a.Behaviour, &a.HardGuardrails,
-			&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.MaxTokensPerRun, &a.FallbackModel, &a.CreatedBy, &status, &a.CreatedAt, &templateID); err != nil {
+			&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.MaxCostPerRun, &a.FallbackModel, &a.CreatedBy, &status, &a.CreatedAt, &templateID); err != nil {
 			return nil, fmt.Errorf("scan agent row: %w", err)
 		}
 		a.Status = model.AgentStatus(status)

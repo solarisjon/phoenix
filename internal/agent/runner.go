@@ -419,40 +419,36 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 	req.WorkingDir = workingDir
 
-	// Token budget guardrail: if the agent has a max_tokens_per_run ceiling,
-	// estimate the assembled prompt size (chars/4 ≈ tokens) and truncate the
-	// context from the oldest end until it fits. If it still doesn't fit after
-	// clearing all context:
+	// Cost budget guardrail: if the agent has a max_cost_per_run ceiling and
+	// the provider can estimate cost, check the assembled prompt against the
+	// budget. Context turns are dropped from the oldest end until it fits.
+	// If it still exceeds the budget after clearing all context:
 	//   - If a fallback_model is configured, switch to it and continue.
 	//   - Otherwise fail with a clear error.
-	if agent.MaxTokensPerRun > 0 {
-		estimateTokens := func(r provider.TaskRequest) int {
-			n := len(r.SystemPrompt) + len(r.Prompt)
-			for _, m := range r.Context {
-				n += len(m.Content)
+	// Providers that return 0 from EstimateCost (CLI adapters, local models)
+	// are skipped — there's no cost to guard against.
+	if agent.MaxCostPerRun > 0 {
+		if est := prov.EstimateCost(req); est.EstimatedCostUSD > 0 {
+			for prov.EstimateCost(req).EstimatedCostUSD > agent.MaxCostPerRun && len(req.Context) > 0 {
+				req.Context = req.Context[1:] // drop oldest context turn
 			}
-			return n / 4
-		}
-		for estimateTokens(req) > agent.MaxTokensPerRun && len(req.Context) > 0 {
-			req.Context = req.Context[1:] // drop oldest context turn
-		}
-		if estimateTokens(req) > agent.MaxTokensPerRun {
-			if agent.FallbackModel != "" {
-				log.Printf("runner: task %s: token budget exceeded (%d > %d) after context truncation — switching to fallback model %q",
-					task.ID, estimateTokens(req), agent.MaxTokensPerRun, agent.FallbackModel)
-				fallbackProv, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.FallbackModel)
-				if err != nil {
-					r.failTask(ctx, task, fmt.Errorf("token budget exceeded and fallback model load failed (%s): %w", agent.FallbackModel, err))
+			if prov.EstimateCost(req).EstimatedCostUSD > agent.MaxCostPerRun {
+				if agent.FallbackModel != "" {
+					log.Printf("runner: task %s: estimated cost ($%.5f) exceeds max_cost_per_run ($%.5f) after context truncation — switching to fallback model %q",
+						task.ID, prov.EstimateCost(req).EstimatedCostUSD, agent.MaxCostPerRun, agent.FallbackModel)
+					fallbackProv, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.FallbackModel)
+					if err != nil {
+						r.failTask(ctx, task, fmt.Errorf("cost budget exceeded and fallback model load failed (%s): %w", agent.FallbackModel, err))
+						return
+					}
+					prov = fallbackProv
+				} else {
+					r.failTask(ctx, task, fmt.Errorf("cost budget exceeded: estimated cost ($%.5f) exceeds max_cost_per_run ($%.5f) even after clearing all context — shorten the task, raise the limit, or set a fallback_model",
+						prov.EstimateCost(req).EstimatedCostUSD, agent.MaxCostPerRun))
 					return
 				}
-				prov = fallbackProv
-			} else {
-				r.failTask(ctx, task, fmt.Errorf("token budget exceeded: estimated input tokens (%d) exceed max_tokens_per_run (%d) even after clearing all context — shorten the task description, raise the limit, or set a fallback_model",
-					estimateTokens(req), agent.MaxTokensPerRun))
-				return
 			}
 		}
-		req.MaxOutputTokens = agent.MaxTokensPerRun
 	}
 	// whether a previous run produced identical output. If so, skip the LLM
 	// call entirely and reuse the cached result — cost $0.
