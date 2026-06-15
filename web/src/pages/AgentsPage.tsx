@@ -96,6 +96,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
   const [canHireAgents, setCanHireAgents] = useState(initial?.can_hire_agents ?? false)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
   const [maxTokensPerRun, setMaxTokensPerRun] = useState<number>(initial?.max_tokens_per_run ?? 0)
+  const [fallbackModel, setFallbackModel] = useState(initial?.fallback_model ?? '')
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -110,7 +111,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, max_concurrent: maxConcurrent, max_tokens_per_run: maxTokensPerRun, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, max_concurrent: maxConcurrent, max_tokens_per_run: maxTokensPerRun, fallback_model: fallbackModel, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -215,6 +216,28 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
             Hard ceiling on estimated input tokens per run. Oldest context turns are dropped to fit. Also caps output tokens sent to the LLM. Set to 0 for unlimited.
           </p>
         </div>
+
+        {/* Fallback model when token budget overflows */}
+        {maxTokensPerRun > 0 && (
+          <div className="border-t border-slate-800 pt-4">
+            <Label htmlFor="fallback-model">
+              Fallback Model
+              <span className="text-slate-600 font-normal ml-2">
+                (used when token budget is exceeded after context truncation)
+              </span>
+            </Label>
+            <ModelComboBox
+              providerId={providerID}
+              value={fallbackModel}
+              onChange={setFallbackModel}
+              allowEmpty
+              placeholder="Select or type a model name (blank = fail on overflow)"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              If the prompt still exceeds the budget after dropping all context, the runner switches to this model instead of failing. Typically a lighter model with a larger context window.
+            </p>
+          </div>
+        )}
 
         {/* Spawn agents toggle */}
         <div className="border-t border-slate-800 pt-4">

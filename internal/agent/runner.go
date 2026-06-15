@@ -422,8 +422,9 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	// Token budget guardrail: if the agent has a max_tokens_per_run ceiling,
 	// estimate the assembled prompt size (chars/4 ≈ tokens) and truncate the
 	// context from the oldest end until it fits. If it still doesn't fit after
-	// clearing all context, the task fails with a clear error rather than
-	// sending an oversized prompt silently.
+	// clearing all context:
+	//   - If a fallback_model is configured, switch to it and continue.
+	//   - Otherwise fail with a clear error.
 	if agent.MaxTokensPerRun > 0 {
 		estimateTokens := func(r provider.TaskRequest) int {
 			n := len(r.SystemPrompt) + len(r.Prompt)
@@ -436,9 +437,20 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 			req.Context = req.Context[1:] // drop oldest context turn
 		}
 		if estimateTokens(req) > agent.MaxTokensPerRun {
-			r.failTask(ctx, task, fmt.Errorf("token budget exceeded: estimated input tokens (%d) exceed max_tokens_per_run (%d) even after clearing all context — shorten the task description or raise the limit",
-				estimateTokens(req), agent.MaxTokensPerRun))
-			return
+			if agent.FallbackModel != "" {
+				log.Printf("runner: task %s: token budget exceeded (%d > %d) after context truncation — switching to fallback model %q",
+					task.ID, estimateTokens(req), agent.MaxTokensPerRun, agent.FallbackModel)
+				fallbackProv, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.FallbackModel)
+				if err != nil {
+					r.failTask(ctx, task, fmt.Errorf("token budget exceeded and fallback model load failed (%s): %w", agent.FallbackModel, err))
+					return
+				}
+				prov = fallbackProv
+			} else {
+				r.failTask(ctx, task, fmt.Errorf("token budget exceeded: estimated input tokens (%d) exceed max_tokens_per_run (%d) even after clearing all context — shorten the task description, raise the limit, or set a fallback_model",
+					estimateTokens(req), agent.MaxTokensPerRun))
+				return
+			}
 		}
 		req.MaxOutputTokens = agent.MaxTokensPerRun
 	}

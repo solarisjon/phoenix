@@ -23,6 +23,7 @@ export interface Agent {
   can_hire_agents: boolean
   max_concurrent: number
   max_tokens_per_run: number
+  fallback_model: string
   status: 'active' | 'paused' | 'disabled'
   created_at: string
   template_id: string | null

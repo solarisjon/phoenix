@@ -74,6 +74,7 @@ type Agent struct {
 	CanHireAgents     bool        `json:"can_hire_agents"`    // if true, agent may submit new agent hire proposals
 	MaxConcurrent     int         `json:"max_concurrent"`     // 0 = unlimited
 	MaxTokensPerRun   int         `json:"max_tokens_per_run"` // 0 = unlimited; caps estimated input tokens + output tokens
+	FallbackModel     string      `json:"fallback_model"`     // model to use when token budget overflows after context truncation; empty = fail
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`
 	CreatedAt         time.Time   `json:"created_at"`
