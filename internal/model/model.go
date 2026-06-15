@@ -166,6 +166,7 @@ type Task struct {
 	IsCriticReview  bool       `json:"is_critic_review"`
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
 	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
+	PromptHash      string     `json:"prompt_hash"` // SHA-256 of the assembled prompt; used for monitor diffing
 	CreatedAt       time.Time  `json:"created_at"`
 	StartedAt       *time.Time `json:"started_at"`
 	CompletedAt     *time.Time `json:"completed_at"`

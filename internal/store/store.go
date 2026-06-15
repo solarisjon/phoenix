@@ -78,6 +78,9 @@ type TaskRepo interface {
 	CancelQueuedTask(ctx context.Context, taskID string) (bool, error)
 	// ListCompletedForInbox returns up to limit recently completed, undismissed tasks, newest first.
 	ListCompletedForInbox(ctx context.Context, limit int) ([]*model.Task, error)
+	// FindByPromptHash returns the most recent completed task for the given project
+	// whose prompt_hash matches, or nil if none exists. Used for monitor output diffing.
+	FindByPromptHash(ctx context.Context, projectID, hash string) (*model.Task, error)
 }
 
 // TeamRepo manages agent teams.

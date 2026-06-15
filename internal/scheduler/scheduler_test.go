@@ -218,6 +218,10 @@ func (r *fakeTaskRepo) ListCompletedForInbox(_ context.Context, _ int) ([]*model
 	return nil, nil
 }
 
+func (r *fakeTaskRepo) FindByPromptHash(_ context.Context, _ string, _ string) (*model.Task, error) {
+	return nil, nil
+}
+
 // countingRunner counts RunTask calls and records the task IDs.
 type countingRunner struct {
 	mu      sync.Mutex

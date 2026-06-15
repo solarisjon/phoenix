@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -349,6 +351,35 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 	req.WorkingDir = workingDir
 
+	// For monitor tasks, compute a hash of the assembled prompt and check
+	// whether a previous run produced identical output. If so, skip the LLM
+	// call entirely and reuse the cached result — cost $0.
+	if task.Source == "monitor" {
+		hash := promptHash(req)
+		task.PromptHash = hash
+		if cached, err := r.tasks.FindByPromptHash(ctx, task.ProjectID, hash); err == nil && cached != nil {
+			log.Printf("runner: monitor task %s: prompt unchanged (hash=%s), reusing cached output", task.ID, hash[:8])
+			completedAt := time.Now()
+			task.Output = cached.Output
+			task.HealthSignal = cached.HealthSignal
+			task.TokensIn = 0
+			task.TokensOut = 0
+			task.CostUSD = 0
+			task.CompletedAt = &completedAt
+			task.RunnerPID = 0
+			task.Source = "monitor:cached"
+			if err := r.setStatus(ctx, task, model.TaskStatusCompleted, nil); err != nil {
+				log.Printf("runner: set cached status: %v", err)
+			}
+			r.emit(StreamEvent{
+				TaskID:     task.ID,
+				AgentID:    task.AgentID,
+				StatusDone: func() *model.TaskStatus { s := model.TaskStatusCompleted; return &s }(),
+			})
+			return
+		}
+	}
+
 	// Stream execution.
 	ch, err := prov.StreamExecute(ctx, req)
 	if err != nil {
@@ -456,6 +487,8 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	task.RunnerPID = 0 // subprocess is done
 	task.TokensIn = tokensIn
 	task.TokensOut = tokensOut
+	// PromptHash is already set for monitor tasks (set before the cache check above).
+	// For non-monitor tasks it stays empty — no diffing needed.
 
 	// Check if the agent triggered a hard guardrail.
 	// A hard guardrail trigger is signalled by the agent outputting a line that starts
@@ -935,4 +968,20 @@ func extractGuardrailTrigger(output string) string {
 		}
 	}
 	return ""
+}
+
+// promptHash returns a hex SHA-256 of the assembled prompt components.
+// Used by monitor diffing to detect unchanged prompts and skip the LLM call.
+func promptHash(req provider.TaskRequest) string {
+	h := sha256.New()
+	h.Write([]byte(req.SystemPrompt))
+	h.Write([]byte{0})
+	h.Write([]byte(req.Prompt))
+	for _, m := range req.Context {
+		h.Write([]byte{0})
+		h.Write([]byte(m.Role))
+		h.Write([]byte{0})
+		h.Write([]byte(m.Content))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

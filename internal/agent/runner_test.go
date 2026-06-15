@@ -218,6 +218,15 @@ func (r *memTaskRepo) ListCompletedForInbox(_ context.Context, limit int) ([]*mo
 	return out, nil
 }
 
+func (r *memTaskRepo) FindByPromptHash(_ context.Context, projectID, hash string) (*model.Task, error) {
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && t.PromptHash == hash && t.Status == model.TaskStatusCompleted {
+			return t, nil
+		}
+	}
+	return nil, nil
+}
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}
