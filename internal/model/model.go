@@ -132,6 +132,8 @@ type Project struct {
 	CriticAgentID    *string       `json:"critic_agent_id"` // deprecated: use CriticMode
 	CriticMode       string        `json:"critic_mode"`     // "none" | "builtin" | "agent:<id>"
 	MonitorModel     string        `json:"monitor_model"`   // if set, overrides the agent's model for monitor runs
+	BudgetUSD        float64       `json:"budget_usd"`      // 0 = no limit; positive = max spend for the period
+	BudgetPeriod     string        `json:"budget_period"`   // "day" | "week" | "month" | "total"
 	Tags             []string      `json:"tags"`              // free-text labels for grouping/filtering
 	CreatedAt        time.Time     `json:"created_at"`
 }

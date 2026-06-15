@@ -12,6 +12,7 @@ const (
 	EventInboxNewItem       EventType = "inbox.new_item"
 	EventAgentDraftCreated  EventType = "agent_draft.created"
 	EventMemoCreated        EventType = "memo.created"
+	EventBudgetExceeded     EventType = "budget.exceeded"
 )
 
 // Event is the envelope sent over the WebSocket to every connected client.
@@ -42,4 +43,12 @@ type InboxPayload struct {
 	AgentID   string `json:"agent_id"`
 	ProjectID string `json:"project_id"`
 	Title     string `json:"title"`
+}
+
+// BudgetExceededPayload is sent when a project's cost budget is exceeded.
+type BudgetExceededPayload struct {
+	ProjectID string  `json:"project_id"`
+	SpentUSD  float64 `json:"spent_usd"`
+	BudgetUSD float64 `json:"budget_usd"`
+	Period    string  `json:"period"`
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent, type Task, type Provider } from '@/lib/api'
+import { api, type Project, type Agent, type Task, type Provider, type ProjectSpend } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -213,6 +213,7 @@ export function MonitorDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [monitor, setMonitor] = useState<Project | null>(null)
+  const [spend, setSpend] = useState<ProjectSpend | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
@@ -234,6 +235,8 @@ export function MonitorDetailPage() {
   const [editSchedule, setEditSchedule] = useState<ScheduleValue>({ kind: 'interval', intervalSeconds: 0, times: [], catchUp: false })
   const [editMonitorModel, setEditMonitorModel] = useState('')
   const [editWorkingDir, setEditWorkingDir] = useState('')
+  const [editBudgetUSD, setEditBudgetUSD] = useState('')
+  const [editBudgetPeriod, setEditBudgetPeriod] = useState<'day'|'week'|'month'|'total'>('total')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [providers, setProviders] = useState<Provider[]>([])
@@ -258,6 +261,10 @@ export function MonitorDetailPage() {
       setAllAgents(allAgts)
       setTasks(tsks)
       setProviders(provs)
+      // Load spend separately — non-fatal if it fails
+      if (proj?.budget_usd > 0) {
+        api.projects.getSpend(id).then(setSpend).catch(() => {})
+      }
       setAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
       setRunAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
     } finally {
@@ -360,6 +367,8 @@ export function MonitorDetailPage() {
     setEditDesc(monitor.description ?? '')
     setEditMonitorModel(monitor.monitor_model ?? '')
     setEditWorkingDir(monitor.working_dir ?? '')
+    setEditBudgetUSD(monitor.budget_usd > 0 ? String(monitor.budget_usd) : '')
+    setEditBudgetPeriod((monitor.budget_period as 'day'|'week'|'month'|'total') || 'total')
     setEditSchedule(scheduleFromProject(monitor))
     setSaveError('')
     setShowAI(false)
@@ -381,6 +390,8 @@ export function MonitorDetailPage() {
         description: editDesc,
         working_dir: editWorkingDir.trim(),
         monitor_model: editMonitorModel.trim(),
+        budget_usd: editBudgetUSD.trim() ? parseFloat(editBudgetUSD) : 0,
+        budget_period: editBudgetPeriod,
         kind: 'monitor',
         ...schedulePayload(editSchedule),
       })
@@ -497,6 +508,33 @@ export function MonitorDetailPage() {
             <div>
               <p className="text-xs text-slate-500 mb-0.5">Monitor model</p>
               <p className="text-xs text-slate-400 font-mono">{monitor.monitor_model}</p>
+            </div>
+          )}
+          {monitor.budget_usd > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1">
+                Budget ({monitor.budget_period})
+              </p>
+              {spend ? (() => {
+                const pct = Math.min(100, (spend.spent_usd / spend.budget_usd) * 100)
+                const exceeded = spend.spent_usd >= spend.budget_usd
+                return (
+                  <div className="space-y-1">
+                    <div className="w-full bg-slate-800 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${exceeded ? 'bg-red-500' : pct > 80 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <p className={`text-xs ${exceeded ? 'text-red-400 font-medium' : 'text-slate-400'}`}>
+                      {exceeded ? '⚠ ' : ''}{formatCost(spend.spent_usd)} / {formatCost(spend.budget_usd)}
+                      {exceeded && ' — budget exceeded'}
+                    </p>
+                  </div>
+                )
+              })() : (
+                <p className="text-xs text-slate-400">limit: {formatCost(monitor.budget_usd)}</p>
+              )}
             </div>
           )}
           {hasSchedule && primaryAgent && (
@@ -621,6 +659,29 @@ export function MonitorDetailPage() {
                 onChange={e => setEditMonitorModel(e.target.value)}
                 placeholder="e.g. claude-haiku-3-5, gpt-4o-mini (leave blank for agent default)"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="edit-budget">Budget limit (USD) <span className="text-slate-500 font-normal">(optional)</span></Label>
+                <Input
+                  id="edit-budget"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editBudgetUSD}
+                  onChange={e => setEditBudgetUSD(e.target.value)}
+                  placeholder="e.g. 5.00"
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-budget-period">Period</Label>
+                <Select id="edit-budget-period" value={editBudgetPeriod} onChange={e => setEditBudgetPeriod(e.target.value as 'day'|'week'|'month'|'total')}>
+                  <option value="total">Total (all time)</option>
+                  <option value="day">Day (calendar day)</option>
+                  <option value="week">Week (rolling 7 days)</option>
+                  <option value="month">Month (calendar month)</option>
+                </Select>
+              </div>
             </div>
             <div>
               <Label htmlFor="edit-wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>

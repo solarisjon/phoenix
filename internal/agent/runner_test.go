@@ -227,6 +227,10 @@ func (r *memTaskRepo) FindByPromptHash(_ context.Context, projectID, hash string
 	return nil, nil
 }
 
+func (r *memTaskRepo) ProjectSpendForPeriod(_ context.Context, _ string, _ string) (float64, error) {
+	return 0, nil
+}
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}

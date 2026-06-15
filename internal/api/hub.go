@@ -75,6 +75,21 @@ func (h *Hub) ClientCount() int {
 // typed Event and broadcasts it to all WebSocket clients.
 // taskRepo is used to look up project context for inbox events.
 func (h *Hub) BroadcastAgentEvent(ev agent.StreamEvent, tasks store.TaskRepo) {
+	// Budget exceeded — project has hit its cost limit.
+	if ev.BudgetExceeded != nil {
+		b := ev.BudgetExceeded
+		h.Broadcast(Event{
+			Type: EventBudgetExceeded,
+			Payload: BudgetExceededPayload{
+				ProjectID: b.ProjectID,
+				SpentUSD:  b.SpentUSD,
+				BudgetUSD: b.BudgetUSD,
+				Period:    b.Period,
+			},
+		})
+		return
+	}
+
 	// Streaming chunk.
 	if ev.Chunk != nil {
 		h.Broadcast(Event{

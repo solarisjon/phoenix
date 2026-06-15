@@ -59,6 +59,8 @@ export interface Project {
   critic_agent_id: string | null
   critic_mode: 'none' | 'builtin' | string  // "none" | "builtin" | "agent:<id>"
   monitor_model: string             // if set, overrides the agent's model for monitor runs
+  budget_usd: number                // 0 = no limit
+  budget_period: 'day' | 'week' | 'month' | 'total'
   tags: string[] | null             // free-text grouping labels (null for rows predating migration 023)
   created_at: string
 }
@@ -184,6 +186,13 @@ export interface ProjectSummary {
   last_activity: string | null
 }
 
+export interface ProjectSpend {
+  spent_usd: number
+  budget_usd: number
+  budget_period: string
+  remaining_usd: number
+}
+
 export interface ProjectFileEntry {
   name: string
   rel_path: string
@@ -299,6 +308,7 @@ export const api = {
     removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),
     assignTeam: (id: string, teamId: string) => request<{ assigned: number, total: number, team: string }>(`/projects/${id}/teams`, { method: 'POST', body: JSON.stringify({ team_id: teamId }) }),
     summaries: () => request<Record<string, ProjectSummary>>('/projects/summaries'),
+    getSpend: (id: string) => request<ProjectSpend>(`/projects/${id}/spend`),
     listFiles: (id: string) => request<ProjectFileEntry[]>(`/projects/${id}/files`),
     getFileContent: (id: string, relPath: string) =>
       request<ProjectFileContent>(`/projects/${id}/files/${relPath}`),

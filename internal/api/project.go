@@ -31,6 +31,8 @@ type createProjectRequest struct {
 	CriticAgentID    *string  `json:"critic_agent_id"`   // deprecated: prefer critic_mode
 	CriticMode       string   `json:"critic_mode"`       // "none" | "builtin" | "agent:<id>"
 	MonitorModel     string   `json:"monitor_model"`     // if set, overrides the agent's model for monitor tasks
+	BudgetUSD        float64  `json:"budget_usd"`        // 0 = no limit
+	BudgetPeriod     string   `json:"budget_period"`     // "day" | "week" | "month" | "total"
 	Tags             []string `json:"tags"`
 }
 
@@ -173,6 +175,8 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		CriticAgentID:    req.CriticAgentID,
 		CriticMode:       criticMode,
 		MonitorModel:     strings.TrimSpace(req.MonitorModel),
+		BudgetUSD:        req.BudgetUSD,
+		BudgetPeriod:     resolveBudgetPeriod(req.BudgetPeriod),
 		Tags:             normaliseTags(req.Tags),
 		CreatedAt:        time.Now(),
 	}
@@ -214,6 +218,8 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.CriticAgentID = req.CriticAgentID
 	existing.CriticMode = resolveCriticMode(req.CriticMode, req.CriticAgentID)
 	existing.MonitorModel = strings.TrimSpace(req.MonitorModel)
+	existing.BudgetUSD = req.BudgetUSD
+	existing.BudgetPeriod = resolveBudgetPeriod(req.BudgetPeriod)
 
 	if msg, err := s.validateCriticAgent(r.Context(), existing.CriticMode, req.CriticAgentID); err != nil {
 		respondInternalErr(w, err)
@@ -457,6 +463,15 @@ func resolveScheduleKind(kind string) string {
 	return model.ScheduleKindInterval
 }
 
+func resolveBudgetPeriod(p string) string {
+	switch p {
+	case "day", "week", "month":
+		return p
+	default:
+		return "total"
+	}
+}
+
 // normaliseTags trims whitespace and removes empty/duplicate tags.
 func normaliseTags(in []string) []string {
 	seen := make(map[string]struct{})
@@ -557,6 +572,40 @@ func (s *Server) getProjectSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, summary)
+}
+
+// getProjectSpend returns the current spend for the project's budget period.
+// Response: { spent_usd, budget_usd, budget_period, remaining_usd }
+func (s *Server) getProjectSpend(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	project, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if project == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	period := project.BudgetPeriod
+	if period == "" {
+		period = "total"
+	}
+	spent, err := s.tasks.ProjectSpendForPeriod(r.Context(), id, period)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	remaining := project.BudgetUSD - spent
+	if project.BudgetUSD == 0 {
+		remaining = 0
+	}
+	respond(w, http.StatusOK, map[string]interface{}{
+		"spent_usd":     spent,
+		"budget_usd":    project.BudgetUSD,
+		"budget_period": period,
+		"remaining_usd": remaining,
+	})
 }
 
 // listProjectSummaries returns task summaries for all projects in a single

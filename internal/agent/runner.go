@@ -23,14 +23,24 @@ import (
 // ErrTaskCancelledByUser is the cancel cause set when a task is stopped via the API.
 var ErrTaskCancelledByUser = errors.New("task cancelled by user")
 
+// BudgetInfo carries the budget state when a project's cost limit is exceeded.
+// It is set on a StreamEvent to trigger a budget.exceeded WebSocket broadcast.
+type BudgetInfo struct {
+	ProjectID string
+	SpentUSD  float64
+	BudgetUSD float64
+	Period    string
+}
+
 // StreamEvent is emitted during task execution and consumed by the WebSocket hub.
 type StreamEvent struct {
 	TaskID  string
 	AgentID string
 	// One of the following is set per event:
-	Chunk      *string // partial output text
-	StatusDone *model.TaskStatus
-	Err        error
+	Chunk          *string    // partial output text
+	StatusDone     *model.TaskStatus
+	Err            error
+	BudgetExceeded *BudgetInfo // non-nil when the project budget was exceeded
 }
 
 // EventHandler is called with each StreamEvent during task execution.
@@ -302,7 +312,9 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	// Load project to get working directory and monitor model override.
 	var workingDir string
 	var monitorModel string
-	if proj, err := r.projects.Get(ctx, task.ProjectID); err == nil && proj != nil {
+	var proj *model.Project
+	if p, err := r.projects.Get(ctx, task.ProjectID); err == nil && p != nil {
+		proj = p
 		workingDir = proj.WorkingDir
 		monitorModel = proj.MonitorModel
 	}
@@ -384,6 +396,31 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 				AgentID:    task.AgentID,
 				StatusDone: func() *model.TaskStatus { s := model.TaskStatusCompleted; return &s }(),
 			})
+			return
+		}
+	}
+
+	// Budget check: if the project has a cost limit, verify we haven't exceeded it
+	// before firing the LLM. This runs after the cache check so free cached runs
+	// never count toward or trigger the budget gate.
+	if proj != nil && proj.BudgetUSD > 0 {
+		spent, err := r.tasks.ProjectSpendForPeriod(ctx, proj.ID, proj.BudgetPeriod)
+		if err != nil {
+			log.Printf("runner: budget check failed for project %s: %v", proj.ID, err)
+		} else if spent >= proj.BudgetUSD {
+			log.Printf("runner: project %s budget exceeded — spent=$%.4f budget=$%.4f period=%s",
+				proj.ID, spent, proj.BudgetUSD, proj.BudgetPeriod)
+			r.emit(StreamEvent{
+				BudgetExceeded: &BudgetInfo{
+					ProjectID: proj.ID,
+					SpentUSD:  spent,
+					BudgetUSD: proj.BudgetUSD,
+					Period:    proj.BudgetPeriod,
+				},
+			})
+			r.failTask(ctx, task, fmt.Errorf(
+				"budget exceeded: $%.4f spent of $%.4f %s budget — update the budget or wait for the period to reset",
+				spent, proj.BudgetUSD, proj.BudgetPeriod))
 			return
 		}
 	}

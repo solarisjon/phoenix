@@ -199,6 +199,28 @@ func (r *TaskRepo) FindByPromptHash(ctx context.Context, projectID, hash string)
 	return scanTask(row)
 }
 
+func (r *TaskRepo) ProjectSpendForPeriod(ctx context.Context, projectID, period string) (float64, error) {
+	var query string
+	switch period {
+	case "day":
+		query = `SELECT COALESCE(SUM(cost_usd), 0) FROM tasks
+		         WHERE project_id = ? AND date(created_at) = date('now')`
+	case "week":
+		query = `SELECT COALESCE(SUM(cost_usd), 0) FROM tasks
+		         WHERE project_id = ? AND created_at >= date('now', '-6 days')`
+	case "month":
+		query = `SELECT COALESCE(SUM(cost_usd), 0) FROM tasks
+		         WHERE project_id = ? AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')`
+	default: // "total"
+		query = `SELECT COALESCE(SUM(cost_usd), 0) FROM tasks WHERE project_id = ?`
+	}
+	var cost float64
+	if err := r.db.QueryRowContext(ctx, query, projectID).Scan(&cost); err != nil {
+		return 0, fmt.Errorf("project spend for period: %w", err)
+	}
+	return cost, nil
+}
+
 func (r *TaskRepo) NextQueuedTask(ctx context.Context, agentID string) (*model.Task, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1`,

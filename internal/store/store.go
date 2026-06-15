@@ -81,6 +81,10 @@ type TaskRepo interface {
 	// FindByPromptHash returns the most recent completed task for the given project
 	// whose prompt_hash matches, or nil if none exists. Used for monitor output diffing.
 	FindByPromptHash(ctx context.Context, projectID, hash string) (*model.Task, error)
+	// ProjectSpendForPeriod returns the total cost_usd for the given project within
+	// the named period: "day" (calendar day), "week" (rolling 7 days),
+	// "month" (calendar month), or "total" (all time).
+	ProjectSpendForPeriod(ctx context.Context, projectID, period string) (float64, error)
 }
 
 // TeamRepo manages agent teams.

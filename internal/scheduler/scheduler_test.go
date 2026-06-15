@@ -222,6 +222,10 @@ func (r *fakeTaskRepo) FindByPromptHash(_ context.Context, _ string, _ string) (
 	return nil, nil
 }
 
+func (r *fakeTaskRepo) ProjectSpendForPeriod(_ context.Context, _ string, _ string) (float64, error) {
+	return 0, nil
+}
+
 // countingRunner counts RunTask calls and records the task IDs.
 type countingRunner struct {
 	mu      sync.Mutex
