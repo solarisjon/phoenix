@@ -224,6 +224,79 @@ func TestStreamExecute_ErrorStatus(t *testing.T) {
 	}
 }
 
+func TestStreamExecute_CapturesUsage(t *testing.T) {
+	srv := mockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// Verify stream_options.include_usage is requested.
+		var body chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		if body.StreamOptions == nil || !body.StreamOptions.IncludeUsage {
+			t.Error("expected stream_options.include_usage = true")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+
+		// Content chunk.
+		delta := streamDelta{}
+		delta.Choices = append(delta.Choices, struct {
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+		}{Delta: struct {
+			Content string `json:"content"`
+		}{Content: "answer"}})
+		data, _ := json.Marshal(delta)
+		w.Write([]byte("data: " + string(data) + "\n\n"))
+		flusher.Flush()
+
+		// Usage chunk (sent before [DONE] by OpenAI-compatible APIs).
+		usageDelta := streamDelta{}
+		usageDelta.Usage = &struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		}{PromptTokens: 20, CompletionTokens: 8}
+		udata, _ := json.Marshal(usageDelta)
+		w.Write([]byte("data: " + string(udata) + "\n\n"))
+		flusher.Flush()
+
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	})
+
+	a := newAdapter(t, srv.URL)
+	ch, err := a.StreamExecute(context.Background(), provider.TaskRequest{
+		SystemPrompt: "sys", Prompt: "prompt",
+	})
+	if err != nil {
+		t.Fatalf("StreamExecute: %v", err)
+	}
+
+	var doneChunk provider.StreamChunk
+	var assembled strings.Builder
+	for chunk := range ch {
+		if chunk.Error != nil {
+			t.Fatalf("stream error: %v", chunk.Error)
+		}
+		assembled.WriteString(chunk.Content)
+		if chunk.Done {
+			doneChunk = chunk
+		}
+	}
+
+	if assembled.String() != "answer" {
+		t.Errorf("assembled = %q, want %q", assembled.String(), "answer")
+	}
+	if doneChunk.TokensIn != 20 || doneChunk.TokensOut != 8 {
+		t.Errorf("tokens = %d/%d, want 20/8", doneChunk.TokensIn, doneChunk.TokensOut)
+	}
+	expectedCost := 20*0.000001 + 8*0.000002
+	if math.Abs(doneChunk.CostUSD-expectedCost) > 1e-10 {
+		t.Errorf("CostUSD = %v, want %v", doneChunk.CostUSD, expectedCost)
+	}
+}
+
 // ---- EstimateCost ----
 
 func TestEstimateCost(t *testing.T) {

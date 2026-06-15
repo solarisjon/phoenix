@@ -155,11 +155,15 @@ func (a *Adapter) buildRequestBody(req provider.TaskRequest, stream bool) chatRe
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: req.Prompt})
 
-	return chatRequest{
+	cr := chatRequest{
 		Model:    a.cfg.Model,
 		Messages: messages,
 		Stream:   stream,
 	}
+	if stream {
+		cr.StreamOptions = &streamOptions{IncludeUsage: true}
+	}
+	return cr
 }
 
 func (a *Adapter) buildHTTPRequest(ctx context.Context, body chatRequest) (*http.Request, error) {
@@ -199,6 +203,7 @@ func (a *Adapter) doRequest(ctx context.Context, body chatRequest) (*http.Respon
 
 func (a *Adapter) readSSEStream(ctx context.Context, body io.Reader, ch chan<- provider.StreamChunk) {
 	scanner := bufio.NewScanner(body)
+	var tokensIn, tokensOut int
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -213,7 +218,8 @@ func (a *Adapter) readSSEStream(ctx context.Context, body io.Reader, ch chan<- p
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
-			ch <- provider.StreamChunk{Done: true}
+			cost := a.calcCost(tokensIn, tokensOut)
+			ch <- provider.StreamChunk{Done: true, TokensIn: tokensIn, TokensOut: tokensOut, CostUSD: cost}
 			return
 		}
 
@@ -229,13 +235,19 @@ func (a *Adapter) readSSEStream(ctx context.Context, body io.Reader, ch chan<- p
 		if content != "" {
 			ch <- provider.StreamChunk{Content: content}
 		}
+		// Capture usage when the provider includes it (requires stream_options.include_usage).
+		if delta.Usage != nil {
+			tokensIn = delta.Usage.PromptTokens
+			tokensOut = delta.Usage.CompletionTokens
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		ch <- provider.StreamChunk{Error: fmt.Errorf("stream read: %w", err), Done: true}
 		return
 	}
-	ch <- provider.StreamChunk{Done: true}
+	cost := a.calcCost(tokensIn, tokensOut)
+	ch <- provider.StreamChunk{Done: true, TokensIn: tokensIn, TokensOut: tokensOut, CostUSD: cost}
 }
 
 // ListModels queries the OpenAI-compatible /v1/models endpoint.
@@ -306,10 +318,15 @@ func truncate(s string, n int) string {
 
 // ---- OpenAI wire types ----
 
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
-	Stream   bool          `json:"stream"`
+	Model         string         `json:"model"`
+	Messages      []chatMessage  `json:"messages"`
+	Stream        bool           `json:"stream"`
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
 }
 
 type chatMessage struct {
@@ -335,4 +352,8 @@ type streamDelta struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
 }

@@ -357,7 +357,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 
 	var outputBuilder []string
-	var totalCost float64
+	var realCostUSD float64
 	var realTokensIn, realTokensOut int
 
 	for chunk := range ch {
@@ -386,13 +386,18 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 				Chunk:   &chunk.Content,
 			})
 		}
-		// Capture real token counts when the provider reports them (e.g. Ollama
-		// sends these on the final Done chunk). Zero means not available.
+		// Capture real token counts when the provider reports them (e.g. Ollama, LLM SSE,
+		// opencode all send these on the final Done chunk). Zero means not available.
 		if chunk.TokensIn > 0 {
 			realTokensIn = chunk.TokensIn
 		}
 		if chunk.TokensOut > 0 {
 			realTokensOut = chunk.TokensOut
+		}
+		// Accumulate actual cost when the provider reports it directly (e.g. opencode
+		// sums across multiple step_finish events; LLM calculates from rate config).
+		if chunk.CostUSD > 0 {
+			realCostUSD += chunk.CostUSD
 		}
 	}
 
@@ -425,9 +430,14 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	if tokensOut == 0 {
 		tokensOut = len(fullOutput) / 4
 	}
-	estimate := prov.EstimateCost(req)
-	if estimate.EstimatedCostUSD > 0 {
-		totalCost = estimate.EstimatedCostUSD
+
+	// Prefer actual cost reported by the provider over the pre-run estimate.
+	// Fall back to the estimate only when the provider couldn't report cost.
+	totalCost := realCostUSD
+	if totalCost == 0 {
+		if estimate := prov.EstimateCost(req); estimate.EstimatedCostUSD > 0 {
+			totalCost = estimate.EstimatedCostUSD
+		}
 	}
 
 	// Build output JSON.

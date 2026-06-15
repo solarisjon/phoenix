@@ -219,6 +219,10 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
+	// Accumulate cost and tokens across steps (multi-step tasks have multiple step_finish events).
+	var totalCost float64
+	var totalTokensIn, totalTokensOut int
+
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
@@ -249,11 +253,13 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 			}
 
 		case "step_finish":
-			// Cost and token info — not streamed as text but useful for logging.
 			var p stepFinishPart
 			if err := json.Unmarshal(ev.Part, &p); err == nil {
 				log.Printf("opencode: step finished — input=%d output=%d cost=$%.6f",
 					p.Tokens.Input, p.Tokens.Output, p.Cost)
+				totalCost += p.Cost
+				totalTokensIn += p.Tokens.Input
+				totalTokensOut += p.Tokens.Output
 			}
 
 		case "error":
@@ -280,7 +286,12 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		return
 	}
 
-	ch <- provider.StreamChunk{Done: true}
+	ch <- provider.StreamChunk{
+		Done:      true,
+		CostUSD:   totalCost,
+		TokensIn:  totalTokensIn,
+		TokensOut: totalTokensOut,
+	}
 }
 
 // ListModels runs `opencode models` and returns one model name per line.

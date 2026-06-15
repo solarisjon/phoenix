@@ -175,6 +175,7 @@ func TestParseStream_TextEvents(t *testing.T) {
 	}, "\n") + "\n"
 
 	var texts []string
+	var doneChunk provider.StreamChunk
 	for chunk := range runParseStream(a, events) {
 		if chunk.Error != nil {
 			t.Fatalf("unexpected error: %v", chunk.Error)
@@ -182,9 +183,18 @@ func TestParseStream_TextEvents(t *testing.T) {
 		if chunk.Content != "" {
 			texts = append(texts, chunk.Content)
 		}
+		if chunk.Done {
+			doneChunk = chunk
+		}
 	}
 	if strings.Join(texts, "") != "Hello world!" {
 		t.Errorf("assembled = %q", strings.Join(texts, ""))
+	}
+	if doneChunk.TokensIn != 10 || doneChunk.TokensOut != 5 {
+		t.Errorf("tokens = %d/%d, want 10/5", doneChunk.TokensIn, doneChunk.TokensOut)
+	}
+	if doneChunk.CostUSD != 0.001 {
+		t.Errorf("CostUSD = %v, want 0.001", doneChunk.CostUSD)
 	}
 }
 

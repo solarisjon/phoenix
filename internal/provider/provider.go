@@ -38,12 +38,13 @@ type TaskResponse struct {
 
 // StreamChunk is a single chunk of streaming output.
 type StreamChunk struct {
-	Content  string // Partial text content.
-	Done     bool   // True on the final chunk.
-	Error    error  // Non-nil if the stream encountered an error.
-	PID      int    // OS process ID of the subprocess (sent once, on stream start). 0 if not applicable.
-	TokensIn  int   // Input tokens consumed (non-zero only on the final Done chunk, when available).
-	TokensOut int   // Output tokens produced (non-zero only on the final Done chunk, when available).
+	Content  string  // Partial text content.
+	Done     bool    // True on the final chunk.
+	Error    error   // Non-nil if the stream encountered an error.
+	PID      int     // OS process ID of the subprocess (sent once, on stream start). 0 if not applicable.
+	TokensIn  int    // Input tokens consumed (non-zero only on the final Done chunk, when available).
+	TokensOut int    // Output tokens produced (non-zero only on the final Done chunk, when available).
+	CostUSD  float64 // Actual cost in USD (non-zero only on the final Done chunk, when the provider reports it directly).
 }
 
 // CostEstimate is a best-effort cost prediction before execution.
