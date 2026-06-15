@@ -58,6 +58,7 @@ export interface Project {
   status: 'active' | 'archived'
   critic_agent_id: string | null
   critic_mode: 'none' | 'builtin' | string  // "none" | "builtin" | "agent:<id>"
+  monitor_model: string             // if set, overrides the agent's model for monitor runs
   tags: string[] | null             // free-text grouping labels (null for rows predating migration 023)
   created_at: string
 }

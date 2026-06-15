@@ -232,6 +232,7 @@ export function MonitorDetailPage() {
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editSchedule, setEditSchedule] = useState<ScheduleValue>({ kind: 'interval', intervalSeconds: 0, times: [], catchUp: false })
+  const [editMonitorModel, setEditMonitorModel] = useState('')
   const [editWorkingDir, setEditWorkingDir] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
@@ -357,6 +358,7 @@ export function MonitorDetailPage() {
     if (!monitor) return
     setEditName(monitor.name)
     setEditDesc(monitor.description ?? '')
+    setEditMonitorModel(monitor.monitor_model ?? '')
     setEditWorkingDir(monitor.working_dir ?? '')
     setEditSchedule(scheduleFromProject(monitor))
     setSaveError('')
@@ -378,6 +380,7 @@ export function MonitorDetailPage() {
         name: editName.trim(),
         description: editDesc,
         working_dir: editWorkingDir.trim(),
+        monitor_model: editMonitorModel.trim(),
         kind: 'monitor',
         ...schedulePayload(editSchedule),
       })
@@ -488,6 +491,12 @@ export function MonitorDetailPage() {
             <div>
               <p className="text-xs text-slate-500 mb-0.5">Working dir</p>
               <p className="text-xs text-slate-400 font-mono">{monitor.working_dir}</p>
+            </div>
+          )}
+          {monitor.monitor_model && (
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">Monitor model</p>
+              <p className="text-xs text-slate-400 font-mono">{monitor.monitor_model}</p>
             </div>
           )}
           {hasSchedule && primaryAgent && (
@@ -601,6 +610,17 @@ export function MonitorDetailPage() {
             </div>
             <div>
               <ScheduleEditor value={editSchedule} onChange={setEditSchedule} idPrefix="edit" />
+            </div>
+            <div>
+              <Label htmlFor="edit-monitor-model">
+                Monitor model <span className="text-slate-500 font-normal">(optional — cheap model for cost savings)</span>
+              </Label>
+              <Input
+                id="edit-monitor-model"
+                value={editMonitorModel}
+                onChange={e => setEditMonitorModel(e.target.value)}
+                placeholder="e.g. claude-haiku-3-5, gpt-4o-mini (leave blank for agent default)"
+              />
             </div>
             <div>
               <Label htmlFor="edit-wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>

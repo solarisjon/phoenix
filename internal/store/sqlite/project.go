@@ -16,7 +16,7 @@ func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
 const projectSelectCols = `id, name, description, working_dir, kind, schedule_interval,
 	schedule_kind, schedule_times, schedule_catch_up,
-	owner, status, critic_agent_id, critic_mode, tags, created_at`
+	owner, status, critic_agent_id, critic_mode, monitor_model, tags, created_at`
 
 // ListByKind returns projects filtered by kind, active only.
 func (r *ProjectRepo) ListByKind(ctx context.Context, kind string) ([]*model.Project, error) {
@@ -73,11 +73,11 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO projects (id, name, description, working_dir, kind, schedule_interval,
 		 schedule_kind, schedule_times, schedule_catch_up,
-		 owner, status, critic_agent_id, critic_mode, tags)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 owner, status, critic_agent_id, critic_mode, monitor_model, tags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval,
 		scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
-		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, tagsJSON)
+		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel, tagsJSON)
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -98,10 +98,10 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE projects SET name = ?, description = ?, working_dir = ?, kind = ?,
 		 schedule_interval = ?, schedule_kind = ?, schedule_times = ?, schedule_catch_up = ?,
-		 status = ?, critic_agent_id = ?, critic_mode = ?, tags = ? WHERE id = ?`,
+		 status = ?, critic_agent_id = ?, critic_mode = ?, monitor_model = ?, tags = ? WHERE id = ?`,
 		p.Name, p.Description, p.WorkingDir, kind,
 		p.ScheduleInterval, scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
-		string(p.Status), nullString(p.CriticAgentID), p.CriticMode, tagsJSON, p.ID)
+		string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel, tagsJSON, p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
@@ -195,7 +195,7 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 	err := row.Scan(
 		&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval,
 		&scheduleKind, &timesJSON, &catchUp,
-		&p.Owner, &status, &criticAgentID, &p.CriticMode, &tagsJSON, &p.CreatedAt,
+		&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel, &tagsJSON, &p.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -235,7 +235,7 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 		if err := rows.Scan(
 			&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval,
 			&scheduleKind, &timesJSON, &catchUp,
-			&p.Owner, &status, &criticAgentID, &p.CriticMode, &tagsJSON, &p.CreatedAt,
+			&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel, &tagsJSON, &p.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
 		}

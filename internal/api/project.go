@@ -30,6 +30,7 @@ type createProjectRequest struct {
 	ScheduleCatchUp  bool     `json:"schedule_catch_up"` // daily only: catch up a missed run same calendar day
 	CriticAgentID    *string  `json:"critic_agent_id"`   // deprecated: prefer critic_mode
 	CriticMode       string   `json:"critic_mode"`       // "none" | "builtin" | "agent:<id>"
+	MonitorModel     string   `json:"monitor_model"`     // if set, overrides the agent's model for monitor tasks
 	Tags             []string `json:"tags"`
 }
 
@@ -171,6 +172,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		Status:           status,
 		CriticAgentID:    req.CriticAgentID,
 		CriticMode:       criticMode,
+		MonitorModel:     strings.TrimSpace(req.MonitorModel),
 		Tags:             normaliseTags(req.Tags),
 		CreatedAt:        time.Now(),
 	}
@@ -211,6 +213,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.ScheduleCatchUp = req.ScheduleCatchUp
 	existing.CriticAgentID = req.CriticAgentID
 	existing.CriticMode = resolveCriticMode(req.CriticMode, req.CriticAgentID)
+	existing.MonitorModel = strings.TrimSpace(req.MonitorModel)
 
 	if msg, err := s.validateCriticAgent(r.Context(), existing.CriticMode, req.CriticAgentID); err != nil {
 		respondInternalErr(w, err)

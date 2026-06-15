@@ -299,17 +299,25 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
-	// Load provider, applying any agent-level model override.
-	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.ModelOverride)
+	// Load project to get working directory and monitor model override.
+	var workingDir string
+	var monitorModel string
+	if proj, err := r.projects.Get(ctx, task.ProjectID); err == nil && proj != nil {
+		workingDir = proj.WorkingDir
+		monitorModel = proj.MonitorModel
+	}
+
+	// Load provider. For monitor tasks, the project-level monitor_model takes
+	// priority over the agent's model_override so cheap models can be used for
+	// signal-detection without changing the agent's default for project tasks.
+	modelOverride := agent.ModelOverride
+	if task.Source == "monitor" && monitorModel != "" {
+		modelOverride = monitorModel
+	}
+	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, modelOverride)
 	if err != nil {
 		r.failTask(ctx, task, fmt.Errorf("provider load failed: %w", err))
 		return
-	}
-
-	// Load project to get working directory.
-	var workingDir string
-	if proj, err := r.projects.Get(ctx, task.ProjectID); err == nil && proj != nil {
-		workingDir = proj.WorkingDir
 	}
 
 	// Transition to Running.

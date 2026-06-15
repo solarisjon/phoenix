@@ -131,6 +131,7 @@ type Project struct {
 	Status           ProjectStatus `json:"status"`
 	CriticAgentID    *string       `json:"critic_agent_id"` // deprecated: use CriticMode
 	CriticMode       string        `json:"critic_mode"`     // "none" | "builtin" | "agent:<id>"
+	MonitorModel     string        `json:"monitor_model"`   // if set, overrides the agent's model for monitor runs
 	Tags             []string      `json:"tags"`              // free-text labels for grouping/filtering
 	CreatedAt        time.Time     `json:"created_at"`
 }
