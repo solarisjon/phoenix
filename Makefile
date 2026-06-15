@@ -25,7 +25,7 @@ build-go:
 ## deploy: build everything, kill the running instance, and restart
 deploy: build
 	@echo "→ Stopping running phoenix..."
-	@lsof -ti:8080 | xargs kill 2>/dev/null || true
+	@pkill -x phoenix 2>/dev/null || true
 	@sleep 0.5
 	@echo "→ Starting phoenix..."
 	@nohup ./$(BINARY) >> /tmp/phoenix.log 2>&1 &
