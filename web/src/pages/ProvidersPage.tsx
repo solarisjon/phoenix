@@ -425,6 +425,7 @@ export function ProvidersPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Provider | undefined>()
   const [resyncedId, setResyncedId] = useState<string | null>(null)
+  const [resyncMessage, setResyncMessage] = useState<string>('')
   const [testStates, setTestStates] = useState<Record<string, { testing: boolean; ok?: boolean; message?: string }>>({})
 
   const load = async () => {
@@ -441,11 +442,12 @@ export function ProvidersPage() {
     catch (e: any) { alert(e.message) }
   }
 
-  const resync = async (id: string, name: string) => {
+  const resync = async (id: string, _name: string) => {
     try {
-      await api.providers.resync(id)
+      const result = await api.providers.resync(id)
       setResyncedId(id)
-      setTimeout(() => setResyncedId(null), 2000)
+      setResyncMessage(result.message ?? '✓ Resynced')
+      setTimeout(() => { setResyncedId(null); setResyncMessage('') }, 4000)
     } catch (e: any) { alert(`Resync failed: ${e.message}`) }
   }
 
@@ -541,6 +543,9 @@ export function ProvidersPage() {
                     )}>
                       {ts.ok ? '✓' : '✗'} {ts.message}
                     </p>
+                  )}
+                  {resyncedId === p.id && resyncMessage && (
+                    <p className="text-xs mt-2 pl-11 text-sky-400">↺ {resyncMessage}</p>
                   )}
                 </div>
                 <div className="flex gap-2 flex-shrink-0">

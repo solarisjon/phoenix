@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -179,8 +181,21 @@ func (s *Server) resyncProvider(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusNotFound, "provider not found")
 		return
 	}
+
+	// Re-source the user's login shell so freshly-rotated API keys or updated
+	// ~/.config values are visible to subprocesses spawned after this point.
+	// This is best-effort — a failure here is logged but doesn't block the resync.
+	envMsg := "environment refreshed"
+	if err := refreshEnvFromLoginShell(); err != nil {
+		log.Printf("resync: refresh env from login shell: %v", err)
+		envMsg = "environment refresh skipped (" + err.Error() + ")"
+	}
+
 	s.registry.Invalidate(id)
-	respond(w, http.StatusOK, map[string]string{"status": "ok", "message": "provider cache cleared — next task will reload config from DB"})
+	respond(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"message": envMsg + " · provider cache cleared",
+	})
 }
 
 func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +275,46 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, result{true, fmt.Sprintf("Connected · %dms", latencyMs), latencyMs})
+}
+
+// refreshEnvFromLoginShell spawns the user's login shell, captures its
+// environment with `env`, and calls os.Setenv for every key=value pair.
+// This lets Phoenix pick up freshly-rotated API keys, updated ~/.config
+// values, or new PATH entries without a full process restart.
+func refreshEnvFromLoginShell() error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// -l = login shell (sources .zshrc / .bash_profile / etc.)
+	// -i = interactive, needed by some shells to source rc files
+	out, err := exec.CommandContext(ctx, shell, "-l", "-c", "env").Output()
+	if err != nil {
+		return fmt.Errorf("login shell %q: %w", shell, err)
+	}
+
+	updated := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		idx := strings.IndexByte(line, '=')
+		if idx <= 0 {
+			continue
+		}
+		key := line[:idx]
+		val := line[idx+1:]
+		// Skip shell internals that could destabilise the running process.
+		switch key {
+		case "_", "SHLVL", "OLDPWD", "PWD", "PS1", "PS2":
+			continue
+		}
+		os.Setenv(key, val) //nolint:errcheck // os.Setenv only fails on empty key
+		updated++
+	}
+	log.Printf("resync: refreshed %d environment variables from login shell", updated)
+	return nil
 }
 
 // testCodingAgentBinary checks that the configured binary (or its default) is
