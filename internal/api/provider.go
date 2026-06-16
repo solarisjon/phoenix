@@ -290,15 +290,33 @@ func refreshEnvFromLoginShell() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Use -i (interactive) so .zshrc/.bashrc are sourced — login-only (-l)
-	// shells skip these on zsh/bash, missing API keys set there.
-	// Redirect stderr to /dev/null to suppress PS1 noise from interactive mode.
-	out, err := exec.CommandContext(ctx, shell, "-i", "-c", "env 2>/dev/null").Output()
+	// Build the shell command based on the shell type.
+	// Fish doesn't support -l/-i reliably without a TTY; source config.fish directly.
+	// Zsh/bash need -i to source .zshrc/.bashrc (login-only skips those files).
+	shellBase := shell
+	if idx := strings.LastIndex(shell, "/"); idx >= 0 {
+		shellBase = shell[idx+1:]
+	}
+
+	var shellArgs []string
+	switch shellBase {
+	case "fish":
+		// Fish sources config.fish explicitly. Also print universal variables
+		// that are exported (set -Ux) since they won't appear otherwise.
+		shellArgs = []string{"-c", "source ~/.config/fish/config.fish 2>/dev/null; env"}
+	case "zsh", "bash", "sh":
+		// -i = interactive, sources .zshrc/.bashrc; -l = login, sources .zprofile
+		shellArgs = []string{"-i", "-l", "-c", "env 2>/dev/null"}
+	default:
+		shellArgs = []string{"-l", "-c", "env 2>/dev/null"}
+	}
+
+	out, err := exec.CommandContext(ctx, shell, shellArgs...).Output()
 	if err != nil {
-		// Fall back to login-only if interactive mode fails.
-		out, err = exec.CommandContext(ctx, shell, "-l", "-c", "env 2>/dev/null").Output()
+		// Best-effort fallback: plain -c env
+		out, err = exec.CommandContext(ctx, shell, "-c", "env").Output()
 		if err != nil {
-			return fmt.Errorf("login shell %q: %w", shell, err)
+			return fmt.Errorf("shell %q env capture: %w", shell, err)
 		}
 	}
 
@@ -318,7 +336,7 @@ func refreshEnvFromLoginShell() error {
 		os.Setenv(key, val) //nolint:errcheck // os.Setenv only fails on empty key
 		updated++
 	}
-	log.Printf("resync: refreshed %d environment variables from login shell", updated)
+	log.Printf("resync: refreshed %d environment variables from %s", updated, shellBase)
 	return nil
 }
 
