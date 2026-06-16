@@ -425,6 +425,7 @@ export function ProvidersPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Provider | undefined>()
   const [resyncedId, setResyncedId] = useState<string | null>(null)
+  const [testStates, setTestStates] = useState<Record<string, { testing: boolean; ok?: boolean; message?: string }>>({})
 
   const load = async () => {
     try { setProviders(await api.providers.list()) }
@@ -446,6 +447,22 @@ export function ProvidersPage() {
       setResyncedId(id)
       setTimeout(() => setResyncedId(null), 2000)
     } catch (e: any) { alert(`Resync failed: ${e.message}`) }
+  }
+
+  const testProvider = async (id: string) => {
+    setTestStates(prev => ({ ...prev, [id]: { testing: true } }))
+    try {
+      const result = await api.providers.test(id)
+      setTestStates(prev => ({ ...prev, [id]: { testing: false, ok: result.ok, message: result.message } }))
+      setTimeout(() => setTestStates(prev => {
+        const next = { ...prev }; delete next[id]; return next
+      }), 5000)
+    } catch (e: any) {
+      setTestStates(prev => ({ ...prev, [id]: { testing: false, ok: false, message: e.message } }))
+      setTimeout(() => setTestStates(prev => {
+        const next = { ...prev }; delete next[id]; return next
+      }), 5000)
+    }
   }
 
   const endpointLabel = (p: Provider) => {
@@ -494,7 +511,9 @@ export function ProvidersPage() {
           action={<Button onClick={() => setShowForm(true)}>Add Provider</Button>} />
       ) : (
         <div className="grid gap-4">
-          {providers.map(p => (
+          {providers.map(p => {
+            const ts = testStates[p.id]
+            return (
             <Card key={p.id}>
               <CardBody className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -515,8 +534,24 @@ export function ProvidersPage() {
                     </div>
                   </div>
                   <p className="text-xs text-slate-500 font-mono truncate pl-11">{endpointLabel(p)}</p>
+                  {ts && !ts.testing && ts.message && (
+                    <p className={cn(
+                      'text-xs mt-2 pl-11',
+                      ts.ok ? 'text-emerald-400' : 'text-red-400'
+                    )}>
+                      {ts.ok ? '✓' : '✗'} {ts.message}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => testProvider(p.id)}
+                    disabled={ts?.testing}
+                  >
+                    {ts?.testing ? '⏳ Testing…' : '▶ Test'}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -529,7 +564,8 @@ export function ProvidersPage() {
                 </div>
               </CardBody>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
 

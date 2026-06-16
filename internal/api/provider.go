@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -197,4 +200,88 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	s.registry.Invalidate(id)
 	respond(w, http.StatusNoContent, nil)
+}
+
+// testProvider validates that a provider is reachable and correctly configured.
+// For LLM/Ollama providers it sends a minimal prompt with a 15-second deadline.
+// For coding-agent providers it verifies the binary exists on PATH.
+func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rec, err := s.providers.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if rec == nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	start := time.Now()
+	type result struct {
+		OK        bool   `json:"ok"`
+		Message   string `json:"message"`
+		LatencyMs int64  `json:"latency_ms"`
+	}
+
+	if rec.Type == model.ProviderTypeCodingAgent {
+		if err := testCodingAgentBinary(rec.Config); err != nil {
+			respond(w, http.StatusOK, result{false, err.Error(), time.Since(start).Milliseconds()})
+		} else {
+			respond(w, http.StatusOK, result{true, fmt.Sprintf("Binary found · %dms", time.Since(start).Milliseconds()), time.Since(start).Milliseconds()})
+		}
+		return
+	}
+
+	// LLM / Ollama — build adapter and send a minimal prompt.
+	prov, err := s.registry.Get(r.Context(), id)
+	if err != nil {
+		respond(w, http.StatusOK, result{false, "failed to build provider: " + err.Error(), time.Since(start).Milliseconds()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	_, testErr := prov.Execute(ctx, provider.TaskRequest{
+		Prompt: "Reply with exactly one word: ok",
+	})
+	latencyMs := time.Since(start).Milliseconds()
+	if testErr != nil {
+		respond(w, http.StatusOK, result{false, testErr.Error(), latencyMs})
+		return
+	}
+	respond(w, http.StatusOK, result{true, fmt.Sprintf("Connected · %dms", latencyMs), latencyMs})
+}
+
+// testCodingAgentBinary checks that the configured binary (or its default) is
+// findable via PATH or as an absolute path.
+func testCodingAgentBinary(configJSON string) error {
+	var cfg struct {
+		Kind       string `json:"kind"`
+		BinaryPath string `json:"binary_path"`
+	}
+	expandedConfig := provider.ExpandEnv(configJSON)
+	if err := json.Unmarshal([]byte(expandedConfig), &cfg); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+
+	bin := strings.TrimSpace(cfg.BinaryPath)
+	if bin == "" {
+		switch cfg.Kind {
+		case "pi":
+			bin = "pi"
+		case "claudecode", "claude":
+			bin = "claude"
+		case "crush":
+			bin = "crush"
+		default: // opencode or unset
+			bin = "opencode"
+		}
+	}
+
+	if _, err := exec.LookPath(bin); err != nil {
+		return fmt.Errorf("binary %q not found on PATH", bin)
+	}
+	return nil
 }
