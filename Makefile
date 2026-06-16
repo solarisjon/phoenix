@@ -1,4 +1,4 @@
-.PHONY: build build-web build-go deploy dev dev-go dev-web clean test
+.PHONY: build build-web build-go build-linux deploy deploy-remote dev dev-go dev-web clean test
 
 BINARY := phoenix
 WEB_DIR := web
@@ -20,6 +20,12 @@ build-go:
 	@echo "→ Building Go binary..."
 	go build -o $(BINARY) ./cmd/phoenix/...
 	@echo "✓ Binary: ./$(BINARY)"
+
+## build-linux: cross-compile a static linux/amd64 binary (for manual server deploys)
+build-linux: build-web
+	@echo "→ Cross-compiling for Linux amd64..."
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(BINARY)-linux ./cmd/phoenix/...
+	@echo "✓ Binary: ./$(BINARY)-linux"
 
 
 ## deploy: build everything, kill the running instance, and restart
@@ -44,6 +50,14 @@ dev-go:
 ## dev-web: run Vite dev server
 dev-web:
 	cd $(WEB_DIR) && npm run dev
+
+## deploy-remote: deploy latest pushed commit to production server (requires server-setup.sh first run)
+deploy-remote:
+	@bash scripts/deploy-remote.sh
+
+## server-setup: one-time bootstrap of production server
+server-setup:
+	@bash scripts/server-setup.sh
 
 ## test: run all Go tests
 test:
