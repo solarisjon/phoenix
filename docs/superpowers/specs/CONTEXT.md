@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-06-10 (v0.2)  
+**Last updated:** 2026-06-16 (v0.3)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -9,11 +9,21 @@
 
 A self-hosted AI agent orchestration platform. Single Go binary, SQLite, React frontend embedded via `embed.FS`. Users configure LLM or coding-agent providers, create agents with persona/instructions/guardrails, assign agents to projects, and run tasks. Full design in `docs/superpowers/specs/2026-05-28-phoenix-design.md`.
 
-**Running instance:** `http://localhost:8080`  
-**Database:** `~/.local/share/phoenix/phoenix.db`  
+**Dev instance:** `http://localhost:8080`  
+**Prod instance:** `http://172.29.72.127:8090` (Podman container on scs001166435)  
+**Database (dev):** `~/.local/share/phoenix/phoenix.db`  
+**Database (prod):** `~/Prod/phoenix/data/phoenix.db` on server  
 **Binary:** `/Users/jbowman/src/phoenix/phoenix`  
 **GitHub:** `https://github.com/solarisjon/phoenix`  
 **Issues:** tracked at https://github.com/solarisjon/phoenix/issues
+
+### Deploy to production
+```bash
+make deploy-remote          # build-web + cross-compile + scp + podman rebuild on server
+make server-setup           # first-time server bootstrap (run once)
+# Container: phoenix-app, port 8090, data at ~/Prod/phoenix/data/
+# Logs: ssh jbowman@172.29.72.127 'podman logs -f phoenix-app'
+```
 
 ---
 
