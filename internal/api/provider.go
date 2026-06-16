@@ -203,8 +203,10 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 // testProvider validates that a provider is reachable and correctly configured.
-// For LLM/Ollama providers it sends a minimal prompt with a 15-second deadline.
-// For coding-agent providers it verifies the binary exists on PATH.
+// For all provider types it sends a minimal prompt ("Say: ok") with a 15-second
+// deadline for LLM/Ollama and a 60-second deadline for coding agents (which must
+// spawn a subprocess). A quick binary-existence check is run first for coding
+// agents to give a clearer error than a raw exec failure.
 func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	rec, err := s.providers.Get(r.Context(), id)
@@ -224,23 +226,29 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		LatencyMs int64  `json:"latency_ms"`
 	}
 
+	// For coding agents do a fast binary preflight before spawning.
 	if rec.Type == model.ProviderTypeCodingAgent {
 		if err := testCodingAgentBinary(rec.Config); err != nil {
 			respond(w, http.StatusOK, result{false, err.Error(), time.Since(start).Milliseconds()})
-		} else {
-			respond(w, http.StatusOK, result{true, fmt.Sprintf("Binary found · %dms", time.Since(start).Milliseconds()), time.Since(start).Milliseconds()})
+			return
 		}
-		return
 	}
 
-	// LLM / Ollama — build adapter and send a minimal prompt.
+	// Build provider from registry.
 	prov, err := s.registry.Get(r.Context(), id)
 	if err != nil {
 		respond(w, http.StatusOK, result{false, "failed to build provider: " + err.Error(), time.Since(start).Milliseconds()})
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	// Choose timeout: coding agents spawn subprocesses so need more headroom.
+	// Use 55s to stay safely under the server's 60s middleware timeout.
+	timeout := 15 * time.Second
+	if rec.Type == model.ProviderTypeCodingAgent {
+		timeout = 55 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
 	_, testErr := prov.Execute(ctx, provider.TaskRequest{

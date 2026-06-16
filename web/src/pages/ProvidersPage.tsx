@@ -550,7 +550,9 @@ export function ProvidersPage() {
                     onClick={() => testProvider(p.id)}
                     disabled={ts?.testing}
                   >
-                    {ts?.testing ? '⏳ Testing…' : '▶ Test'}
+                    {ts?.testing
+                      ? (p.type === 'coding_agent' ? '⏳ Testing… (up to 60s)' : '⏳ Testing…')
+                      : '▶ Test'}
                   </Button>
                   <Button
                     variant="ghost"
