@@ -1,19 +1,23 @@
-# Phoenix — Minimal runtime container
+# Phoenix — minimal runtime container (FROM scratch)
 #
-# Used by deploy-remote.sh — the Go binary is cross-compiled locally
-# and copied into an Alpine container on the server.
-# This avoids pulling Go/Node builder images through the corporate network.
+# The Go binary is statically compiled (CGO_ENABLED=0) and needs no OS runtime.
+# We only add a CA certificate bundle so the binary can verify TLS connections
+# to LLM providers.
+#
+# The deploy script supplies ca-certificates.crt from the server's CA bundle
+# (~/scs-containers/ca-certificates.crt) which includes both standard root CAs
+# and the corporate NetApp engineering CA.
 #
 # Build: podman build -f Containerfile.deploy -t phoenix:latest .
-# (run from a directory containing the pre-built phoenix-linux binary)
+# (run from a dir containing phoenix-linux and ca-certificates.crt)
 
-FROM docker.io/alpine:3.21
+FROM scratch
 
-RUN apk add --no-cache ca-certificates tzdata
+# TLS trust bundle
+COPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-WORKDIR /app
-COPY phoenix-linux /app/phoenix
-RUN chmod +x /app/phoenix
+# Static binary
+COPY phoenix-linux /phoenix
 
 VOLUME /data
 
@@ -22,4 +26,4 @@ ENV PHOENIX_DB_PATH=/data/phoenix.db
 
 EXPOSE 8090
 
-ENTRYPOINT ["/app/phoenix"]
+ENTRYPOINT ["/phoenix"]

@@ -6,10 +6,11 @@
 #
 # Workflow:
 #   1. Verify local tree is clean and pushed
-#   2. Cross-compile a static linux/amd64 binary + build frontend
-#   3. SCP binary + Containerfile.deploy to server
-#   4. Build minimal Alpine container on server
-#   5. Restart the phoenix-app container
+#   2. Fetch the server's CA bundle (for TLS in the container)
+#   3. Cross-compile a static linux/amd64 binary + build frontend
+#   4. SCP binary + Containerfile.deploy + CA bundle to server
+#   5. Build a FROM-scratch container on the server (no package install needed)
+#   6. Restart phoenix-app container
 
 set -euo pipefail
 
@@ -34,6 +35,11 @@ if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
 fi
 echo "✓ Commit $LOCAL_SHA is pushed"
 
+# ── Fetch CA bundle from server ──────────────────────────────────────────────
+echo "→ Fetching CA bundle from server..."
+scp -q "$SERVER:scs-containers/ca-certificates.crt" ca-certificates.crt
+echo "✓ CA bundle fetched ($(wc -l < ca-certificates.crt) lines)"
+
 # ── Build ────────────────────────────────────────────────────────────────────
 echo "→ Building frontend..."
 (cd web && npm run build --silent)
@@ -48,14 +54,14 @@ echo "✓ Binary: phoenix-linux ($(du -sh phoenix-linux | cut -f1))"
 # ── Upload ───────────────────────────────────────────────────────────────────
 echo "→ Uploading to server..."
 ssh "$SERVER" 'mkdir -p ~/Prod/phoenix/data'
-scp -q phoenix-linux Containerfile.deploy "$SERVER:Prod/phoenix/"
+scp -q phoenix-linux Containerfile.deploy ca-certificates.crt "$SERVER:Prod/phoenix/"
 
 # ── Container build + restart ────────────────────────────────────────────────
 echo "→ Building container and restarting on server..."
 ssh "$SERVER" bash << 'REMOTE'
 set -euo pipefail
 cd ~/Prod/phoenix
-echo "  Building image..."
+echo "  Building image (FROM scratch — no package installs)..."
 podman build -f Containerfile.deploy -t localhost/phoenix:latest .
 echo "  Restarting container..."
 podman stop phoenix-app 2>/dev/null || true
@@ -76,6 +82,9 @@ else
     exit 1
 fi
 REMOTE
+
+# Clean up local temp files
+rm -f ca-certificates.crt phoenix-linux
 
 echo ""
 echo "✓ Deploy complete → http://172.29.72.127:8090"
