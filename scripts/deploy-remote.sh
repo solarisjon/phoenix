@@ -7,10 +7,12 @@
 #   -- or --
 #   bash scripts/deploy-remote.sh
 #
-# What it does:
-#   1. Verifies local tree is clean (no uncommitted changes)
-#   2. Verifies latest commit is pushed to GitHub
-#   3. SSHes to the server: git pull → podman build → restart container
+# Workflow:
+#   1. Verifies local tree is clean and pushed to GitHub
+#   2. Cross-compiles a static linux/amd64 binary
+#   3. SCPs the binary + Containerfile.deploy to the server
+#   4. Builds a minimal Alpine container on the server (no Go/Node needed there)
+#   5. Restarts the phoenix-app container
 
 set -euo pipefail
 
@@ -36,20 +38,34 @@ if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
     exit 1
 fi
 
-echo "✓ Local HEAD $LOCAL_SHA is pushed"
-echo "→ Deploying to $SERVER..."
+echo "✓ Commit $LOCAL_SHA is pushed"
 
-# ── Remote build + restart ───────────────────────────────────────────────────
+# ── Cross-compile ────────────────────────────────────────────────────────────
+echo "→ Building frontend..."
+cd web && npm run build --silent
+cd ..
+echo "→ Copying dist to embed path..."
+rm -rf internal/frontend/dist
+cp -r web/dist internal/frontend/dist
+
+echo "→ Cross-compiling linux/amd64 binary..."
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -o phoenix-linux ./cmd/phoenix/...
+echo "✓ Built: phoenix-linux ($(du -sh phoenix-linux | cut -f1))"
+
+# ── Upload to server ─────────────────────────────────────────────────────────
+echo "→ Uploading binary and Containerfile to server..."
+ssh "$SERVER" "mkdir -p $REMOTE_DIR/data"
+scp -q phoenix-linux Containerfile.deploy "$SERVER:$REMOTE_DIR/"
+
+# ── Build container + restart ─────────────────────────────────────────────────
 ssh "$SERVER" bash -s <<REMOTE
 set -euo pipefail
 
 cd "$REMOTE_DIR"
 
-echo "→ Pulling latest..."
-git pull
-
-echo "→ Building container image..."
-podman build -t $IMAGE .
+echo "→ Building container image on server..."
+podman build -f Containerfile.deploy -t $IMAGE .
 
 echo "→ Restarting container..."
 podman stop $CONTAINER 2>/dev/null || true
@@ -74,3 +90,6 @@ else
     exit 1
 fi
 REMOTE
+
+echo ""
+echo "✓ Deploy complete — http://172.29.72.127:$HOST_PORT"

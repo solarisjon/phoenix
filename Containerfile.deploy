@@ -1,0 +1,25 @@
+# Phoenix — Minimal runtime container
+#
+# Used by deploy-remote.sh — the Go binary is cross-compiled locally
+# and copied into an Alpine container on the server.
+# This avoids pulling Go/Node builder images through the corporate network.
+#
+# Build: podman build -f Containerfile.deploy -t phoenix:latest .
+# (run from a directory containing the pre-built phoenix-linux binary)
+
+FROM docker.io/alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+COPY phoenix-linux /app/phoenix
+RUN chmod +x /app/phoenix
+
+VOLUME /data
+
+ENV PHOENIX_PORT=8090
+ENV PHOENIX_DB_PATH=/data/phoenix.db
+
+EXPOSE 8090
+
+ENTRYPOINT ["/app/phoenix"]
