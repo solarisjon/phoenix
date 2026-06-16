@@ -673,3 +673,32 @@ func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	s.runner.CancelTask(id)
 	respond(w, http.StatusNoContent, nil)
 }
+
+// forceResetTask immediately marks a task as failed regardless of its current state.
+// It kills the subprocess PID if recorded and cancels any running goroutine.
+// Use this when the regular cancel button has no effect on a stuck task.
+func (s *Server) forceResetTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.Status == model.TaskStatusCompleted || task.Status == model.TaskStatusFailed {
+		respondErr(w, http.StatusConflict, "task is already in a terminal state")
+		return
+	}
+	if err := s.runner.ForceCancel(id); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	updated, _ := s.tasks.Get(r.Context(), id)
+	if updated == nil {
+		updated = task
+	}
+	respond(w, http.StatusOK, updated)
+}

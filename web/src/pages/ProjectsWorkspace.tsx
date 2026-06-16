@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry } from '@/lib/api'
+import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
@@ -824,6 +824,35 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
   const [criticOn, setCriticOn] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
+
+  useEffect(() => {
+    api.providers.list().then(list => {
+      setProviders(list)
+      setAiProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
+    }).catch(() => {})
+  }, [])
+
+  const generateDescription = async () => {
+    if (!title.trim()) { setAiError('Enter a task title first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.tasks.generateDescription(title, aiHint, aiProviderID)
+      setDescription(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : 'Generation failed')
+    } finally {
+      setAiGenerating(false)
+    }
+  }
 
   const handleSubmit = async () => {
     if (!title.trim()) { setError('Title is required'); return }
@@ -885,7 +914,49 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
 
         {/* Description */}
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">Description <span className="text-slate-600">(optional)</span></label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-slate-400">Description <span className="text-slate-600">(optional)</span></label>
+            {providers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setShowAI(v => !v); setAiError('') }}
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+              </button>
+            )}
+          </div>
+          {showAI && (
+            <div className="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-2">
+              <p className="text-xs text-slate-400">Describe what the agent should do and AI will write the task description.</p>
+              {providers.length > 1 && (
+                <select
+                  value={aiProviderID}
+                  onChange={e => setAiProviderID(e.target.value)}
+                  className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-violet-500"
+                >
+                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
+              <textarea
+                value={aiHint}
+                onChange={e => setAiHint(e.target.value)}
+                rows={2}
+                placeholder="Additional context (optional)…"
+                className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-violet-500"
+              />
+              {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+              <div className="flex justify-end">
+                <button
+                  onClick={generateDescription}
+                  disabled={aiGenerating}
+                  className="text-xs bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-3 py-1.5"
+                >
+                  {aiGenerating ? 'Generating…' : '✦ Generate'}
+                </button>
+              </div>
+            </div>
+          )}
           <textarea
             value={description}
             onChange={e => setDescription(e.target.value)}

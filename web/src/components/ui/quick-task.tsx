@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
-import type { Agent } from '@/lib/api'
+import type { Agent, Provider } from '@/lib/api'
 import { formatCost } from '@/lib/utils'
 
 /**
@@ -44,12 +44,18 @@ export function QuickTaskButton() {
 function QuickTaskModal({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const [agents, setAgents] = useState<Agent[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [agentId, setAgentId] = useState('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [estimate, setEstimate] = useState<{ supported: boolean; estimated_cost_usd: number } | null>(null)
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
 
   useEffect(() => {
     api.agents.list().then(list => {
@@ -57,6 +63,10 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
       setAgents(active.length ? active : list)
       setAgentId((active.length ? active : list)[0]?.id ?? '')
     })
+    api.providers.list().then(list => {
+      setProviders(list)
+      setAiProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
+    }).catch(() => {})
   }, [])
 
   // Debounced cost estimate when agent + description changes
@@ -74,6 +84,22 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
     }, 500)
     return () => clearTimeout(timer)
   }, [agentId, title, description])
+
+  const generateDescription = async () => {
+    if (!title.trim()) { setAiError('Enter a task title first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.tasks.generateDescription(title, aiHint, aiProviderID)
+      setDescription(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: any) {
+      setAiError(e.message ?? 'Generation failed')
+    } finally {
+      setAiGenerating(false)
+    }
+  }
 
   const submit = async () => {
     if (!title.trim()) { setError('Title is required'); return }
@@ -147,9 +173,51 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
 
             {/* Description */}
             <div>
-              <label className="text-xs font-medium text-slate-400 block mb-1.5">
-                Details <span className="text-slate-600 font-normal">(optional)</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-slate-400">
+                  Details <span className="text-slate-600 font-normal">(optional)</span>
+                </label>
+                {providers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowAI(v => !v); setAiError('') }}
+                    className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                  >
+                    ✦ {showAI ? 'Hide AI assist' : 'Generate with AI'}
+                  </button>
+                )}
+              </div>
+              {showAI && (
+                <div className="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-2">
+                  <p className="text-xs text-slate-400">AI will write detailed task instructions from the title.</p>
+                  {providers.length > 1 && (
+                    <select
+                      value={aiProviderID}
+                      onChange={e => setAiProviderID(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+                    >
+                      {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  )}
+                  <textarea
+                    value={aiHint}
+                    onChange={e => setAiHint(e.target.value)}
+                    rows={2}
+                    placeholder="Additional context (optional)…"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 resize-none"
+                  />
+                  {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+                  <div className="flex justify-end">
+                    <button
+                      onClick={generateDescription}
+                      disabled={aiGenerating}
+                      className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      {aiGenerating ? 'Generating…' : '✦ Generate'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}

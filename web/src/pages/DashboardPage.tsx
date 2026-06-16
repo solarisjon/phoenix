@@ -48,6 +48,9 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
 function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; onCancel: () => void }) {
   const [stream, setStream] = useState('')
   const [cancelling, setCancelling] = useState(false)
+  const [forceResetting, setForceResetting] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [hidden, setHidden] = useState(false)
   const agent = agents.find(a => a.id === task.agent_id)
   const project = projects.find(p => p.id === task.project_id)
   const scrollRef = useRef<HTMLPreElement>(null)
@@ -71,8 +74,35 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
 
   const handleCancel = async () => {
     setCancelling(true)
-    try { await api.tasks.cancel(task.id); onCancel() } finally { setCancelling(false) }
+    setCancelError(null)
+    // Optimistically hide the card — the goroutine will update the DB
+    // asynchronously, so this avoids the "still running" confusion.
+    setHidden(true)
+    try {
+      await api.tasks.cancel(task.id)
+      onCancel()
+    } catch (e: any) {
+      // Cancel failed — show the card again with an error + force-reset option.
+      setHidden(false)
+      setCancelError(e?.message ?? 'Cancel failed')
+    } finally {
+      setCancelling(false)
+    }
   }
+
+  const handleForceReset = async () => {
+    setForceResetting(true)
+    setCancelError(null)
+    try {
+      await api.tasks.forceReset(task.id)
+      onCancel()
+    } catch (e: any) {
+      setCancelError(e?.message ?? 'Force reset failed')
+      setForceResetting(false)
+    }
+  }
+
+  if (hidden) return null
 
   const preview = stream || parseOutput(task.output)
 
@@ -102,7 +132,7 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
             <Badge variant={isQueued ? 'muted' : 'info'}>{isQueued ? 'Queued' : 'Running'}</Badge>
             <button
               onClick={handleCancel}
-              disabled={cancelling}
+              disabled={cancelling || forceResetting}
               className="text-xs text-slate-500 hover:text-red-400 disabled:opacity-50 transition-colors"
               title={isQueued ? 'Remove from queue' : 'Cancel task'}
             >
@@ -119,7 +149,22 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
             {task.description}
           </div>
         ) : null}
-        <p className="text-xs text-slate-600 mt-1.5">{timeAgo(task.created_at)}</p>
+        <div className="flex items-center justify-between mt-1.5">
+          <p className="text-xs text-slate-600">{timeAgo(task.created_at)}</p>
+          {cancelError && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-red-400">{cancelError}</span>
+              <button
+                onClick={handleForceReset}
+                disabled={forceResetting}
+                className="text-xs bg-red-900/40 hover:bg-red-900/60 text-red-300 px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+                title="Force-reset this task to failed immediately, killing any subprocess"
+              >
+                {forceResetting ? 'Forcing…' : '⚡ Force Reset'}
+              </button>
+            </div>
+          )}
+        </div>
       </CardBody>
     </Card>
   )
@@ -137,6 +182,7 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
   const output = parseOutput(task.output)
   const [retrying, setRetrying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [forceResetting, setForceResetting] = useState(false)
 
   const retry = async () => {
     setRetrying(true)
@@ -146,6 +192,11 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
   const cancel = async () => {
     setCancelling(true)
     try { await api.tasks.cancel(task.id); onRetry() } finally { setCancelling(false) }
+  }
+
+  const forceReset = async () => {
+    setForceResetting(true)
+    try { await api.tasks.forceReset(task.id); onRetry() } finally { setForceResetting(false) }
   }
 
   return (
@@ -194,14 +245,24 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
           {output ? <MarkdownOutput content={output} /> : <span className="text-xs text-slate-500">(no output yet)</span>}
         </div>
       </div>
-      <div className="flex gap-2 justify-end">
+      <div className="flex gap-2 justify-end flex-wrap">
         <Link to={`/projects/${task.project_id}`} onClick={onClose}>
           <Button variant="secondary" size="sm">View Project →</Button>
         </Link>
         {(task.status === 'running' || task.status === 'queued') && (
-          <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling}>
-            {cancelling ? 'Cancelling…' : '✕ Cancel'}
-          </Button>
+          <>
+            <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling || forceResetting}>
+              {cancelling ? 'Cancelling…' : '✕ Cancel'}
+            </Button>
+            <button
+              onClick={forceReset}
+              disabled={forceResetting || cancelling}
+              className="text-xs bg-red-900/40 hover:bg-red-900/60 text-red-300 px-3 py-1.5 rounded transition-colors disabled:opacity-50"
+              title="Force-reset immediately: kills subprocess and marks task failed. Use if regular cancel has no effect."
+            >
+              {forceResetting ? 'Forcing…' : '⚡ Force Reset'}
+            </button>
+          </>
         )}
         {task.status === 'failed' && (
           <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
