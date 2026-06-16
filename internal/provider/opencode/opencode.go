@@ -122,19 +122,33 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 
 	go func() {
 		defer close(ch)
-		defer func() {
-			// Drain stderr for debugging.
-			io.Copy(io.Discard, stderr)
-			if err := cmd.Wait(); err != nil {
-				// Non-zero exit is expected if the task itself errored —
-				// we've already sent an error chunk. Log for visibility only.
-				log.Printf("opencode: process exited: %v", err)
-			}
+
+		// Collect stderr concurrently so it doesn't block stdout reads.
+		var stderrBuf strings.Builder
+		stderrDone := make(chan struct{})
+		go func() {
+			defer close(stderrDone)
+			io.Copy(&stderrBuf, stderr) //nolint:errcheck
 		}()
 
 		// First chunk carries the PID; no content.
 		ch <- provider.StreamChunk{PID: pid}
-		a.parseStream(ctx, stdout, ch)
+		gotOutput := a.parseStream(ctx, stdout, ch)
+
+		<-stderrDone
+
+		if err := cmd.Wait(); err != nil {
+			log.Printf("opencode: process exited: %v", err)
+		}
+
+		// If opencode produced no text output, surface stderr so the caller
+		// can see startup / auth errors (e.g. "Unknown authorization credentials").
+		if !gotOutput {
+			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
+				log.Printf("opencode: stderr: %s", stderrMsg)
+				ch <- provider.StreamChunk{Error: fmt.Errorf("opencode: no output — %s", stderrMsg), Done: true}
+			}
+		}
 	}()
 
 	return ch, nil
@@ -213,7 +227,10 @@ type stepFinishPart struct {
 	} `json:"tokens"`
 }
 
-func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provider.StreamChunk) {
+// parseStream reads opencode's JSON event stream and sends chunks on ch.
+// Returns true if any text content was emitted (used to decide whether to
+// surface stderr as an error when the process produces no output).
+func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provider.StreamChunk) bool {
 	scanner := bufio.NewScanner(r)
 	// Increase buffer for long lines (opencode can emit large JSON blobs).
 	buf := make([]byte, 0, 64*1024)
@@ -222,12 +239,13 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 	// Accumulate cost and tokens across steps (multi-step tasks have multiple step_finish events).
 	var totalCost float64
 	var totalTokensIn, totalTokensOut int
+	var gotOutput bool
 
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
 			ch <- provider.StreamChunk{Error: ctx.Err(), Done: true}
-			return
+			return gotOutput
 		default:
 		}
 
@@ -241,6 +259,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 			// Non-JSON line — pass through as plain text.
 			if line != "" {
 				ch <- provider.StreamChunk{Content: line + "\n"}
+				gotOutput = true
 			}
 			continue
 		}
@@ -250,6 +269,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 			var p textPart
 			if err := json.Unmarshal(ev.Part, &p); err == nil && p.Text != "" {
 				ch <- provider.StreamChunk{Content: p.Text}
+				gotOutput = true
 			}
 
 		case "step_finish":
@@ -271,7 +291,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 				}
 			}
 			ch <- provider.StreamChunk{Error: fmt.Errorf("opencode: %s", msg), Done: true}
-			return
+			return gotOutput
 
 		case "step_start":
 			// Ignore — just signals start of a step.
@@ -283,7 +303,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 
 	if err := scanner.Err(); err != nil {
 		ch <- provider.StreamChunk{Error: fmt.Errorf("opencode stream: %w", err), Done: true}
-		return
+		return gotOutput
 	}
 
 	ch <- provider.StreamChunk{
@@ -292,6 +312,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		TokensIn:  totalTokensIn,
 		TokensOut: totalTokensOut,
 	}
+	return gotOutput
 }
 
 // ListModels runs `opencode models` and returns one model name per line.

@@ -290,11 +290,16 @@ func refreshEnvFromLoginShell() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// -l = login shell (sources .zshrc / .bash_profile / etc.)
-	// -i = interactive, needed by some shells to source rc files
-	out, err := exec.CommandContext(ctx, shell, "-l", "-c", "env").Output()
+	// Use -i (interactive) so .zshrc/.bashrc are sourced — login-only (-l)
+	// shells skip these on zsh/bash, missing API keys set there.
+	// Redirect stderr to /dev/null to suppress PS1 noise from interactive mode.
+	out, err := exec.CommandContext(ctx, shell, "-i", "-c", "env 2>/dev/null").Output()
 	if err != nil {
-		return fmt.Errorf("login shell %q: %w", shell, err)
+		// Fall back to login-only if interactive mode fails.
+		out, err = exec.CommandContext(ctx, shell, "-l", "-c", "env 2>/dev/null").Output()
+		if err != nil {
+			return fmt.Errorf("login shell %q: %w", shell, err)
+		}
 	}
 
 	updated := 0
