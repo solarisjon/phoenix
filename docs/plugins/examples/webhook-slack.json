@@ -1,0 +1,5 @@
+{
+  "url": "https://hooks.slack.com/services/YOUR_WORKSPACE/YOUR_CHANNEL/YOUR_TOKEN",
+  "auth_header": "",
+  "timeout_seconds": 10
+}

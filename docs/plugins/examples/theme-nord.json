@@ -1,0 +1,6 @@
+{
+  "name": "Nord",
+  "type": "theme",
+  "kind": "custom",
+  "config": "{\"kind\":\"dark\",\"preview\":[\"#2e3440\",\"#88c0d0\",\"#3b4252\"],\"vars\":{\"ph-bg\":\"#2e3440\",\"ph-surface\":\"#3b4252\",\"ph-card\":\"#434c5e\",\"ph-card-border\":\"#4c566a\",\"ph-input\":\"#3b4252\",\"ph-hover\":\"#434c5e\",\"ph-text\":\"#eceff4\",\"ph-text-muted\":\"#d8dee9\",\"ph-text-faint\":\"#81a1c1\",\"ph-accent\":\"#88c0d0\",\"ph-accent-light\":\"#8fbcbb\",\"ph-accent-bg\":\"rgba(136,192,208,0.12)\",\"ph-accent-text\":\"#2e3440\",\"ph-border\":\"#4c566a\",\"ph-border-mid\":\"#5e6779\"}}"
+}

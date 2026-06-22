@@ -1,0 +1,6 @@
+{
+  "name": "Solarized Dark",
+  "type": "theme",
+  "kind": "custom",
+  "config": "{\"kind\":\"dark\",\"preview\":[\"#002b36\",\"#268bd2\",\"#073642\"],\"vars\":{\"ph-bg\":\"#002b36\",\"ph-surface\":\"#073642\",\"ph-card\":\"#0a4050\",\"ph-card-border\":\"#1a5060\",\"ph-input\":\"#0d4555\",\"ph-hover\":\"#1a5060\",\"ph-text\":\"#839496\",\"ph-text-muted\":\"#657b83\",\"ph-text-faint\":\"#586e75\",\"ph-accent\":\"#268bd2\",\"ph-accent-light\":\"#5aafee\",\"ph-accent-bg\":\"rgba(38,139,210,0.12)\",\"ph-accent-text\":\"#fdf6e3\",\"ph-border\":\"#1a5060\",\"ph-border-mid\":\"#2a6070\"}}"
+}
