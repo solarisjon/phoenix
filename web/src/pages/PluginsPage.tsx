@@ -111,6 +111,34 @@ function NotifiersTab({ plugins, coreEnabled, onRefresh }: {
   )
 }
 
+// ---- SecretField: text input with show/hide toggle for sensitive values ----
+function SecretField({ value, onChange, isSecret }: {
+  value: string; onChange: (v: string) => void; isSecret: boolean
+}) {
+  const [hidden, setHidden] = useState(isSecret && !!value && !value.startsWith('${'))
+
+  return (
+    <div className="relative">
+      <input
+        type={hidden ? 'password' : 'text'}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={isSecret ? '${ENV_VAR} or paste value directly' : ''}
+        className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 pr-16 border border-[var(--ph-border)]"
+      />
+      {isSecret && (
+        <button
+          type="button"
+          onClick={() => setHidden(!hidden)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]"
+        >
+          {hidden ? 'Show' : 'Hide'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // Schema field type from the backend ConfigSchema() response.
 interface SchemaField {
   type: string
@@ -280,11 +308,11 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
                       onChange={e => updateField(key, parseInt(e.target.value) || 0)}
                       className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]" />
                   ) : (
-                    <input type={field.secret ? 'password' : 'text'}
+                    <SecretField
                       value={configValues[key] ?? ''}
-                      onChange={e => updateField(key, e.target.value)}
-                      placeholder={field.secret ? '${ENV_VAR} or paste token' : ''}
-                      className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]" />
+                      onChange={v => updateField(key, v)}
+                      isSecret={field.secret ?? false}
+                    />
                   )}
                 </div>
               ))}
