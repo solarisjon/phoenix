@@ -184,6 +184,29 @@ type ProjectSummary struct {
 	LastActivity  *time.Time     `json:"last_activity"`
 }
 
+// PluginRepo manages plugin records (notifiers, themes, etc.).
+type PluginRepo interface {
+	List(ctx context.Context) ([]*model.Plugin, error)
+	ListByType(ctx context.Context, pluginType model.PluginType) ([]*model.Plugin, error)
+	ListEnabled(ctx context.Context) ([]*model.Plugin, error)
+	Get(ctx context.Context, id string) (*model.Plugin, error)
+	GetByKind(ctx context.Context, pluginType model.PluginType, kind string) (*model.Plugin, error)
+	Create(ctx context.Context, p *model.Plugin) error
+	Update(ctx context.Context, p *model.Plugin) error
+	Delete(ctx context.Context, id string) error
+}
+
+// NotificationRuleRepo manages notification rules for notifier plugins.
+type NotificationRuleRepo interface {
+	ListByPlugin(ctx context.Context, pluginID string) ([]*model.NotificationRule, error)
+	ListByEventType(ctx context.Context, eventType model.NotifyEventType) ([]*model.NotificationRule, error)
+	ListEnabled(ctx context.Context) ([]*model.NotificationRule, error)
+	Get(ctx context.Context, id string) (*model.NotificationRule, error)
+	Create(ctx context.Context, r *model.NotificationRule) error
+	Update(ctx context.Context, r *model.NotificationRule) error
+	Delete(ctx context.Context, id string) error
+}
+
 // StatsRepo provides aggregated cost and usage queries.
 type StatsRepo interface {
 	CostByAgent(ctx context.Context) ([]*CostSummary, error)

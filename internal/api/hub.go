@@ -11,11 +11,17 @@ import (
 	"github.com/solarisjon/phoenix/internal/store"
 )
 
+// EventCallback is a function invoked on every broadcast before fan-out to
+// WebSocket clients. Used by the plugin manager to observe events.
+type EventCallback func(eventType string, payload json.RawMessage)
+
 // Hub manages all active WebSocket client connections and broadcasts events to them.
 // It is safe for concurrent use.
 type Hub struct {
-	mu      sync.RWMutex
-	clients map[chan []byte]struct{}
+	mu        sync.RWMutex
+	clients   map[chan []byte]struct{}
+	onEventMu sync.RWMutex
+	onEvent   []EventCallback
 }
 
 // NewHub creates a ready-to-use Hub.
@@ -43,14 +49,38 @@ func (h *Hub) unsubscribe(ch chan []byte) {
 	close(ch)
 }
 
+// OnEvent registers a callback that is invoked on every Broadcast call
+// before the event is fanned out to WebSocket clients. The callback
+// receives the event type and marshalled payload. Used by the plugin
+// manager to observe task lifecycle events for notification dispatch.
+func (h *Hub) OnEvent(fn EventCallback) {
+	h.onEventMu.Lock()
+	h.onEvent = append(h.onEvent, fn)
+	h.onEventMu.Unlock()
+}
+
 // Broadcast serialises ev to JSON and sends it to every connected client.
 // Slow clients have their event dropped rather than blocking the broadcaster.
+// OnEvent callbacks are invoked before fan-out.
 func (h *Hub) Broadcast(ev Event) {
 	data, err := json.Marshal(ev)
 	if err != nil {
 		log.Printf("hub: marshal event: %v", err)
 		return
 	}
+
+	// Invoke internal event listeners (e.g. plugin manager).
+	// Marshal payload separately for callbacks.
+	h.onEventMu.RLock()
+	if len(h.onEvent) > 0 {
+		payloadData, perr := json.Marshal(ev.Payload)
+		if perr == nil {
+			for _, fn := range h.onEvent {
+				fn(string(ev.Type), payloadData)
+			}
+		}
+	}
+	h.onEventMu.RUnlock()
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()

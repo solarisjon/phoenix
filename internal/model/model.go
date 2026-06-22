@@ -189,8 +189,10 @@ type Team struct {
 
 // SystemSettings holds platform-wide configuration that overrides per-agent settings.
 type SystemSettings struct {
-	GlobalGuardrailsEnabled bool   `json:"global_guardrails_enabled"`
-	GlobalGuardrails        string `json:"global_guardrails"`
+	GlobalGuardrailsEnabled  bool   `json:"global_guardrails_enabled"`
+	GlobalGuardrails         string `json:"global_guardrails"`
+	CorePluginsEnabled       bool   `json:"core_plugins_enabled"`
+	CommunityPluginsEnabled  bool   `json:"community_plugins_enabled"`
 }
 
 // AgentDraftStatus represents the lifecycle of a pending agent hire.
@@ -235,6 +237,51 @@ type Memo struct {
 	Priority    MemoPriority `json:"priority"` // "normal" | "high"
 	Status      MemoStatus   `json:"status"`   // "unread" | "read" | "flagged" | "archived"
 	CreatedAt   time.Time    `json:"created_at"`
+}
+
+// ---- Plugin Types ----
+
+// PluginType identifies which subsystem handles a plugin.
+type PluginType string
+
+const (
+	PluginTypeNotifier PluginType = "notifier"
+	PluginTypeTheme    PluginType = "theme"
+)
+
+// NotifyEventType identifies events that can trigger notifications.
+type NotifyEventType string
+
+const (
+	NotifyTaskCompleted  NotifyEventType = "task.completed"
+	NotifyTaskFailed     NotifyEventType = "task.failed"
+	NotifyNeedsApproval  NotifyEventType = "task.needs_approval"
+	NotifyGuardrailFired NotifyEventType = "task.guardrail_triggered"
+)
+
+// Plugin represents a core or community plugin (notifier, theme, etc.).
+type Plugin struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Type      PluginType `json:"type"`
+	Kind      string     `json:"kind"`    // e.g. "telegram", "webhook", "custom"
+	IsCore    bool       `json:"is_core"` // true = shipped with Phoenix, can't delete
+	Enabled   bool       `json:"enabled"`
+	Config    string     `json:"config"` // JSON blob, schema depends on type+kind
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+}
+
+// NotificationRule maps an event type to a notifier plugin, optionally
+// scoped to a specific project.
+type NotificationRule struct {
+	ID        string          `json:"id"`
+	PluginID  string          `json:"plugin_id"`
+	EventType NotifyEventType `json:"event_type"`
+	ProjectID *string         `json:"project_id"` // nil = all projects
+	Enabled   bool            `json:"enabled"`
+	Template  *string         `json:"template"` // nil = use default template
+	CreatedAt time.Time       `json:"created_at"`
 }
 
 // AgentDraft is a proposed new agent submitted by a hiring agent for human

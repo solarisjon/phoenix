@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,12 +19,16 @@ import (
 	"github.com/solarisjon/phoenix/internal/frontend"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/paths"
+	"github.com/solarisjon/phoenix/internal/plugin"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/scheduler"
 	"github.com/solarisjon/phoenix/internal/store/sqlite"
 )
 
 func main() {
+	noPlugins := flag.Bool("no-plugins", false, "disable all plugin dispatch for this session")
+	flag.Parse()
+
 	// Resolve and create config/data directories.
 	if err := paths.Init(); err != nil {
 		log.Fatalf("failed to initialise paths: %v", err)
@@ -62,6 +67,22 @@ func main() {
 	agentDraftRepo := sqlite.NewAgentDraftRepo(db)
 	systemSettingsRepo := sqlite.NewSystemSettingsRepo(db)
 	memoRepo := sqlite.NewMemoRepo(db)
+	pluginRepo := sqlite.NewPluginRepo(db)
+	notificationRuleRepo := sqlite.NewNotificationRuleRepo(db)
+
+	// Wire up plugin manager.
+	pluginManager := plugin.NewManager(pluginRepo, notificationRuleRepo, systemSettingsRepo, plugin.ManagerOpts{
+		NoPlugins: *noPlugins,
+	})
+	if err := pluginManager.SeedCorePlugins(context.Background()); err != nil {
+		log.Fatalf("failed to seed core plugins: %v", err)
+	}
+	if err := pluginManager.LoadAll(context.Background()); err != nil {
+		log.Fatalf("failed to load plugins: %v", err)
+	}
+	if *noPlugins {
+		log.Println("Plugin dispatch disabled via --no-plugins flag")
+	}
 
 	// Wire up provider registry.
 	reg := registry.NewRegistry(providerRepo)
@@ -78,6 +99,7 @@ func main() {
 		taskRepo, statsRepo, userRepo, teamRepo,
 		agentDraftRepo, systemSettingsRepo,
 		memoRepo,
+		pluginRepo, notificationRuleRepo, pluginManager,
 		runner, reg,
 		adminRepo,
 		cfg.HTTPTimeout,
@@ -86,6 +108,9 @@ func main() {
 	// Wire the hub as the runner's event handler so stream events
 	// are broadcast to all WebSocket clients.
 	hub := apiServer.Hub()
+
+	// Wire plugin manager to receive hub events for notification dispatch.
+	hub.OnEvent(pluginManager.HandleEvent)
 	runner.SetEventHandler(func(ev agent.StreamEvent) {
 		hub.BroadcastAgentEvent(ev, taskRepo)
 	})

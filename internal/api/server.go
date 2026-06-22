@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/solarisjon/phoenix/internal/agent"
+	"github.com/solarisjon/phoenix/internal/plugin"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
 	"github.com/solarisjon/phoenix/internal/store/sqlite"
@@ -29,6 +30,9 @@ type Server struct {
 	agentDrafts    store.AgentDraftRepo
 	systemSettings store.SystemSettingsRepo
 	memos          store.MemoRepo
+	pluginRepo     store.PluginRepo
+	ruleRepo       store.NotificationRuleRepo
+	pluginManager  *plugin.Manager
 	runner         *agent.Runner
 	registry       *registry.Registry
 	hub            *Hub
@@ -51,6 +55,9 @@ func New(
 	agentDrafts store.AgentDraftRepo,
 	systemSettings store.SystemSettingsRepo,
 	memos store.MemoRepo,
+	pluginRepo store.PluginRepo,
+	ruleRepo store.NotificationRuleRepo,
+	pluginManager *plugin.Manager,
 	runner *agent.Runner,
 	reg *registry.Registry,
 	admin *sqlite.AdminRepo,
@@ -70,6 +77,9 @@ func New(
 		agentDrafts:    agentDrafts,
 		systemSettings: systemSettings,
 		memos:          memos,
+		pluginRepo:     pluginRepo,
+		ruleRepo:       ruleRepo,
+		pluginManager:  pluginManager,
 		runner:         runner,
 		registry:       reg,
 		hub:            NewHub(),
@@ -197,6 +207,24 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/memos/count", s.getMemoCount)
 		r.Put("/memos/{id}/status", s.updateMemoStatus)
 		r.Delete("/memos/{id}", s.deleteMemo)
+
+		// Plugins
+		r.Get("/plugins", s.listPlugins)
+		r.Post("/plugins", s.createPlugin)
+		r.Get("/plugins/{id}", s.getPlugin)
+		r.Put("/plugins/{id}", s.updatePlugin)
+		r.Delete("/plugins/{id}", s.deletePlugin)
+		r.Post("/plugins/{id}/enable", s.enablePlugin)
+		r.Post("/plugins/{id}/disable", s.disablePlugin)
+		r.Post("/plugins/{id}/test", s.testPlugin)
+		r.Get("/plugins/{id}/schema", s.getPluginSchema)
+		r.Get("/plugins/{id}/rules", s.listPluginRules)
+		r.Post("/plugins/{id}/rules", s.createPluginRule)
+		r.Put("/plugins/{id}/rules/{rid}", s.updatePluginRule)
+		r.Delete("/plugins/{id}/rules/{rid}", s.deletePluginRule)
+
+		// Themes
+		r.Get("/themes", s.listThemes)
 
 		// Stats
 		r.Get("/stats/costs", s.getCosts)

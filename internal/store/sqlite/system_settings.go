@@ -40,6 +40,8 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 	s := &model.SystemSettings{
 		GlobalGuardrailsEnabled: kv["global_guardrails_enabled"] == "1",
 		GlobalGuardrails:        kv["global_guardrails"],
+		CorePluginsEnabled:      kv["core_plugins_enabled"] == "1",
+		CommunityPluginsEnabled: kv["community_plugins_enabled"] == "1",
 	}
 	return s, nil
 }
@@ -61,5 +63,22 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 	if _, err := r.db.ExecContext(ctx, upsert, "global_guardrails", s.GlobalGuardrails, now); err != nil {
 		return err
 	}
+
+	coreEnabled := "0"
+	if s.CorePluginsEnabled {
+		coreEnabled = "1"
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "core_plugins_enabled", coreEnabled, now); err != nil {
+		return err
+	}
+
+	communityEnabled := "0"
+	if s.CommunityPluginsEnabled {
+		communityEnabled = "1"
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "community_plugins_enabled", communityEnabled, now); err != nil {
+		return err
+	}
+
 	return nil
 }
