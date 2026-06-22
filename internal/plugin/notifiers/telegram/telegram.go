@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers"
@@ -34,10 +36,18 @@ func (n *Notifier) Send(ctx context.Context, cfg json.RawMessage, msg notifiers.
 		return fmt.Errorf("telegram: invalid config: %w", err)
 	}
 
-	// Expand ${ENV_VAR} in bot_token.
-	token := provider.ExpandEnv(c.BotToken)
-	if token == "" || token == c.BotToken && len(c.BotToken) > 0 && c.BotToken[0] == '$' {
-		return fmt.Errorf("telegram: bot_token is empty or unresolved env var")
+	// Expand ${ENV_VAR} in bot_token and trim whitespace.
+	token := strings.TrimSpace(provider.ExpandEnv(c.BotToken))
+	if token == "" {
+		return fmt.Errorf("telegram: bot_token is empty")
+	}
+	if strings.HasPrefix(token, "${") {
+		return fmt.Errorf("telegram: bot_token env var %q is not set in the environment", c.BotToken)
+	}
+
+	chatID := strings.TrimSpace(c.ChatID)
+	if chatID == "" {
+		return fmt.Errorf("telegram: chat_id is empty")
 	}
 
 	parseMode := c.ParseMode
@@ -46,12 +56,13 @@ func (n *Notifier) Send(ctx context.Context, cfg json.RawMessage, msg notifiers.
 	}
 
 	body, _ := json.Marshal(map[string]string{
-		"chat_id":    c.ChatID,
+		"chat_id":    chatID,
 		"text":       msg.Body,
 		"parse_mode": parseMode,
 	})
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	log.Printf("telegram: sending to chat %s (token length: %d)", chatID, len(token))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("telegram: build request: %w", err)
@@ -67,6 +78,12 @@ func (n *Notifier) Send(ctx context.Context, cfg json.RawMessage, msg notifiers.
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		// Mask the token in logs for safety — show first 5 and last 4 chars.
+		masked := token
+		if len(token) > 12 {
+			masked = token[:5] + "…" + token[len(token)-4:]
+		}
+		log.Printf("telegram: failed — token=%q (length %d), chat_id=%q, status=%d", masked, len(token), chatID, resp.StatusCode)
 		return fmt.Errorf("telegram: API returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
