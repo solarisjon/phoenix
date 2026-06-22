@@ -45,7 +45,7 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
   return <span className="tabular-nums">{m > 0 ? `${m}m ${s}s` : `${s}s`}</span>
 }
 
-function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; onCancel: () => void }) {
+function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; onCancel: () => void; onOpen: () => void }) {
   const [stream, setStream] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [forceResetting, setForceResetting] = useState(false)
@@ -107,7 +107,8 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
   const preview = stream || parseOutput(task.output)
 
   return (
-    <Card className={isQueued ? 'border-slate-700/50' : 'border-violet-900/40'}>
+    <div className="cursor-pointer" onClick={onOpen}>
+    <Card className={`${isQueued ? 'border-slate-700/50' : 'border-violet-900/40'} hover:border-violet-700/60 transition-colors`}>
       <CardBody className="py-3 px-4">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="flex-1 min-w-0">
@@ -119,7 +120,7 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
               <p className="text-sm font-medium text-white truncate">{task.title}</p>
             </div>
             <p className="text-xs text-slate-500">
-              {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline">{project.name}</Link> : ''}
+              {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline" onClick={e => e.stopPropagation()}>{project.name}</Link> : ''}
               {project && agent ? ' · ' : ''}
               {agent?.name ?? ''}
               {task.started_at && !isQueued && (
@@ -131,7 +132,7 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
           <div className="flex items-center gap-2">
             <Badge variant={isQueued ? 'muted' : 'info'}>{isQueued ? 'Queued' : 'Running'}</Badge>
             <button
-              onClick={handleCancel}
+              onClick={e => { e.stopPropagation(); handleCancel() }}
               disabled={cancelling || forceResetting}
               className="text-xs text-slate-500 hover:text-red-400 disabled:opacity-50 transition-colors"
               title={isQueued ? 'Remove from queue' : 'Cancel task'}
@@ -141,7 +142,7 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
           </div>
         </div>
         {!isQueued && preview ? (
-          <pre ref={scrollRef} className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">
+          <pre ref={scrollRef} className="text-xs text-slate-400 font-mono bg-slate-950 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap" onClick={e => e.stopPropagation()}>
             {preview}
           </pre>
         ) : isQueued && task.description ? (
@@ -151,8 +152,8 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
         ) : null}
         <div className="flex items-center justify-between mt-1.5">
           <p className="text-xs text-slate-600">{timeAgo(task.created_at)}</p>
-          {cancelError && (
-            <div className="flex items-center gap-2">
+          {cancelError ? (
+            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
               <span className="text-xs text-red-400">{cancelError}</span>
               <button
                 onClick={handleForceReset}
@@ -163,10 +164,13 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel }: { task:
                 {forceResetting ? 'Forcing…' : '⚡ Force Reset'}
               </button>
             </div>
+          ) : (
+            <span className="text-xs text-slate-600 italic">click for details</span>
           )}
         </div>
       </CardBody>
     </Card>
+    </div>
   )
 }
 
@@ -179,10 +183,31 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
 }) {
   const agent = agents.find(a => a.id === task.agent_id)
   const project = projects.find(p => p.id === task.project_id)
-  const output = parseOutput(task.output)
+  const [stream, setStream] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const isLive = task.status === 'running' || task.status === 'queued'
+  const output = stream || parseOutput(task.output)
   const [retrying, setRetrying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [forceResetting, setForceResetting] = useState(false)
+
+  // Stream live output when the modal is open for a running task
+  useEffect(() => {
+    if (!isLive) return
+    const unsub = phoenixWS.on((ev) => {
+      if (ev.type === 'task.output_stream') {
+        const p = ev.payload as any
+        if (p.task_id === task.id) setStream(prev => prev + p.chunk)
+      }
+    })
+    return unsub
+  }, [task.id, isLive])
+
+  // Auto-scroll output as new chunks arrive
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [stream])
 
   const retry = async () => {
     setRetrying(true)
@@ -240,9 +265,23 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
         </div>
       )}
       <div>
-        <p className="text-slate-500 text-xs mb-1">Output</p>
-        <div className="bg-slate-950 border border-slate-800 rounded-lg p-3 max-h-64 overflow-y-auto">
-          {output ? <MarkdownOutput content={output} /> : <span className="text-xs text-slate-500">(no output yet)</span>}
+        <div className="flex items-center gap-2 mb-1">
+          <p className="text-slate-500 text-xs">Output</p>
+          {isLive && (
+            <span className="flex items-center gap-1 text-xs text-violet-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+              live
+            </span>
+          )}
+        </div>
+        <div ref={scrollRef} className="bg-slate-950 border border-slate-800 rounded-lg p-3 max-h-96 overflow-y-auto">
+          {output ? (
+            isLive
+              ? <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">{output}</pre>
+              : <MarkdownOutput content={output} />
+          ) : (
+            <span className="text-xs text-slate-500">{isLive ? 'Waiting for output…' : '(no output)'}</span>
+          )}
         </div>
       </div>
       <div className="flex gap-2 justify-end flex-wrap">
@@ -657,10 +696,10 @@ export function DashboardPage() {
               const queued = runningTasks.filter(t => t.status === 'queued')
               return [
                 ...running.map(t => (
-                  <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={load} />
+                  <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={load} onOpen={() => setSelectedTask(t)} />
                 )),
                 ...queued.map((t, i) => (
-                  <RunningTaskCard key={t.id} task={t} queuePos={i + 1} agents={agents} projects={projects} onCancel={load} />
+                  <RunningTaskCard key={t.id} task={t} queuePos={i + 1} agents={agents} projects={projects} onCancel={load} onOpen={() => setSelectedTask(t)} />
                 )),
               ]
             })()}
