@@ -166,6 +166,8 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/projects/{id}/spend", s.getProjectSpend)
 		r.Get("/projects/{id}/files", s.listProjectFiles)
 		r.Get("/projects/{id}/files/*", s.getProjectFileContent)
+		r.Get("/projects/{id}/history", s.listProjectHistory)
+		r.Post("/projects/{id}/suggest", s.suggestProjectNextAction)
 
 		// Tasks
 		r.Get("/tasks", s.listTasks)

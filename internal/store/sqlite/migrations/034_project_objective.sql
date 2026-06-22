@@ -1,0 +1,1 @@
+ALTER TABLE projects ADD COLUMN objective TEXT NOT NULL DEFAULT '';

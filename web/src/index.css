@@ -5,99 +5,237 @@
 /* Components reference var(--ph-*) so a single attribute swap recolours   */
 /* the whole UI without touching component class names.                     */
 
+/* ---- Dark themes (6) ---- */
+
 :root,
-[data-theme="dark"] {
-  /* Backgrounds */
-  --ph-bg:           #020817;   /* page background   slate-950 */
-  --ph-surface:      #0f172a;   /* sidebar, topbar   slate-900 */
-  --ph-card:         #0f172a;   /* card bg           slate-900 */
-  --ph-card-border:  #1e293b;   /* card border       slate-800 */
-  --ph-input:        #1e293b;   /* input bg          slate-800 */
-  --ph-hover:        #1e293b;   /* hover bg          slate-800 */
-  /* Text */
-  --ph-text:         #f1f5f9;   /* primary text      slate-100 */
-  --ph-text-muted:   #94a3b8;   /* secondary text    slate-400 */
-  --ph-text-faint:   #475569;   /* tertiary text     slate-600 */
-  /* Accent (primary actions, active nav, logo) */
-  --ph-accent:       #7c3aed;   /* violet-700 */
-  --ph-accent-light: #8b5cf6;   /* violet-500 */
-  --ph-accent-bg:    rgba(124,58,237,0.15);
-  --ph-accent-text:  #c4b5fd;   /* violet-300 */
-  /* Borders */
-  --ph-border:       #1e293b;   /* slate-800 */
-  --ph-border-mid:   #334155;   /* slate-700 */
+[data-theme="dracula"] {
+  /* Dracula — by Zeno Rocha · draculatheme.com */
+  --ph-bg:           #1e1f28;
+  --ph-surface:      #282a36;
+  --ph-card:         #282a36;
+  --ph-card-border:  #44475a;
+  --ph-input:        #44475a;
+  --ph-hover:        #4f5272;
+  --ph-text:         #f8f8f2;
+  --ph-text-muted:   #b4b9d6;
+  --ph-text-faint:   #6272a4;   /* comment */
+  --ph-accent:       #bd93f9;   /* purple */
+  --ph-accent-light: #c9b1ff;
+  --ph-accent-bg:    rgba(189,147,249,0.15);
+  --ph-accent-text:  #e2d9fc;
+  --ph-border:       #44475a;
+  --ph-border-mid:   #6272a4;
 }
 
-[data-theme="midnight"] {
-  --ph-bg:           #000000;
-  --ph-surface:      #0a0a0f;
-  --ph-card:         #0d0d14;
-  --ph-card-border:  #1a1a2e;
-  --ph-input:        #1a1a2e;
-  --ph-hover:        #16213e;
-  --ph-text:         #e2e8f0;
-  --ph-text-muted:   #7f8ea3;
-  --ph-text-faint:   #3d4f63;
-  --ph-accent:       #2563eb;   /* blue-600 */
-  --ph-accent-light: #3b82f6;   /* blue-500 */
-  --ph-accent-bg:    rgba(37,99,235,0.15);
-  --ph-accent-text:  #93c5fd;   /* blue-300 */
-  --ph-border:       #1a1a2e;
-  --ph-border-mid:   #1e3a5f;
+[data-theme="monokai"] {
+  /* Monokai Pro — by Monokai */
+  --ph-bg:           #2d2a2e;
+  --ph-surface:      #403e41;
+  --ph-card:         #403e41;
+  --ph-card-border:  #5b5a5e;
+  --ph-input:        #5b5a5e;
+  --ph-hover:        #6b696e;
+  --ph-text:         #fcfcfa;
+  --ph-text-muted:   #c1bfc2;
+  --ph-text-faint:   #727072;   /* comment */
+  --ph-accent:       #ab9df2;   /* purple */
+  --ph-accent-light: #c0b4f5;
+  --ph-accent-bg:    rgba(171,157,242,0.15);
+  --ph-accent-text:  #d4ccf8;
+  --ph-border:       #5b5a5e;
+  --ph-border-mid:   #727072;
 }
 
-[data-theme="forest"] {
-  --ph-bg:           #030d07;
-  --ph-surface:      #071a0e;
-  --ph-card:         #071a0e;
-  --ph-card-border:  #0f2d1a;
-  --ph-input:        #0f2d1a;
-  --ph-hover:        #0f2d1a;
-  --ph-text:         #ecfdf5;
-  --ph-text-muted:   #6ee7b7;   /* emerald-300 */
-  --ph-text-faint:   #1f6635;
-  --ph-accent:       #059669;   /* emerald-600 */
-  --ph-accent-light: #10b981;   /* emerald-500 */
-  --ph-accent-bg:    rgba(5,150,105,0.15);
-  --ph-accent-text:  #6ee7b7;   /* emerald-300 */
-  --ph-border:       #0f2d1a;
-  --ph-border-mid:   #166534;
+[data-theme="solarized"] {
+  /* Solarized Dark — by Ethan Schoonover */
+  --ph-bg:           #002b36;
+  --ph-surface:      #073642;
+  --ph-card:         #073642;
+  --ph-card-border:  #0d4555;
+  --ph-input:        #0d4555;
+  --ph-hover:        #114f62;
+  --ph-text:         #e8dcc8;
+  --ph-text-muted:   #839496;   /* base0 */
+  --ph-text-faint:   #586e75;   /* base01 */
+  --ph-accent:       #268bd2;   /* blue */
+  --ph-accent-light: #4fa3e0;
+  --ph-accent-bg:    rgba(38,139,210,0.15);
+  --ph-accent-text:  #8ec8f0;
+  --ph-border:       #0d4555;
+  --ph-border-mid:   #255566;
 }
 
-[data-theme="ember"] {
-  --ph-bg:           #0c0500;
-  --ph-surface:      #180b00;
-  --ph-card:         #1a0e00;
-  --ph-card-border:  #2d1a00;
-  --ph-input:        #2d1a00;
-  --ph-hover:        #2d1a00;
-  --ph-text:         #fef3e2;
-  --ph-text-muted:   #fb923c;   /* orange-400 */
-  --ph-text-faint:   #7c3000;
-  --ph-accent:       #ea580c;   /* orange-600 */
-  --ph-accent-light: #f97316;   /* orange-500 */
-  --ph-accent-bg:    rgba(234,88,12,0.15);
-  --ph-accent-text:  #fdba74;   /* orange-300 */
-  --ph-border:       #2d1a00;
-  --ph-border-mid:   #7c2d00;
+[data-theme="mirage"] {
+  /* Ayu Mirage — by dempfi */
+  --ph-bg:           #1a1f29;
+  --ph-surface:      #212733;
+  --ph-card:         #212733;
+  --ph-card-border:  #343f4c;
+  --ph-input:        #343f4c;
+  --ph-hover:        #3d4c5e;
+  --ph-text:         #d9d7ce;
+  --ph-text-muted:   #8f9aaa;
+  --ph-text-faint:   #4f5c6e;
+  --ph-accent:       #6dcbfa;   /* blue */
+  --ph-accent-light: #73d0ff;
+  --ph-accent-bg:    rgba(109,203,250,0.12);
+  --ph-accent-text:  #a8dcf5;
+  --ph-border:       #343f4c;
+  --ph-border-mid:   #3d4c5e;
 }
 
-[data-theme="light"] {
-  --ph-bg:           #f8fafc;   /* slate-50 */
+[data-theme="afterglow"] {
+  /* Afterglow — by YabataDesign */
+  --ph-bg:           #181818;
+  --ph-surface:      #202020;
+  --ph-card:         #202020;
+  --ph-card-border:  #303030;
+  --ph-input:        #303030;
+  --ph-hover:        #3a3a3a;
+  --ph-text:         #d0d0d0;
+  --ph-text-muted:   #909090;
+  --ph-text-faint:   #505050;
+  --ph-accent:       #6c99ba;   /* muted blue */
+  --ph-accent-light: #85b0cc;
+  --ph-accent-bg:    rgba(108,153,186,0.15);
+  --ph-accent-text:  #a8c8de;
+  --ph-border:       #303030;
+  --ph-border-mid:   #404040;
+}
+
+[data-theme="tomorrow-night"] {
+  /* Tomorrow Night — by Chris Kempson */
+  --ph-bg:           #1d1f21;
+  --ph-surface:      #282a2e;
+  --ph-card:         #282a2e;
+  --ph-card-border:  #363a41;
+  --ph-input:        #363a41;
+  --ph-hover:        #404449;
+  --ph-text:         #c4c8c5;
+  --ph-text-muted:   #8a9095;
+  --ph-text-faint:   #505458;
+  --ph-accent:       #80a1bd;   /* blue */
+  --ph-accent-light: #96b8d4;
+  --ph-accent-bg:    rgba(128,161,189,0.15);
+  --ph-accent-text:  #b5cfe0;
+  --ph-border:       #363a41;
+  --ph-border-mid:   #454a52;
+}
+
+/* ---- Light themes (6) ---- */
+
+[data-theme="solarized-light"] {
+  /* Solarized Light — by Ethan Schoonover */
+  --ph-bg:           #fdf6e3;
+  --ph-surface:      #eee8d5;
+  --ph-card:         #eee8d5;
+  --ph-card-border:  #d4cebd;
+  --ph-input:        #e9e2cb;
+  --ph-hover:        #e2dcc5;
+  --ph-text:         #2e3e43;
+  --ph-text-muted:   #52676f;   /* base00 */
+  --ph-text-faint:   #93a1a1;   /* base1 */
+  --ph-accent:       #268bd2;   /* blue */
+  --ph-accent-light: #2aa5ee;
+  --ph-accent-bg:    rgba(38,139,210,0.08);
+  --ph-accent-text:  #1c6c9c;
+  --ph-border:       #d4cebd;
+  --ph-border-mid:   #c6c0ac;
+}
+
+[data-theme="ayu-light"] {
+  /* Ayu Light — by dempfi */
+  --ph-bg:           #fafafa;
   --ph-surface:      #ffffff;
   --ph-card:         #ffffff;
-  --ph-card-border:  #e2e8f0;   /* slate-200 */
-  --ph-input:        #f1f5f9;   /* slate-100 */
-  --ph-hover:        #f1f5f9;
-  --ph-text:         #0f172a;   /* slate-900 */
-  --ph-text-muted:   #475569;   /* slate-600 */
-  --ph-text-faint:   #94a3b8;   /* slate-400 */
-  --ph-accent:       #7c3aed;   /* violet-700 */
-  --ph-accent-light: #8b5cf6;   /* violet-500 */
-  --ph-accent-bg:    rgba(124,58,237,0.08);
-  --ph-accent-text:  #6d28d9;   /* violet-700 */
-  --ph-border:       #e2e8f0;
-  --ph-border-mid:   #cbd5e1;   /* slate-300 */
+  --ph-card-border:  #e7e8ea;
+  --ph-input:        #f0f0f2;
+  --ph-hover:        #eaeaec;
+  --ph-text:         #232834;
+  --ph-text-muted:   #5b6673;
+  --ph-text-faint:   #959da6;
+  --ph-accent:       #41a6d9;   /* blue */
+  --ph-accent-light: #55b8eb;
+  --ph-accent-bg:    rgba(65,166,217,0.08);
+  --ph-accent-text:  #2c8ab8;
+  --ph-border:       #e7e8ea;
+  --ph-border-mid:   #d0d3d7;
+}
+
+[data-theme="atom-light"] {
+  /* Atom One Light — by GitHub */
+  --ph-bg:           #f8f8f8;
+  --ph-surface:      #ffffff;
+  --ph-card:         #ffffff;
+  --ph-card-border:  #e4e4e4;
+  --ph-input:        #ececec;
+  --ph-hover:        #e8e8e8;
+  --ph-text:         #2a2b33;
+  --ph-text-muted:   #545561;
+  --ph-text-faint:   #9d9ea8;
+  --ph-accent:       #2f5af3;   /* blue */
+  --ph-accent-light: #4a6ff5;
+  --ph-accent-bg:    rgba(47,90,243,0.08);
+  --ph-accent-text:  #1e48d9;
+  --ph-border:       #e4e4e4;
+  --ph-border-mid:   #d5d5d5;
+}
+
+[data-theme="tomorrow"] {
+  /* Tomorrow — by Chris Kempson */
+  --ph-bg:           #ffffff;
+  --ph-surface:      #fafafa;
+  --ph-card:         #fafafa;
+  --ph-card-border:  #e0e0e0;
+  --ph-input:        #d6d6d6;
+  --ph-hover:        #e8e8e8;
+  --ph-text:         #2c2c2c;
+  --ph-text-muted:   #4c4c4c;
+  --ph-text-faint:   #8e908c;
+  --ph-accent:       #4170ae;   /* blue */
+  --ph-accent-light: #5184c4;
+  --ph-accent-bg:    rgba(65,112,174,0.08);
+  --ph-accent-text:  #2d5b94;
+  --ph-border:       #e0e0e0;
+  --ph-border-mid:   #d0d0d0;
+}
+
+[data-theme="paper"] {
+  /* Paper — inspired by NLKNguyen/papercolor-theme */
+  --ph-bg:           #eeeeee;
+  --ph-surface:      #ffffff;
+  --ph-card:         #ffffff;
+  --ph-card-border:  #d0d0d0;
+  --ph-input:        #e4e4e4;
+  --ph-hover:        #e0e0e0;
+  --ph-text:         #444444;
+  --ph-text-muted:   #626262;
+  --ph-text-faint:   #8a8a8a;
+  --ph-accent:       #0087af;   /* teal */
+  --ph-accent-light: #00afd7;
+  --ph-accent-bg:    rgba(0,135,175,0.08);
+  --ph-accent-text:  #005f87;
+  --ph-border:       #d0d0d0;
+  --ph-border-mid:   #bcbcbc;
+}
+
+[data-theme="nord-light"] {
+  /* Nord Light — inspired by Arctic Ice Studio's Nord palette */
+  --ph-bg:           #eceff4;
+  --ph-surface:      #e5e9f0;
+  --ph-card:         #ffffff;
+  --ph-card-border:  #d8dee9;
+  --ph-input:        #e5e9f0;
+  --ph-hover:        #d8dee9;
+  --ph-text:         #2e3440;
+  --ph-text-muted:   #4c566a;
+  --ph-text-faint:   #9099a7;
+  --ph-accent:       #5e81ac;   /* frost blue */
+  --ph-accent-light: #81a1c1;
+  --ph-accent-bg:    rgba(94,129,172,0.08);
+  --ph-accent-text:  #4c6fa0;
+  --ph-border:       #d8dee9;
+  --ph-border-mid:   #c8d0de;
 }
 
 /* ---- Apply theme tokens to the UI ---- */

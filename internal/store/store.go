@@ -83,6 +83,9 @@ type TaskRepo interface {
 	ForceFailTask(ctx context.Context, taskID string) (bool, error)
 	// ListCompletedForInbox returns up to limit recently completed, undismissed tasks, newest first.
 	ListCompletedForInbox(ctx context.Context, limit int) ([]*model.Task, error)
+	// ListProjectHistory returns all completed tasks for a project regardless of dismissed state.
+	// Used by the project view history section so dismissed tasks remain visible.
+	ListProjectHistory(ctx context.Context, projectID string) ([]*model.Task, error)
 	// FindByPromptHash returns the most recent completed task for the given project
 	// whose prompt_hash matches, or nil if none exists. Used for monitor output diffing.
 	FindByPromptHash(ctx context.Context, projectID, hash string) (*model.Task, error)

@@ -6,7 +6,7 @@
  * RIGHT:  task detail / compose form / new-project form
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +14,7 @@ import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { phoenixWS } from '@/lib/ws'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,6 +127,8 @@ export function ProjectsWorkspace() {
         onCompose={() => setRightPane({ type: 'compose' })}
         onEdit={() => setRightPane({ type: 'edit-project' })}
         onAgentAssigned={() => projectId && loadProject(projectId)}
+        onTasksRefresh={refreshTasks}
+        onProjectObjectiveUpdated={loadBase}
       />
 
       {/* RIGHT PANE — detail / compose / new-project */}
@@ -291,10 +294,21 @@ interface MiddlePaneProps {
   onCompose: () => void
   onEdit: () => void
   onAgentAssigned: () => void
+  onTasksRefresh: () => void
+  onProjectObjectiveUpdated: () => void
 }
 
+// Status-section config — order determines priority shown top-to-bottom.
+const TASK_SECTIONS: { label: string; statuses: Task['status'][]; color: string; sectionKey: string }[] = [
+  { label: 'Needs Attention', statuses: ['awaiting_approval'], color: 'text-amber-400', sectionKey: 'attention' },
+  { label: 'Running',         statuses: ['running', 'queued'],  color: 'text-violet-400', sectionKey: 'running' },
+  { label: 'Failed',          statuses: ['failed'],             color: 'text-red-400',    sectionKey: 'failed' },
+  { label: 'Completed',       statuses: ['completed'],          color: 'text-emerald-400', sectionKey: 'completed' },
+]
+
 function MiddlePane({
-  project, projectAgents, allAgents, tasks, selectedTask, selectedFile, onTaskClick, onFileClick, onCompose, onEdit, onAgentAssigned,
+  project, projectAgents, allAgents, tasks, selectedTask, selectedFile,
+  onTaskClick, onFileClick, onCompose, onEdit, onAgentAssigned, onTasksRefresh, onProjectObjectiveUpdated,
 }: MiddlePaneProps) {
   const [tab, setTab] = useState<'tasks' | 'files'>('tasks')
   const [assignOpen, setAssignOpen] = useState(false)
@@ -303,7 +317,42 @@ function MiddlePane({
   const [files, setFiles] = useState<ProjectFileEntry[]>([])
   const [filesLoading, setFilesLoading] = useState(false)
 
+  // Objective inline-edit
+  const [editingObjective, setEditingObjective] = useState(false)
+  const [objectiveDraft, setObjectiveDraft] = useState('')
+  const [savingObjective, setSavingObjective] = useState(false)
+  const objectiveRef = useRef<HTMLTextAreaElement>(null)
+
+  // Collapsed sections — completed collapsed by default; others expanded
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    if (!project) return {}
+    const stored = localStorage.getItem(`phoenix-sections-${project?.id}`)
+    return stored ? JSON.parse(stored) : { completed: true }
+  })
+
+  // History (completed incl. dismissed) — loaded lazily when completed section expanded
+  const [history, setHistory] = useState<Task[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+
+  // AI suggestion card
+  const [suggestion, setSuggestion] = useState<{ title: string; description: string } | null>(null)
+  const [suggesting, setSuggesting] = useState(false)
+  const [runningFromSuggest, setRunningFromSuggest] = useState(false)
+
   const unassignedAgents = allAgents.filter(a => !projectAgents.find(pa => pa.id === a.id))
+
+  // Reset per-project state when project changes
+  useEffect(() => {
+    setHistory([])
+    setHistoryLoaded(false)
+    setSuggestion(null)
+    setEditingObjective(false)
+    if (project) {
+      const stored = localStorage.getItem(`phoenix-sections-${project.id}`)
+      setCollapsed(stored ? JSON.parse(stored) : { completed: true })
+    }
+  }, [project?.id])
 
   // Load file list when Files tab is selected
   useEffect(() => {
@@ -314,6 +363,42 @@ function MiddlePane({
       .catch(() => setFiles([]))
       .finally(() => setFilesLoading(false))
   }, [tab, project?.id])
+
+  // WS: refresh task list when a task status changes for the current project
+  useEffect(() => {
+    if (!project) return
+    const unsub = phoenixWS.on(ev => {
+      if (ev.type === 'task.status_changed') {
+        const p = ev.payload as any
+        if (p?.project_id === project.id) {
+          onTasksRefresh()
+          // If completed section is open, refresh history too
+          if (!collapsed['completed'] && historyLoaded) {
+            setHistoryLoaded(false)
+          }
+        }
+      }
+    })
+    return unsub
+  }, [project?.id, collapsed, historyLoaded, onTasksRefresh])
+
+  const toggleSection = (key: string) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      if (project) localStorage.setItem(`phoenix-sections-${project.id}`, JSON.stringify(next))
+      return next
+    })
+  }
+
+  // Load history when completed section is expanded for the first time
+  useEffect(() => {
+    if (!project || collapsed['completed'] || historyLoaded) return
+    setHistoryLoading(true)
+    api.projects.history(project.id)
+      .then(h => { setHistory(h); setHistoryLoaded(true) })
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false))
+  }, [project?.id, collapsed, historyLoaded])
 
   const handleAssign = async () => {
     if (!project || !assignAgentId) return
@@ -328,6 +413,51 @@ function MiddlePane({
     }
   }
 
+  const startEditObjective = () => {
+    setObjectiveDraft(project?.objective ?? '')
+    setEditingObjective(true)
+    setTimeout(() => objectiveRef.current?.focus(), 0)
+  }
+
+  const saveObjective = async () => {
+    if (!project) return
+    setSavingObjective(true)
+    try {
+      await api.projects.update(project.id, { ...project, objective: objectiveDraft })
+      onProjectObjectiveUpdated()
+    } finally {
+      setSavingObjective(false)
+      setEditingObjective(false)
+    }
+  }
+
+  const handleSuggest = async () => {
+    if (!project) return
+    setSuggesting(true)
+    setSuggestion(null)
+    try {
+      const res = await api.projects.suggest(project.id)
+      if (res.suggestions?.length > 0) setSuggestion(res.suggestions[0])
+    } catch { /* ignore */ }
+    finally { setSuggesting(false) }
+  }
+
+  const runSuggestion = async () => {
+    if (!project || !suggestion || projectAgents.length === 0) return
+    setRunningFromSuggest(true)
+    try {
+      await api.tasks.create({
+        project_id: project.id,
+        agent_id: projectAgents[0].id,
+        title: suggestion.title,
+        description: suggestion.description,
+      })
+      setSuggestion(null)
+      onTasksRefresh()
+    } catch { /* ignore */ }
+    finally { setRunningFromSuggest(false) }
+  }
+
   if (!project) {
     return (
       <div className="flex-1 flex items-center justify-center text-slate-600 text-sm">
@@ -336,35 +466,110 @@ function MiddlePane({
     )
   }
 
+  // Build counts from active tasks (non-dismissed only)
+  const countByStatus = (statuses: Task['status'][]) =>
+    tasks.filter(t => statuses.includes(t.status)).length
+
+  const totalDone = tasks.filter(t => t.status === 'completed').length
+  const totalFailed = tasks.filter(t => t.status === 'failed').length
+  const totalRunning = tasks.filter(t => t.status === 'running' || t.status === 'queued').length
+  const totalAttention = tasks.filter(t => t.status === 'awaiting_approval').length
+
+  // Merge active completed tasks with history (de-dup by id)
+  const completedActive = tasks.filter(t => t.status === 'completed')
+  const completedAll = historyLoaded
+    ? [...completedActive, ...history.filter(h => !completedActive.find(t => t.id === h.id))]
+    : completedActive
+
   return (
     <div className="flex flex-col w-80 shrink-0 border-r border-slate-800 bg-slate-900">
-      {/* Project header */}
+      {/* ── Project header ── */}
       <div className="px-4 pt-3 pb-2 border-b border-slate-800">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start justify-between gap-2 mb-1.5">
           <h2 className="text-sm font-semibold text-white truncate">{project.name}</h2>
           <button
             onClick={onEdit}
             className="shrink-0 text-xs text-slate-500 hover:text-slate-300 transition-colors"
             title="Edit project"
           >
-            ✎ Edit
+            ✎
           </button>
         </div>
-        {project.description && (
-          <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{project.description}</p>
+
+        {/* Inline-editable objective */}
+        {editingObjective ? (
+          <div className="mb-2">
+            <textarea
+              ref={objectiveRef}
+              value={objectiveDraft}
+              onChange={e => setObjectiveDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveObjective() } if (e.key === 'Escape') setEditingObjective(false) }}
+              rows={3}
+              className="w-full text-xs bg-slate-800 border border-violet-500/50 text-slate-200 rounded px-2 py-1.5 resize-none focus:outline-none"
+              placeholder="What is this project trying to accomplish?"
+            />
+            <div className="flex gap-2 mt-1">
+              <button onClick={saveObjective} disabled={savingObjective}
+                className="text-[10px] px-2 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50">
+                {savingObjective ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => setEditingObjective(false)}
+                className="text-[10px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-300">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={startEditObjective}
+            className="w-full text-left mb-2 group"
+            title="Click to set objective"
+          >
+            <div className="text-[10px] text-slate-600 uppercase tracking-wide mb-0.5">
+              Objective <span className="text-slate-700 group-hover:text-slate-500 transition-colors">· edit</span>
+            </div>
+            <div className={cn('text-xs leading-relaxed', project.objective ? 'text-slate-400' : 'text-slate-600 italic')}>
+              {project.objective || 'Click to add an objective…'}
+            </div>
+          </button>
         )}
 
+        {/* Status counts + actions */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {totalDone > 0 && (
+            <button onClick={() => !collapsed['completed'] || toggleSection('completed')}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-400">
+              ✓ {totalDone}
+            </button>
+          )}
+          {totalFailed > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-900/40 text-red-400">✗ {totalFailed}</span>
+          )}
+          {totalRunning > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/40 text-violet-400">● {totalRunning}</span>
+          )}
+          {totalAttention > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">⚠ {totalAttention}</span>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={handleSuggest}
+            disabled={suggesting}
+            className="text-[10px] px-2 py-0.5 rounded bg-blue-900/40 text-blue-300 hover:bg-blue-900/60 disabled:opacity-50 transition-colors"
+            title="Ask AI to suggest the next action"
+          >
+            {suggesting ? '…' : '✦ Suggest'}
+          </button>
+        </div>
+
         {/* Agent roster pills */}
-        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+        <div className="flex flex-wrap items-center gap-1 mt-2">
           {projectAgents.map(a => (
-            <span key={a.id} className="text-xs bg-slate-800 text-slate-300 rounded-full px-2 py-0.5">
+            <span key={a.id} className="text-[10px] bg-slate-800 text-slate-400 rounded-full px-2 py-0.5">
               {a.name}
             </span>
           ))}
-          <button
-            onClick={() => setAssignOpen(v => !v)}
-            className="text-xs text-violet-400 hover:text-violet-300"
-          >
+          <button onClick={() => setAssignOpen(v => !v)} className="text-[10px] text-violet-400 hover:text-violet-300">
             + Assign
           </button>
         </div>
@@ -372,21 +577,15 @@ function MiddlePane({
         {/* Assign agent popover */}
         {assignOpen && (
           <div className="mt-2 p-2 bg-slate-800 rounded border border-slate-700 flex gap-2">
-            <select
-              value={assignAgentId}
-              onChange={e => setAssignAgentId(e.target.value)}
-              className="flex-1 text-xs bg-slate-900 border border-slate-700 text-slate-300 rounded px-2 py-1"
-            >
+            <select value={assignAgentId} onChange={e => setAssignAgentId(e.target.value)}
+              className="flex-1 text-xs bg-slate-900 border border-slate-700 text-slate-300 rounded px-2 py-1">
               <option value="">Select agent…</option>
               {unassignedAgents.map(a => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
-            <button
-              onClick={handleAssign}
-              disabled={!assignAgentId || assigning}
-              className="text-xs bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-2 py-1"
-            >
+            <button onClick={handleAssign} disabled={!assignAgentId || assigning}
+              className="text-xs bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-2 py-1">
               {assigning ? '…' : 'Add'}
             </button>
           </div>
@@ -396,25 +595,17 @@ function MiddlePane({
       {/* Tabs */}
       <div className="flex items-center border-b border-slate-800 px-4">
         {(['tasks', 'files'] as const).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
+          <button key={t} onClick={() => setTab(t)}
             className={cn(
               'text-xs py-2 mr-4 border-b-2 transition-colors capitalize',
-              tab === t
-                ? 'border-violet-500 text-white'
-                : 'border-transparent text-slate-500 hover:text-slate-300'
-            )}
-          >
+              tab === t ? 'border-violet-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'
+            )}>
             {t}
           </button>
         ))}
         <div className="flex-1" />
         {tab === 'tasks' && (
-          <button
-            onClick={onCompose}
-            className="text-xs text-violet-400 hover:text-violet-300 py-2"
-          >
+          <button onClick={onCompose} className="text-xs text-violet-400 hover:text-violet-300 py-2">
             + Task
           </button>
         )}
@@ -423,17 +614,90 @@ function MiddlePane({
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {tab === 'tasks' && (
-          tasks.length === 0
-            ? <p className="text-xs text-slate-500 px-4 py-6">No tasks yet. Create one with + Task.</p>
-            : tasks.map(task => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  agents={projectAgents}
-                  selected={selectedTask?.id === task.id}
-                  onClick={() => onTaskClick(task)}
-                />
-              ))
+          <div>
+            {/* AI suggestion card */}
+            {suggestion && (
+              <div className="mx-3 mt-3 mb-1 bg-emerald-950/60 border border-emerald-800/50 rounded-lg p-3">
+                <div className="text-[9px] text-emerald-400 uppercase tracking-wide font-semibold mb-1">✦ Suggested next action</div>
+                <div className="text-xs text-slate-200 font-medium mb-1">{suggestion.title}</div>
+                <div className="text-[10px] text-slate-400 mb-2 leading-relaxed">{suggestion.description}</div>
+                <div className="flex gap-2">
+                  <button onClick={runSuggestion} disabled={runningFromSuggest || projectAgents.length === 0}
+                    className="text-[10px] px-2 py-0.5 rounded bg-emerald-700 text-emerald-100 hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                    {runningFromSuggest ? 'Starting…' : '▶ Run this'}
+                  </button>
+                  <button onClick={() => setSuggestion(null)}
+                    className="text-[10px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-300">
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Status-grouped sections */}
+            {TASK_SECTIONS.map(section => {
+              // For completed, use merged active+history list
+              const sectionTasks = section.sectionKey === 'completed'
+                ? completedAll
+                : tasks.filter(t => section.statuses.includes(t.status))
+
+              // Always show count from active tasks in header; history augments when expanded
+              const activeCount = countByStatus(section.statuses)
+              const displayCount = section.sectionKey === 'completed' && historyLoaded
+                ? completedAll.length
+                : activeCount
+
+              if (activeCount === 0 && section.sectionKey !== 'completed') return null
+
+              const isCollapsed = collapsed[section.sectionKey] ?? false
+
+              return (
+                <div key={section.sectionKey}>
+                  {/* Section header */}
+                  <button
+                    onClick={() => toggleSection(section.sectionKey)}
+                    className="w-full flex items-center justify-between px-4 py-1.5 hover:bg-slate-800/40 transition-colors"
+                  >
+                    <span className={cn('text-[10px] font-semibold uppercase tracking-wide', section.color)}>
+                      {section.label}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-600">{displayCount}</span>
+                      <span className="text-[10px] text-slate-600">{isCollapsed ? '▶' : '▼'}</span>
+                    </div>
+                  </button>
+
+                  {/* Tasks in section */}
+                  {!isCollapsed && (
+                    section.sectionKey === 'completed' && historyLoading ? (
+                      <p className="text-[10px] text-slate-500 px-4 py-2">Loading history…</p>
+                    ) : sectionTasks.length === 0 ? (
+                      <p className="text-[10px] text-slate-600 px-4 py-1.5 italic">None</p>
+                    ) : (
+                      sectionTasks.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          agents={projectAgents}
+                          selected={selectedTask?.id === task.id}
+                          onClick={() => onTaskClick(task)}
+                        />
+                      ))
+                    )
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Empty state — no tasks at all */}
+            {tasks.length === 0 && !suggestion && (
+              <p className="text-xs text-slate-500 px-4 py-6">
+                No tasks yet. Create one with <span className="text-violet-400">+ Task</span>, or use{' '}
+                <button onClick={handleSuggest} className="text-blue-400 hover:text-blue-300">✦ Suggest</button>{' '}
+                to get an AI recommendation.
+              </p>
+            )}
+          </div>
         )}
         {tab === 'files' && (
           filesLoading

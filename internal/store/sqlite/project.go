@@ -14,7 +14,7 @@ type ProjectRepo struct{ db *DB }
 
 func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
-const projectSelectCols = `id, name, description, working_dir, kind, schedule_interval,
+const projectSelectCols = `id, name, description, objective, working_dir, kind, schedule_interval,
 	schedule_kind, schedule_times, schedule_catch_up,
 	owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, tags, created_at`
 
@@ -71,11 +71,11 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 	tagsJSON := marshalTags(p.Tags)
 	timesJSON := marshalStringSlice(p.ScheduleTimes)
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO projects (id, name, description, working_dir, kind, schedule_interval,
+		`INSERT INTO projects (id, name, description, objective, working_dir, kind, schedule_interval,
 		 schedule_kind, schedule_times, schedule_catch_up,
 		 owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, tags)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Description, p.WorkingDir, kind, p.ScheduleInterval,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Description, p.Objective, p.WorkingDir, kind, p.ScheduleInterval,
 		scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
 		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), tagsJSON)
@@ -97,11 +97,11 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 	tagsJSON := marshalTags(p.Tags)
 	timesJSON := marshalStringSlice(p.ScheduleTimes)
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE projects SET name = ?, description = ?, working_dir = ?, kind = ?,
+		`UPDATE projects SET name = ?, description = ?, objective = ?, working_dir = ?, kind = ?,
 		 schedule_interval = ?, schedule_kind = ?, schedule_times = ?, schedule_catch_up = ?,
 		 status = ?, critic_agent_id = ?, critic_mode = ?, monitor_model = ?,
 		 budget_usd = ?, budget_period = ?, tags = ? WHERE id = ?`,
-		p.Name, p.Description, p.WorkingDir, kind,
+		p.Name, p.Description, p.Objective, p.WorkingDir, kind,
 		p.ScheduleInterval, scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
 		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), tagsJSON, p.ID)
@@ -196,7 +196,7 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 	var catchUp int
 	var criticAgentID sql.NullString
 	err := row.Scan(
-		&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval,
+		&p.ID, &p.Name, &p.Description, &p.Objective, &p.WorkingDir, &kind, &p.ScheduleInterval,
 		&scheduleKind, &timesJSON, &catchUp,
 		&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel,
 		&p.BudgetUSD, &p.BudgetPeriod, &tagsJSON, &p.CreatedAt,
@@ -237,7 +237,7 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 		var catchUp int
 		var criticAgentID sql.NullString
 		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Description, &p.WorkingDir, &kind, &p.ScheduleInterval,
+			&p.ID, &p.Name, &p.Description, &p.Objective, &p.WorkingDir, &kind, &p.ScheduleInterval,
 			&scheduleKind, &timesJSON, &catchUp,
 			&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel,
 			&p.BudgetUSD, &p.BudgetPeriod, &tagsJSON, &p.CreatedAt,

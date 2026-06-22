@@ -50,6 +50,7 @@ export interface Project {
   id: string
   name: string
   description: string
+  objective: string          // high-level goal statement; empty string = not set
   working_dir: string
   kind: 'project' | 'monitor'
   schedule_interval: number | null  // seconds; null = no schedule (monitors only)
@@ -355,6 +356,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ name, hint: hint ?? '', provider_id: providerId ?? '' }),
       }),
+    history: (id: string) => request<Task[]>(`/projects/${id}/history`),
+    suggest: (id: string) =>
+      request<{ suggestions: { title: string; description: string }[] }>(
+        `/projects/${id}/suggest`, { method: 'POST', body: '{}' }
+      ),
   },
   tasks: {
     list: (projectId: string) => request<Task[]>(`/tasks?project_id=${projectId}`),

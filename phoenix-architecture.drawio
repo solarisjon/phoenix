@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Phoenix Architecture">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="2" value="Phoenix — AI Agent Orchestration Platform" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="10" width="1720" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== CLIENT LAYER ===================== -->
+        <mxCell id="10" value="Browser / Client" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="50" width="1720" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="11" value="React SPA&#xa;TypeScript + Vite + Tailwind" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="10">
+          <mxGeometry x="80" y="35" width="260" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="12" value="WebSocket Client&#xa;lib/ws.ts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="10">
+          <mxGeometry x="390" y="35" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="13" value="Typed API Client&#xa;lib/api.ts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="10">
+          <mxGeometry x="640" y="35" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== PHOENIX SERVER LAYER ===================== -->
+        <mxCell id="20" value="Phoenix Go Binary  (single binary · SQLite · embed.FS)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="1720" height="310" as="geometry" />
+        </mxCell>
+
+        <!-- Row 1: API / Routing -->
+        <mxCell id="21" value="chi Router&#xa;server.go" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="20">
+          <mxGeometry x="30" y="40" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="22" value="REST API Handlers&#xa;agents · tasks · projects&#xa;teams · inbox · memos · settings" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="230" y="40" width="250" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="23" value="WebSocket Hub&#xa;hub.go / ws.go / events.go" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="530" y="40" width="230" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="24" value="embed.FS&#xa;web/dist/ (React build)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="810" y="40" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Row 2: Business Logic -->
+        <mxCell id="25" value="Agent Runner&#xa;agent/runner.go&#xa;goroutines · PID · timeout" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="30" y="175" width="230" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="26" value="Scheduler&#xa;scheduler/scheduler.go&#xa;60s scan · monitor tickers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="310" y="175" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="27" value="Provider Registry&#xa;provider/registry.go&#xa;dispatches by kind field" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="580" y="175" width="220" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="28" value="Prompt Builder&#xa;agent/prompt.go&#xa;system prompt · guardrails · memos" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="850" y="175" width="230" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- SQLite (right side, spanning both rows) -->
+        <mxCell id="29" value="SQLite&#xa;modernc.org/sqlite&#xa;store/sqlite/&#xa;migrations 001-026" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="20">
+          <mxGeometry x="1390" y="45" width="200" height="150" as="geometry" />
+        </mxCell>
+
+        <!-- Internal edges in Phoenix Server layer -->
+        <mxCell id="30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="20" source="21" target="22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="31" value="dispatch task" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;" edge="1" parent="20" source="22" target="25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="32" value="trigger" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;" edge="1" parent="20" source="26" target="25">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="33" value="dispatch" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;" edge="1" parent="20" source="25" target="27">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="34" value="build prompt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;" edge="1" parent="20" source="25" target="28">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="35" value="CRUD" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;" edge="1" parent="20" source="22" target="29">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="36" value="read/write" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;" edge="1" parent="20" source="25" target="29">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== PROVIDER ADAPTERS LAYER ===================== -->
+        <mxCell id="40" value="Provider Adapters" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="570" width="1720" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="41" value="LLM Adapter&#xa;provider/llm/&#xa;HTTP SSE (OpenAI-compat)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="40">
+          <mxGeometry x="20" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="42" value="Ollama Adapter&#xa;provider/ollama/&#xa;HTTP NDJSON /api/chat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="40">
+          <mxGeometry x="260" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="43" value="opencode Adapter&#xa;provider/opencode/&#xa;NDJSON CLI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="40">
+          <mxGeometry x="500" y="40" width="210" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="44" value="pi Adapter&#xa;provider/pi/&#xa;stdin · --mode json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="40">
+          <mxGeometry x="730" y="40" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="45" value="claudecode Adapter&#xa;provider/claudecode/&#xa;stream-json CLI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="40">
+          <mxGeometry x="950" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="46" value="crush Adapter&#xa;provider/crush/&#xa;AGENTS.md · stdin" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="40">
+          <mxGeometry x="1190" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== EXTERNAL SERVICES LAYER ===================== -->
+        <mxCell id="50" value="External Services  (dashed = outside the process)" style="swimlane;startSize=30;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="760" width="1720" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="51" value="OpenAI / LLM APIs&#xa;HTTP SSE" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="50">
+          <mxGeometry x="20" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="52" value="Ollama Server&#xa;local HTTP" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="50">
+          <mxGeometry x="260" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="53" value="opencode CLI&#xa;binary" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="50">
+          <mxGeometry x="500" y="40" width="210" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="54" value="pi CLI&#xa;binary" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="50">
+          <mxGeometry x="730" y="40" width="200" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="55" value="claude CLI&#xa;binary" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="50">
+          <mxGeometry x="950" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="56" value="crush CLI&#xa;binary" style="rounded=1;dashed=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="50">
+          <mxGeometry x="1190" y="40" width="220" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== CROSS-LAYER EDGES ===================== -->
+
+        <!-- React SPA → chi Router -->
+        <mxCell id="60" value="HTTP/REST" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="11" target="21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Typed API Client → REST Handlers -->
+        <mxCell id="61" value="HTTP/REST" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="13" target="22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- WS Client ↔ WS Hub -->
+        <mxCell id="62" value="WebSocket" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="12" target="23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Provider Registry → each adapter -->
+        <mxCell id="63" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="27" target="41">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="64" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="27" target="42">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="65" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="27" target="43">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="66" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="27" target="44">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="67" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="27" target="45">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="68" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="27" target="46">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Adapters → External services -->
+        <mxCell id="69" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="41" target="51">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="70" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="42" target="52">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="71" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="43" target="53">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="72" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="44" target="54">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="73" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="45" target="55">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="74" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="46" target="56">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

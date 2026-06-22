@@ -282,6 +282,19 @@ func (r *TaskRepo) ForceFailTask(ctx context.Context, taskID string) (bool, erro
 	return n > 0, nil
 }
 
+// ListProjectHistory returns all completed tasks for a project regardless of dismissed state.
+// Used by the project view to show full history including inbox-dismissed tasks.
+func (r *TaskRepo) ListProjectHistory(ctx context.Context, projectID string) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE project_id = ? AND status = 'completed'
+		 ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project history: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
 	var status string

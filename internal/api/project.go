@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 type createProjectRequest struct {
 	Name             string   `json:"name"`
 	Description      string   `json:"description"`
+	Objective        string   `json:"objective"`
 	WorkingDir       string   `json:"working_dir"`
 	Kind             string   `json:"kind"`
 	Status           string   `json:"status"`
@@ -164,6 +166,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		ID:               uuid.New().String(),
 		Name:             strings.TrimSpace(req.Name),
 		Description:      req.Description,
+		Objective:        req.Objective,
 		WorkingDir:       strings.TrimSpace(req.WorkingDir),
 		Kind:             kind,
 		ScheduleInterval: req.ScheduleInterval,
@@ -210,6 +213,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 
 	existing.Name = strings.TrimSpace(req.Name)
 	existing.Description = req.Description
+	existing.Objective = req.Objective
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
 	existing.ScheduleInterval = req.ScheduleInterval
 	existing.ScheduleKind = resolveScheduleKind(req.ScheduleKind)
@@ -829,4 +833,136 @@ func parseArtifactBlocks(output string) []parsedArtifact {
 		}
 	}
 	return results
+}
+
+// listProjectHistory returns all completed tasks for a project regardless of dismissed state.
+// Used by the project view to show full history including inbox-dismissed tasks.
+func (s *Server) listProjectHistory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	tasks, err := s.tasks.ListProjectHistory(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if tasks == nil {
+		tasks = []*model.Task{}
+	}
+	respond(w, http.StatusOK, tasks)
+}
+
+// suggestProjectNextAction uses an LLM to suggest 1–3 next tasks for a project
+// based on its objective and recent task history.
+func (s *Server) suggestProjectNextAction(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	project, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if project == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	// Gather recent task history (last 20) for context.
+	recentTasks, err := s.tasks.ListByProject(r.Context(), id, "", 20)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	// Find a suitable LLM provider.
+	providers, err := s.providers.List(r.Context())
+	if err != nil || len(providers) == 0 {
+		respondErr(w, http.StatusUnprocessableEntity, "no providers available for suggestions")
+		return
+	}
+	var providerID string
+	for _, p := range providers {
+		if p.Type == model.ProviderTypeLLM {
+			providerID = p.ID
+			break
+		}
+	}
+	if providerID == "" {
+		// Fall back to any provider (may be a coding agent — best-effort).
+		providerID = providers[0].ID
+	}
+
+	prov, err := s.registry.Get(r.Context(), providerID)
+	if err != nil {
+		respondErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("provider load failed: %v", err))
+		return
+	}
+
+	// Build task history summary.
+	var historyLines []string
+	for _, t := range recentTasks {
+		historyLines = append(historyLines, fmt.Sprintf("- [%s] %s", t.Status, t.Title))
+	}
+	historyText := strings.Join(historyLines, "\n")
+	if historyText == "" {
+		historyText = "(no tasks yet)"
+	}
+
+	objective := strings.TrimSpace(project.Objective)
+	if objective == "" {
+		objective = "(no objective set)"
+	}
+
+	prompt := fmt.Sprintf(`You are a project planning assistant helping with: "%s".
+
+Project objective: %s
+
+Recent tasks:
+%s
+
+Suggest 1 to 3 specific, actionable next tasks for this project. Each suggestion should be something an AI agent could execute — concrete enough to be run as a task.
+
+Return a JSON array. Each item must have "title" (short, max 80 chars) and "description" (1-2 sentences explaining what to do). Example:
+[{"title": "Write article on giving feedback", "description": "Draft a 500-word article covering how to deliver constructive feedback to team members."}]
+
+Return ONLY the JSON array, no prose, no markdown.`, project.Name, objective, historyText)
+
+	resp, err := prov.Execute(r.Context(), provider.TaskRequest{
+		SystemPrompt: "You are a concise project planning assistant. Return only valid JSON arrays, no markdown.",
+		Prompt:       prompt,
+	})
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, fmt.Sprintf("suggestion generation failed: %v", err))
+		return
+	}
+
+	// Parse the JSON response — extract array even if wrapped in markdown fences.
+	raw := strings.TrimSpace(resp.Output)
+	if idx := strings.Index(raw, "["); idx >= 0 {
+		raw = raw[idx:]
+	}
+	if idx := strings.LastIndex(raw, "]"); idx >= 0 {
+		raw = raw[:idx+1]
+	}
+
+	type suggestion struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+	}
+	var suggestions []suggestion
+	if err := json.Unmarshal([]byte(raw), &suggestions); err != nil || len(suggestions) == 0 {
+		// Return a graceful fallback rather than an error.
+		suggestions = []suggestion{{
+			Title:       "Review project progress",
+			Description: "Review recent task outputs and identify the next most impactful action for this project.",
+		}}
+	}
+
+	respond(w, http.StatusOK, map[string]any{"suggestions": suggestions})
 }
