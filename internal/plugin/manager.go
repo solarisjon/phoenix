@@ -148,11 +148,12 @@ func (m *Manager) HandleEvent(eventType string, payload json.RawMessage) {
 
 	// Parse the status payload.
 	var sp struct {
-		TaskID    string `json:"task_id"`
-		AgentID   string `json:"agent_id"`
-		ProjectID string `json:"project_id"`
-		Status    string `json:"status"`
+		TaskID    string  `json:"task_id"`
+		AgentID   string  `json:"agent_id"`
+		ProjectID string  `json:"project_id"`
+		Status    string  `json:"status"`
 		CostUSD   float64 `json:"cost_usd"`
+		Title     string  `json:"title"`
 	}
 	if err := json.Unmarshal(payload, &sp); err != nil {
 		log.Printf("plugin: unmarshal status payload: %v", err)
@@ -175,12 +176,12 @@ func (m *Manager) HandleEvent(eventType string, payload json.RawMessage) {
 	}
 
 	// Dispatch in background.
-	go m.dispatch(notifyEvent, sp.TaskID, sp.AgentID, sp.ProjectID)
+	go m.dispatch(notifyEvent, sp.TaskID, sp.Title, sp.AgentID, sp.ProjectID)
 }
 
 // dispatch finds matching rules and sends notifications.
-func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, agentID, projectID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, taskTitle, agentID, projectID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	rules, err := m.rules.ListByEventType(ctx, eventType)
@@ -215,8 +216,9 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, agentID, pro
 		msg := notifiers.NotifyMessage{
 			EventType:   string(eventType),
 			TaskID:      taskID,
-			AgentName:   agentID,   // TODO: resolve to name via repo if needed
-			ProjectName: projectID, // TODO: resolve to name via repo if needed
+			TaskTitle:   taskTitle,
+			AgentName:   agentID,   // UUID for now; name lookup would require repo injection
+			ProjectName: projectID, // UUID for now; name lookup would require repo injection
 			Timestamp:   time.Now(),
 		}
 
@@ -228,9 +230,13 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, agentID, pro
 		msg.Body = renderTemplate(tmplText, msg)
 		msg.Title = msg.Body // for now, title = body
 
-		// Send asynchronously per notifier.
+		// Send asynchronously per notifier. Each goroutine gets its own
+		// independent context so that the parent dispatch() returning (and
+		// cancelling its ctx via defer) does not abort the in-flight HTTP call.
 		go func(p *model.Plugin, n notifiers.Notifier, m notifiers.NotifyMessage) {
-			if err := n.Send(ctx, json.RawMessage(p.Config), m); err != nil {
+			sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer sendCancel()
+			if err := n.Send(sendCtx, json.RawMessage(p.Config), m); err != nil {
 				log.Printf("plugin: %s send failed: %v", p.Kind, err)
 			} else {
 				log.Printf("plugin: %s notification sent for %s", p.Kind, m.EventType)

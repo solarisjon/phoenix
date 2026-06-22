@@ -157,6 +157,7 @@ func (h *Hub) BroadcastAgentEvent(ev agent.StreamEvent, tasks store.TaskRepo) {
 				ProjectID: projectID,
 				Status:    status,
 				CostUSD:   costUSD,
+				Title:     title,
 			},
 		})
 

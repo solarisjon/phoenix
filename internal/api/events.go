@@ -28,6 +28,7 @@ type TaskStatusPayload struct {
 	ProjectID string           `json:"project_id"`
 	Status    model.TaskStatus `json:"status"`
 	CostUSD   float64          `json:"cost_usd"`
+	Title     string           `json:"title"`     // task title for notification messages
 }
 
 // TaskStreamPayload is sent for each streamed output chunk.
