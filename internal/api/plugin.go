@@ -297,15 +297,22 @@ func (s *Server) discoverTelegramChats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var cfg struct {
-		BotToken string `json:"bot_token"`
+	// Accept bot_token from query param (unsaved form state) or fall back to saved config.
+	botToken := r.URL.Query().Get("bot_token")
+	if botToken == "" {
+		var cfg struct {
+			BotToken string `json:"bot_token"`
+		}
+		if err := json.Unmarshal([]byte(p.Config), &cfg); err == nil {
+			botToken = cfg.BotToken
+		}
 	}
-	if err := json.Unmarshal([]byte(p.Config), &cfg); err != nil || cfg.BotToken == "" {
-		respondErr(w, http.StatusBadRequest, "configure a bot token first")
+	if botToken == "" {
+		respondErr(w, http.StatusBadRequest, "enter a bot token first")
 		return
 	}
 
-	chats, err := telegram.GetChats(cfg.BotToken)
+	chats, err := telegram.GetChats(botToken)
 	if err != nil {
 		respondErr(w, http.StatusBadRequest, err.Error())
 		return

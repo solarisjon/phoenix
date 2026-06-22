@@ -260,9 +260,8 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     setChatError(null)
     setDiscoveredChats(null)
     try {
-      // Save current config first so the backend has the bot token.
-      await api.plugins.update(plugin.id, { ...plugin, config: JSON.stringify(configValues) })
-      const chats = await api.plugins.discoverChats(plugin.id)
+      // Pass the bot token directly from the form — no save required.
+      const chats = await api.plugins.discoverChats(plugin.id, configValues.bot_token)
       setDiscoveredChats(chats)
     } catch (e: any) {
       setChatError(e.message)
