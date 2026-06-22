@@ -25,6 +25,11 @@ interface LLMConfig {
   cost_per_input_token: number
   cost_per_output_token: number
   timeout_seconds: number
+  api_flavour: string   // "openai" (default) or "anthropic"
+  use_prompt_cache: boolean
+  max_tokens: number
+  cost_per_cache_write_token: number
+  cost_per_cache_read_token: number
 }
 
 interface CodingAgentConfig {
@@ -47,8 +52,10 @@ function LLMFields({ cfg, onChange, providerId }: {
   onChange: (c: LLMConfig) => void
   providerId?: string
 }) {
+  const isAnthropic = cfg.api_flavour === 'anthropic'
+
   const set = (key: keyof LLMConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange({ ...cfg, [key]: key.startsWith('cost') || key === 'timeout_seconds' ? Number(e.target.value) : e.target.value })
+    onChange({ ...cfg, [key]: key.startsWith('cost') || key === 'timeout_seconds' || key === 'max_tokens' ? Number(e.target.value) : e.target.value })
 
   return (
     <div className="space-y-4">
@@ -74,6 +81,57 @@ function LLMFields({ cfg, onChange, providerId }: {
           placeholder="gpt-4o"
         />
       </div>
+
+      {/* API flavour + prompt caching */}
+      <div>
+        <Label htmlFor="api_flavour">API Flavour</Label>
+        <Select id="api_flavour" value={cfg.api_flavour || 'openai'}
+          onChange={e => onChange({ ...cfg, api_flavour: e.target.value, use_prompt_cache: false })}>
+          <option value="openai">OpenAI / compatible</option>
+          <option value="anthropic">Anthropic Messages API</option>
+        </Select>
+        <p className="text-xs text-slate-600 mt-1">
+          Choose Anthropic when hitting api.anthropic.com directly.
+          OpenAI caches prompts automatically — no extra config needed.
+        </p>
+      </div>
+      {isAnthropic && (
+        <div className="space-y-3 pl-3 border-l-2 border-slate-700">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cfg.use_prompt_cache}
+              onChange={e => onChange({ ...cfg, use_prompt_cache: e.target.checked })}
+              className="rounded mt-0.5"
+            />
+            <span className="text-sm">
+              <span className="font-medium">Enable prompt caching</span>
+              <span className="block text-xs text-slate-500 mt-0.5">
+                Adds a cache breakpoint to the system prompt. Reduces repeat-call input token cost by ~90%.
+              </span>
+            </span>
+          </label>
+          <div>
+            <Label htmlFor="max_tokens">Max output tokens</Label>
+            <Input id="max_tokens" type="number" value={cfg.max_tokens || ''} onChange={set('max_tokens')}
+              placeholder="8192" />
+            <p className="text-xs text-slate-600 mt-1">Required by the Anthropic API. Leave blank for default (8192).</p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="cache_write">Cache write token cost (USD)</Label>
+              <Input id="cache_write" type="number" step="0.000001" value={cfg.cost_per_cache_write_token || ''} onChange={set('cost_per_cache_write_token')}
+                placeholder="auto (1.25× input rate)" />
+            </div>
+            <div>
+              <Label htmlFor="cache_read">Cache read token cost (USD)</Label>
+              <Input id="cache_read" type="number" step="0.000001" value={cfg.cost_per_cache_read_token || ''} onChange={set('cost_per_cache_read_token')}
+                placeholder="auto (0.10× input rate)" />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="cost_in">Cost / Input Token (USD)</Label>
@@ -291,6 +349,11 @@ const defaultLLM: LLMConfig = {
   cost_per_input_token: 0.000005,
   cost_per_output_token: 0.000015,
   timeout_seconds: 60,
+  api_flavour: 'openai',
+  use_prompt_cache: false,
+  max_tokens: 0,
+  cost_per_cache_write_token: 0,
+  cost_per_cache_read_token: 0,
 }
 
 const defaultCoding: CodingAgentConfig = {
@@ -310,7 +373,10 @@ const defaultCoding: CodingAgentConfig = {
 
 function parseConfig(type: string, configJSON: string): LLMConfig | CodingAgentConfig {
   try {
-    return JSON.parse(configJSON)
+    const parsed = JSON.parse(configJSON)
+    // Merge with defaults so new fields are always present even on old provider records.
+    if (type === 'llm') return { ...defaultLLM, ...parsed }
+    return { ...defaultCoding, ...parsed }
   } catch {
     return type === 'llm' ? { ...defaultLLM } : { ...defaultCoding }
   }
