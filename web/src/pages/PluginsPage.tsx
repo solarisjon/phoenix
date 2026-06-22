@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import type { PluginRecord, NotificationRule, SystemSettings } from '@/lib/api'
+import { injectCommunityThemes, getTheme, setTheme } from '@/lib/theme'
 
 export function PluginsPage() {
   const [tab, setTab] = useState<'notifiers' | 'themes'>('notifiers')
@@ -441,6 +442,85 @@ const DEFAULT_THEME_VARS: Record<string, string> = {
   'ph-border': '#3a3d52', 'ph-border-mid': '#4a4d62',
 }
 
+// Human-readable labels and grouping for CSS variables.
+const COLOR_GROUPS: { label: string; fields: { key: string; label: string }[] }[] = [
+  {
+    label: 'Backgrounds',
+    fields: [
+      { key: 'ph-bg', label: 'Page Background' },
+      { key: 'ph-surface', label: 'Surface (sidebar, panels)' },
+      { key: 'ph-card', label: 'Card Background' },
+      { key: 'ph-input', label: 'Input Fields' },
+      { key: 'ph-hover', label: 'Hover State' },
+    ],
+  },
+  {
+    label: 'Text',
+    fields: [
+      { key: 'ph-text', label: 'Primary Text' },
+      { key: 'ph-text-muted', label: 'Secondary Text' },
+      { key: 'ph-text-faint', label: 'Disabled / Hint Text' },
+    ],
+  },
+  {
+    label: 'Accent',
+    fields: [
+      { key: 'ph-accent', label: 'Accent (buttons, links)' },
+      { key: 'ph-accent-light', label: 'Accent Light' },
+      { key: 'ph-accent-bg', label: 'Accent Tint (badges)' },
+      { key: 'ph-accent-text', label: 'Text on Accent' },
+    ],
+  },
+  {
+    label: 'Borders',
+    fields: [
+      { key: 'ph-card-border', label: 'Card Border' },
+      { key: 'ph-border', label: 'Default Border' },
+      { key: 'ph-border-mid', label: 'Strong Border (dividers)' },
+    ],
+  },
+]
+
+// ---- Live preview component ----
+function ThemePreview({ vars }: { vars: Record<string, string> }) {
+  const v = (key: string) => vars[key] || '#000'
+  return (
+    <div className="rounded-lg overflow-hidden border" style={{ borderColor: v('ph-border'), background: v('ph-bg') }}>
+      {/* Header bar */}
+      <div className="px-3 py-2 flex items-center justify-between" style={{ background: v('ph-surface'), borderBottom: `1px solid ${v('ph-border')}` }}>
+        <span className="text-xs font-semibold" style={{ color: v('ph-text') }}>Phoenix Preview</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: v('ph-accent-bg'), color: v('ph-accent') }}>Badge</span>
+      </div>
+      {/* Content */}
+      <div className="p-3 space-y-2">
+        {/* Card */}
+        <div className="rounded-md p-2.5" style={{ background: v('ph-card'), border: `1px solid ${v('ph-card-border')}` }}>
+          <div className="text-xs font-medium mb-1" style={{ color: v('ph-text') }}>Task: Generate Report</div>
+          <div className="text-[11px] mb-2" style={{ color: v('ph-text-muted') }}>Agent is processing the monthly data analysis...</div>
+          <div className="flex gap-1.5">
+            <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: v('ph-accent'), color: v('ph-accent-text') }}>Running</span>
+            <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: v('ph-hover'), color: v('ph-text-muted') }}>Details</span>
+          </div>
+        </div>
+        {/* Input */}
+        <div className="rounded-md px-2.5 py-1.5 text-[11px]" style={{ background: v('ph-input'), border: `1px solid ${v('ph-border')}`, color: v('ph-text-faint') }}>
+          Type a message...
+        </div>
+        {/* Text samples */}
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px]" style={{ color: v('ph-text') }}>Primary text</span>
+          <span className="text-[11px]" style={{ color: v('ph-text-muted') }}>Muted</span>
+          <span className="text-[11px]" style={{ color: v('ph-text-faint') }}>Faint</span>
+          <span className="text-[11px] underline cursor-pointer" style={{ color: v('ph-accent') }}>Link</span>
+        </div>
+        {/* Divider */}
+        <div style={{ borderTop: `1px solid ${v('ph-border-mid')}` }} />
+        <div className="text-[10px] text-center" style={{ color: v('ph-text-faint') }}>Divider above uses strong border</div>
+      </div>
+    </div>
+  )
+}
+
 // ---- Theme color form (shared between create and edit) ----
 function ThemeColorForm({ name, setName, kind, setKind, vars, setVars, onSave, onCancel, saveLabel }: {
   name: string; setName: (v: string) => void
@@ -449,16 +529,17 @@ function ThemeColorForm({ name, setName, kind, setKind, vars, setVars, onSave, o
   onSave: () => void; onCancel: () => void; saveLabel: string
 }) {
   return (
-    <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+    <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-4">
+      {/* Name + Kind */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Theme Name</label>
+          <label className="block text-xs font-medium text-[var(--ph-text)] mb-1">Theme Name</label>
           <input value={name} onChange={e => setName(e.target.value)}
             className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]"
             placeholder="My Custom Theme" />
         </div>
         <div>
-          <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Kind</label>
+          <label className="block text-xs font-medium text-[var(--ph-text)] mb-1">Mode</label>
           <select value={kind} onChange={e => setKind(e.target.value as 'dark' | 'light')}
             className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]">
             <option value="dark">Dark</option>
@@ -467,27 +548,42 @@ function ThemeColorForm({ name, setName, kind, setKind, vars, setVars, onSave, o
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        {Object.entries(vars).map(([key, val]) => (
-          <div key={key} className="flex items-center gap-2">
-            <input type="color" value={val.startsWith('#') ? val : '#000000'}
-              onChange={e => setVars(v => ({ ...v, [key]: e.target.value }))}
-              className="w-6 h-6 rounded cursor-pointer border-0" />
-            <span className="text-xs text-[var(--ph-text-muted)] truncate">{key.replace('ph-', '')}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <div className="flex gap-1">
-          {[vars['ph-bg'], vars['ph-accent'], vars['ph-surface']].map((c, i) => (
-            <span key={i} className="w-3 h-3 rounded-full" style={{ backgroundColor: c }} />
+      {/* Color pickers + live preview side by side */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Left: grouped color pickers */}
+        <div className="space-y-3">
+          {COLOR_GROUPS.map(group => (
+            <div key={group.label}>
+              <h3 className="text-[10px] font-semibold text-[var(--ph-text-muted)] uppercase tracking-wide mb-1.5">{group.label}</h3>
+              <div className="space-y-1">
+                {group.fields.map(f => (
+                  <div key={f.key} className="flex items-center gap-2">
+                    <input type="color"
+                      value={(vars[f.key] || '#000000').startsWith('#') ? vars[f.key] : '#000000'}
+                      onChange={e => setVars(v => ({ ...v, [f.key]: e.target.value }))}
+                      className="w-7 h-7 rounded cursor-pointer border border-[var(--ph-border)] p-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs text-[var(--ph-text)]">{f.label}</span>
+                    </div>
+                    <input type="text" value={vars[f.key] || ''}
+                      onChange={e => setVars(v => ({ ...v, [f.key]: e.target.value }))}
+                      className="w-20 bg-[var(--ph-input)] text-[var(--ph-text-muted)] text-[10px] font-mono rounded px-1.5 py-0.5 border border-[var(--ph-border)]" />
+                  </div>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
-        <span className="text-xs text-[var(--ph-text-faint)]">Preview</span>
+
+        {/* Right: live preview */}
+        <div>
+          <h3 className="text-[10px] font-semibold text-[var(--ph-text-muted)] uppercase tracking-wide mb-1.5">Live Preview</h3>
+          <ThemePreview vars={vars} />
+        </div>
       </div>
 
-      <div className="flex gap-2">
+      {/* Actions */}
+      <div className="flex gap-2 pt-1 border-t border-[var(--ph-border)]">
         <button onClick={onSave}
           className="text-xs px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90">
           {saveLabel}
@@ -539,6 +635,19 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
     resetForm()
   }
 
+  // After any theme save, re-inject CSS and re-apply current theme so changes are visible immediately.
+  const refreshThemeCSS = async () => {
+    try {
+      const community = await api.themes.list()
+      const toInject = community
+        .filter(t => t.vars && Object.keys(t.vars).length > 0)
+        .map(t => ({ id: t.id, vars: t.vars! }))
+      injectCommunityThemes(toInject)
+      // Re-apply the current theme to pick up updated CSS variables.
+      setTheme(getTheme())
+    } catch { /* ignore */ }
+  }
+
   const createTheme = async () => {
     if (!name.trim()) return
     const preview = [vars['ph-bg'], vars['ph-accent'], vars['ph-surface']]
@@ -549,6 +658,7 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
       })
       cancelForm()
       onRefresh()
+      await refreshThemeCSS()
     } catch (e: any) { alert(e.message) }
   }
 
@@ -562,6 +672,7 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
       })
       cancelForm()
       onRefresh()
+      await refreshThemeCSS()
     } catch (e: any) { alert(e.message) }
   }
 
