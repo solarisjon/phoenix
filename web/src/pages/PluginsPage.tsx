@@ -111,15 +111,45 @@ function NotifiersTab({ plugins, coreEnabled, onRefresh }: {
   )
 }
 
+// Schema field type from the backend ConfigSchema() response.
+interface SchemaField {
+  type: string
+  title: string
+  description?: string
+  default?: any
+  enum?: string[]
+  secret?: boolean
+}
+interface ConfigSchema {
+  type: string
+  properties: Record<string, SchemaField>
+  required?: string[]
+}
+
 function NotifierCard({ plugin, dimmed, onRefresh }: {
   plugin: PluginRecord; dimmed: boolean; onRefresh: () => void
 }) {
   const [configOpen, setConfigOpen] = useState(false)
-  const [config, setConfig] = useState(plugin.config)
+  const [configValues, setConfigValues] = useState<Record<string, any>>(() => {
+    try { return JSON.parse(plugin.config) } catch { return {} }
+  })
+  const [schema, setSchema] = useState<ConfigSchema | null>(null)
+  const [schemaLoading, setSchemaLoading] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [rules, setRules] = useState<NotificationRule[]>([])
   const [rulesLoaded, setRulesLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const loadSchema = async () => {
+    if (schema) return
+    setSchemaLoading(true)
+    try {
+      const s = await api.plugins.schema(plugin.id)
+      setSchema(s)
+    } catch { /* schema not available — will show raw JSON fallback */ }
+    finally { setSchemaLoading(false) }
+  }
 
   const loadRules = async () => {
     try {
@@ -129,7 +159,17 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     } catch (e: any) { alert(e.message) }
   }
 
-  useEffect(() => { if (configOpen && !rulesLoaded) loadRules() }, [configOpen])
+  useEffect(() => {
+    if (configOpen) {
+      loadSchema()
+      if (!rulesLoaded) loadRules()
+    }
+  }, [configOpen])
+
+  // Re-parse config when plugin prop changes (after save/refresh).
+  useEffect(() => {
+    try { setConfigValues(JSON.parse(plugin.config)) } catch { setConfigValues({}) }
+  }, [plugin.config])
 
   const toggleEnabled = async () => {
     try {
@@ -139,11 +179,14 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
   }
 
   const saveConfig = async () => {
+    setSaving(true)
     try {
-      await api.plugins.update(plugin.id, { ...plugin, config })
+      const configStr = JSON.stringify(configValues)
+      await api.plugins.update(plugin.id, { ...plugin, config: configStr })
       setConfigOpen(false)
       onRefresh()
     } catch (e: any) { alert(e.message) }
+    finally { setSaving(false) }
   }
 
   const testPlugin = async () => {
@@ -177,6 +220,10 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     } catch (e: any) { alert(e.message) }
   }
 
+  const updateField = (key: string, value: any) => {
+    setConfigValues(prev => ({ ...prev, [key]: value }))
+  }
+
   return (
     <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3 ${dimmed ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="flex items-center justify-between">
@@ -207,14 +254,57 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
 
       {configOpen && (
         <div className="space-y-3 pt-2 border-t border-[var(--ph-border)]">
-          <div>
-            <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Configuration (JSON)</label>
-            <textarea value={config} onChange={e => setConfig(e.target.value)} rows={4}
-              className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)] font-mono" />
-          </div>
-          <button onClick={saveConfig}
-            className="text-xs px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90">
-            Save Configuration
+
+          {/* Schema-driven config form */}
+          {schemaLoading && <div className="text-xs text-[var(--ph-text-muted)]">Loading configuration…</div>}
+
+          {schema && schema.properties && (
+            <div className="space-y-3">
+              {Object.entries(schema.properties).map(([key, field]) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-[var(--ph-text)] mb-1">
+                    {field.title}
+                    {schema.required?.includes(key) && <span className="text-red-400 ml-0.5">*</span>}
+                  </label>
+                  {field.description && (
+                    <p className="text-[11px] text-[var(--ph-text-faint)] mb-1.5">{field.description}</p>
+                  )}
+                  {field.enum ? (
+                    <select value={configValues[key] ?? field.default ?? ''}
+                      onChange={e => updateField(key, e.target.value)}
+                      className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]">
+                      {field.enum.map(v => <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  ) : field.type === 'integer' ? (
+                    <input type="number" value={configValues[key] ?? field.default ?? ''}
+                      onChange={e => updateField(key, parseInt(e.target.value) || 0)}
+                      className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]" />
+                  ) : (
+                    <input type={field.secret ? 'password' : 'text'}
+                      value={configValues[key] ?? ''}
+                      onChange={e => updateField(key, e.target.value)}
+                      placeholder={field.secret ? '${ENV_VAR} or paste token' : ''}
+                      className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]" />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Fallback: raw JSON if no schema available */}
+          {!schemaLoading && !schema && (
+            <div>
+              <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Configuration (JSON)</label>
+              <textarea value={JSON.stringify(configValues, null, 2)}
+                onChange={e => { try { setConfigValues(JSON.parse(e.target.value)) } catch {} }}
+                rows={4}
+                className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)] font-mono" />
+            </div>
+          )}
+
+          <button onClick={saveConfig} disabled={saving}
+            className="text-xs px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save Configuration'}
           </button>
 
           {/* Notification Rules */}
