@@ -168,6 +168,9 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
   const [rules, setRules] = useState<NotificationRule[]>([])
   const [rulesLoaded, setRulesLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [detectingChats, setDetectingChats] = useState(false)
+  const [discoveredChats, setDiscoveredChats] = useState<{id: number, title: string, first_name: string, type: string}[] | null>(null)
+  const [chatError, setChatError] = useState<string | null>(null)
 
   const loadSchema = async () => {
     if (schema) return
@@ -252,6 +255,27 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     setConfigValues(prev => ({ ...prev, [key]: value }))
   }
 
+  const detectChats = async () => {
+    setDetectingChats(true)
+    setChatError(null)
+    setDiscoveredChats(null)
+    try {
+      // Save current config first so the backend has the bot token.
+      await api.plugins.update(plugin.id, { ...plugin, config: JSON.stringify(configValues) })
+      const chats = await api.plugins.discoverChats(plugin.id)
+      setDiscoveredChats(chats)
+    } catch (e: any) {
+      setChatError(e.message)
+    } finally {
+      setDetectingChats(false)
+    }
+  }
+
+  const selectChat = (chatId: number) => {
+    updateField('chat_id', String(chatId))
+    setDiscoveredChats(null)
+  }
+
   return (
     <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3 ${dimmed ? 'opacity-50 pointer-events-none' : ''}`}>
       <div className="flex items-center justify-between">
@@ -313,6 +337,39 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
                       onChange={v => updateField(key, v)}
                       isSecret={field.secret ?? false}
                     />
+                  )}
+
+                  {/* Telegram chat discovery — shown after the chat_id field */}
+                  {key === 'chat_id' && plugin.kind === 'telegram' && (
+                    <div className="mt-2 space-y-2">
+                      <button onClick={detectChats} disabled={detectingChats}
+                        className="text-xs px-2 py-1 rounded bg-[var(--ph-surface)] text-[var(--ph-accent)] hover:bg-[var(--ph-hover)] disabled:opacity-50">
+                        {detectingChats ? 'Detecting…' : 'Detect Chat ID'}
+                      </button>
+                      <p className="text-[10px] text-[var(--ph-text-faint)]">
+                        Send /start to your bot in Telegram first, then click Detect.
+                      </p>
+
+                      {chatError && (
+                        <div className="text-xs p-2 rounded bg-red-900/20 text-red-400">{chatError}</div>
+                      )}
+
+                      {discoveredChats && discoveredChats.length > 0 && (
+                        <div className="bg-[var(--ph-surface)] rounded p-2 space-y-1">
+                          <span className="text-[10px] text-[var(--ph-text-muted)] uppercase font-semibold">Available chats — click to use:</span>
+                          {discoveredChats.map(chat => (
+                            <button key={chat.id} onClick={() => selectChat(chat.id)}
+                              className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-[var(--ph-hover)] flex items-center justify-between">
+                              <span className="text-[var(--ph-text)]">
+                                {chat.first_name || chat.title || 'Unknown'}
+                                <span className="text-[var(--ph-text-faint)] ml-1">({chat.type})</span>
+                              </span>
+                              <span className="text-[var(--ph-text-muted)] font-mono">{chat.id}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}

@@ -134,6 +134,78 @@ func (n *Notifier) ConfigSchema() notifiers.JSONSchema {
 	}
 }
 
+// ChatInfo holds a discovered chat from the Telegram getUpdates API.
+type ChatInfo struct {
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`      // group name or empty for DMs
+	FirstName string `json:"first_name"` // user first name for DMs
+	Type      string `json:"type"`       // "private", "group", "supergroup", "channel"
+}
+
+// GetChats calls the Telegram getUpdates API and returns all unique chats
+// that have sent messages to the bot. The user must have messaged the bot
+// at least once (e.g. /start) for their chat to appear.
+func GetChats(botToken string) ([]ChatInfo, error) {
+	token := strings.TrimSpace(provider.ExpandEnv(botToken))
+	if token == "" || strings.HasPrefix(token, "${") {
+		return nil, fmt.Errorf("bot_token is empty or env var is not set")
+	}
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates", token)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("getUpdates request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		OK     bool `json:"ok"`
+		Result []struct {
+			Message *struct {
+				Chat struct {
+					ID        int64  `json:"id"`
+					Title     string `json:"title"`
+					FirstName string `json:"first_name"`
+					Type      string `json:"type"`
+				} `json:"chat"`
+			} `json:"message"`
+		} `json:"result"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode getUpdates: %w", err)
+	}
+	if !result.OK {
+		return nil, fmt.Errorf("Telegram API error — check your bot token")
+	}
+
+	// Deduplicate by chat ID.
+	seen := map[int64]bool{}
+	var chats []ChatInfo
+	for _, u := range result.Result {
+		if u.Message == nil {
+			continue
+		}
+		c := u.Message.Chat
+		if seen[c.ID] {
+			continue
+		}
+		seen[c.ID] = true
+		chats = append(chats, ChatInfo{
+			ID:        c.ID,
+			Title:     c.Title,
+			FirstName: c.FirstName,
+			Type:      c.Type,
+		})
+	}
+
+	if len(chats) == 0 {
+		return nil, fmt.Errorf("no chats found — send /start to the bot first, then try again")
+	}
+
+	return chats, nil
+}
+
 func (n *Notifier) TestMessage() notifiers.NotifyMessage {
 	return notifiers.NotifyMessage{
 		EventType:   "test",

@@ -218,6 +218,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/plugins/{id}/disable", s.disablePlugin)
 		r.Post("/plugins/{id}/test", s.testPlugin)
 		r.Get("/plugins/{id}/schema", s.getPluginSchema)
+		r.Get("/plugins/{id}/chats", s.discoverTelegramChats)
 		r.Get("/plugins/{id}/rules", s.listPluginRules)
 		r.Post("/plugins/{id}/rules", s.createPluginRule)
 		r.Put("/plugins/{id}/rules/{rid}", s.updatePluginRule)

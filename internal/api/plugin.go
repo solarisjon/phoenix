@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers"
+	"github.com/solarisjon/phoenix/internal/plugin/notifiers/telegram"
 )
 
 // ---- Plugin CRUD ----
@@ -276,4 +277,38 @@ func (s *Server) getPluginSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, n.ConfigSchema())
+}
+
+// ---- Telegram Chat Discovery ----
+
+func (s *Server) discoverTelegramChats(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.pluginRepo.Get(r.Context(), id)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
+	if p.Kind != "telegram" {
+		respondErr(w, http.StatusBadRequest, "chat discovery is only available for Telegram plugins")
+		return
+	}
+
+	var cfg struct {
+		BotToken string `json:"bot_token"`
+	}
+	if err := json.Unmarshal([]byte(p.Config), &cfg); err != nil || cfg.BotToken == "" {
+		respondErr(w, http.StatusBadRequest, "configure a bot token first")
+		return
+	}
+
+	chats, err := telegram.GetChats(cfg.BotToken)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	respond(w, http.StatusOK, chats)
 }

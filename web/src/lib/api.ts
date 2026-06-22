@@ -428,6 +428,7 @@ export const api = {
     disable: (id: string) => request<PluginRecord>(`/plugins/${id}/disable`, { method: 'POST' }),
     test: (id: string) => request<{ status: string; message: string }>(`/plugins/${id}/test`, { method: 'POST' }),
     schema: (id: string) => request<any>(`/plugins/${id}/schema`),
+    discoverChats: (id: string) => request<{id: number, title: string, first_name: string, type: string}[]>(`/plugins/${id}/chats`),
     rules: {
       list: (pluginId: string) => request<NotificationRule[]>(`/plugins/${pluginId}/rules`),
       create: (pluginId: string, r: Partial<NotificationRule>) =>
