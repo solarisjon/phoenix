@@ -14,6 +14,7 @@ const titles: Record<string, string> = {
   '/monitors': 'Monitors',
   '/tasks': 'Tasks',
   '/teams': 'Teams',
+  '/plugins': 'Plugins',
   '/settings': 'Settings',
   '/help': 'Help',
   '/feed': 'Event Log',

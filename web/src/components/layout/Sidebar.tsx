@@ -10,6 +10,7 @@ const nav = [
   { label: 'Monitors', href: '/monitors', icon: '⟳' },
   { label: 'Tasks', href: '/tasks', icon: '✦' },
   { label: 'Teams', href: '/teams', icon: '⬡⬡' },
+  { label: 'Plugins',  href: '/plugins',  icon: '🧩' },
   { label: 'Settings', href: '/settings', icon: '⚙' },
   { label: 'Help', href: '/help', icon: '?' },
 ]

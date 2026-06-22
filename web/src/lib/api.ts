@@ -141,6 +141,41 @@ export interface AgentDraft {
 export interface SystemSettings {
   global_guardrails_enabled: boolean
   global_guardrails: string
+  core_plugins_enabled: boolean
+  community_plugins_enabled: boolean
+}
+
+export interface PluginRecord {
+  id: string
+  name: string
+  type: 'notifier' | 'theme'
+  kind: string
+  is_core: boolean
+  enabled: boolean
+  config: string
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationRule {
+  id: string
+  plugin_id: string
+  event_type: string
+  project_id: string | null
+  enabled: boolean
+  template: string | null
+  created_at: string
+}
+
+export interface ThemeResponse {
+  id: string
+  kind: string
+  label: string
+  description?: string
+  preview: string[]
+  vars?: Record<string, string>
+  is_built_in: boolean
+  plugin_id?: string
 }
 
 export interface CostsResponse {
@@ -382,6 +417,29 @@ export const api = {
     updateStatus: (id: string, status: Memo['status']) =>
       request<Memo>(`/memos/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
     delete: (id: string) => request<void>(`/memos/${id}`, { method: 'DELETE' }),
+  },
+  plugins: {
+    list: (type?: string) => request<PluginRecord[]>(type ? `/plugins?type=${type}` : '/plugins'),
+    get: (id: string) => request<PluginRecord>(`/plugins/${id}`),
+    create: (p: Partial<PluginRecord>) => request<PluginRecord>('/plugins', { method: 'POST', body: JSON.stringify(p) }),
+    update: (id: string, p: Partial<PluginRecord>) => request<PluginRecord>(`/plugins/${id}`, { method: 'PUT', body: JSON.stringify(p) }),
+    delete: (id: string) => request<void>(`/plugins/${id}`, { method: 'DELETE' }),
+    enable: (id: string) => request<PluginRecord>(`/plugins/${id}/enable`, { method: 'POST' }),
+    disable: (id: string) => request<PluginRecord>(`/plugins/${id}/disable`, { method: 'POST' }),
+    test: (id: string) => request<{ status: string; message: string }>(`/plugins/${id}/test`, { method: 'POST' }),
+    schema: (id: string) => request<any>(`/plugins/${id}/schema`),
+    rules: {
+      list: (pluginId: string) => request<NotificationRule[]>(`/plugins/${pluginId}/rules`),
+      create: (pluginId: string, r: Partial<NotificationRule>) =>
+        request<NotificationRule>(`/plugins/${pluginId}/rules`, { method: 'POST', body: JSON.stringify(r) }),
+      update: (pluginId: string, ruleId: string, r: Partial<NotificationRule>) =>
+        request<NotificationRule>(`/plugins/${pluginId}/rules/${ruleId}`, { method: 'PUT', body: JSON.stringify(r) }),
+      delete: (pluginId: string, ruleId: string) =>
+        request<void>(`/plugins/${pluginId}/rules/${ruleId}`, { method: 'DELETE' }),
+    },
+  },
+  themes: {
+    list: () => request<ThemeResponse[]>('/themes'),
   },
   stats: {
     costs: () => request<CostsResponse>('/stats/costs'),

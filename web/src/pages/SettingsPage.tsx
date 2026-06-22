@@ -69,7 +69,7 @@ function SystemInfoSection() {
 }
 
 function GlobalGuardrailsSection() {
-  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '' })
+  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
