@@ -431,21 +431,113 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
   )
 }
 
+// ---- Default CSS variable values for new themes ----
+const DEFAULT_THEME_VARS: Record<string, string> = {
+  'ph-bg': '#1e1f28', 'ph-surface': '#282a36', 'ph-card': '#2d2f3d',
+  'ph-card-border': '#3a3d52', 'ph-input': '#353849', 'ph-hover': '#3a3d52',
+  'ph-text': '#f8f8f2', 'ph-text-muted': '#a0a4b8', 'ph-text-faint': '#6c7086',
+  'ph-accent': '#bd93f9', 'ph-accent-light': '#d4bbff',
+  'ph-accent-bg': 'rgba(189,147,249,0.12)', 'ph-accent-text': '#ffffff',
+  'ph-border': '#3a3d52', 'ph-border-mid': '#4a4d62',
+}
+
+// ---- Theme color form (shared between create and edit) ----
+function ThemeColorForm({ name, setName, kind, setKind, vars, setVars, onSave, onCancel, saveLabel }: {
+  name: string; setName: (v: string) => void
+  kind: 'dark' | 'light'; setKind: (v: 'dark' | 'light') => void
+  vars: Record<string, string>; setVars: (fn: (v: Record<string, string>) => Record<string, string>) => void
+  onSave: () => void; onCancel: () => void; saveLabel: string
+}) {
+  return (
+    <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Theme Name</label>
+          <input value={name} onChange={e => setName(e.target.value)}
+            className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]"
+            placeholder="My Custom Theme" />
+        </div>
+        <div>
+          <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Kind</label>
+          <select value={kind} onChange={e => setKind(e.target.value as 'dark' | 'light')}
+            className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        {Object.entries(vars).map(([key, val]) => (
+          <div key={key} className="flex items-center gap-2">
+            <input type="color" value={val.startsWith('#') ? val : '#000000'}
+              onChange={e => setVars(v => ({ ...v, [key]: e.target.value }))}
+              className="w-6 h-6 rounded cursor-pointer border-0" />
+            <span className="text-xs text-[var(--ph-text-muted)] truncate">{key.replace('ph-', '')}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex gap-1">
+          {[vars['ph-bg'], vars['ph-accent'], vars['ph-surface']].map((c, i) => (
+            <span key={i} className="w-3 h-3 rounded-full" style={{ backgroundColor: c }} />
+          ))}
+        </div>
+        <span className="text-xs text-[var(--ph-text-faint)]">Preview</span>
+      </div>
+
+      <div className="flex gap-2">
+        <button onClick={onSave}
+          className="text-xs px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90">
+          {saveLabel}
+        </button>
+        <button onClick={onCancel}
+          className="text-xs px-3 py-1.5 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ---- Themes Tab ----
 function ThemesTab({ plugins, communityEnabled, onRefresh }: {
   plugins: PluginRecord[]; communityEnabled: boolean; onRefresh: () => void
 }) {
   const [creating, setCreating] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<'dark' | 'light'>('dark')
-  const [vars, setVars] = useState<Record<string, string>>({
-    'ph-bg': '#1e1f28', 'ph-surface': '#282a36', 'ph-card': '#2d2f3d',
-    'ph-card-border': '#3a3d52', 'ph-input': '#353849', 'ph-hover': '#3a3d52',
-    'ph-text': '#f8f8f2', 'ph-text-muted': '#a0a4b8', 'ph-text-faint': '#6c7086',
-    'ph-accent': '#bd93f9', 'ph-accent-light': '#d4bbff',
-    'ph-accent-bg': 'rgba(189,147,249,0.12)', 'ph-accent-text': '#ffffff',
-    'ph-border': '#3a3d52', 'ph-border-mid': '#4a4d62',
-  })
+  const [vars, setVars] = useState<Record<string, string>>({ ...DEFAULT_THEME_VARS })
+
+  const resetForm = () => {
+    setName('')
+    setKind('dark')
+    setVars({ ...DEFAULT_THEME_VARS })
+  }
+
+  const startCreate = () => {
+    resetForm()
+    setEditingId(null)
+    setCreating(true)
+  }
+
+  const startEdit = (p: PluginRecord) => {
+    let cfg: any = {}
+    try { cfg = JSON.parse(p.config) } catch {}
+    setName(p.name)
+    setKind(cfg.kind || 'dark')
+    setVars(cfg.vars || { ...DEFAULT_THEME_VARS })
+    setEditingId(p.id)
+    setCreating(false)
+  }
+
+  const cancelForm = () => {
+    setCreating(false)
+    setEditingId(null)
+    resetForm()
+  }
 
   const createTheme = async () => {
     if (!name.trim()) return
@@ -455,8 +547,27 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
         name, type: 'theme', kind: 'custom',
         config: JSON.stringify({ kind, preview, vars }),
       })
-      setCreating(false)
-      setName('')
+      cancelForm()
+      onRefresh()
+    } catch (e: any) { alert(e.message) }
+  }
+
+  const updateTheme = async () => {
+    if (!editingId || !name.trim()) return
+    const preview = [vars['ph-bg'], vars['ph-accent'], vars['ph-surface']]
+    try {
+      await api.plugins.update(editingId, {
+        name, enabled: true,
+        config: JSON.stringify({ kind, preview, vars }),
+      })
+      cancelForm()
+      onRefresh()
+    } catch (e: any) { alert(e.message) }
+  }
+
+  const toggleEnabled = async (p: PluginRecord) => {
+    try {
+      p.enabled ? await api.plugins.disable(p.id) : await api.plugins.enable(p.id)
       onRefresh()
     } catch (e: any) { alert(e.message) }
   }
@@ -475,66 +586,35 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
         </div>
       )}
 
-      <button onClick={() => setCreating(!creating)}
-        className="text-sm px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90">
-        + Create Custom Theme
-      </button>
+      {!creating && !editingId && (
+        <button onClick={startCreate}
+          className="text-sm px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90">
+          + Create Custom Theme
+        </button>
+      )}
 
       {creating && (
-        <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Theme Name</label>
-              <input value={name} onChange={e => setName(e.target.value)}
-                className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]"
-                placeholder="My Custom Theme" />
-            </div>
-            <div>
-              <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Kind</label>
-              <select value={kind} onChange={e => setKind(e.target.value as 'dark' | 'light')}
-                className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]">
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            {Object.entries(vars).map(([key, val]) => (
-              <div key={key} className="flex items-center gap-2">
-                <input type="color" value={val.startsWith('#') ? val : '#000000'}
-                  onChange={e => setVars(v => ({ ...v, [key]: e.target.value }))}
-                  className="w-6 h-6 rounded cursor-pointer border-0" />
-                <span className="text-xs text-[var(--ph-text-muted)] truncate">{key.replace('ph-', '')}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {[vars['ph-bg'], vars['ph-accent'], vars['ph-surface']].map((c, i) => (
-                <span key={i} className="w-3 h-3 rounded-full" style={{ backgroundColor: c }} />
-              ))}
-            </div>
-            <span className="text-xs text-[var(--ph-text-faint)]">Preview</span>
-          </div>
-
-          <div className="flex gap-2">
-            <button onClick={createTheme}
-              className="text-xs px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90">
-              Save Theme
-            </button>
-            <button onClick={() => setCreating(false)}
-              className="text-xs px-3 py-1.5 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]">
-              Cancel
-            </button>
-          </div>
-        </div>
+        <ThemeColorForm
+          name={name} setName={setName} kind={kind} setKind={setKind}
+          vars={vars} setVars={setVars}
+          onSave={createTheme} onCancel={cancelForm} saveLabel="Create Theme"
+        />
       )}
 
       {plugins.map(p => {
         let cfg: any = {}
         try { cfg = JSON.parse(p.config) } catch {}
+
+        if (editingId === p.id) {
+          return (
+            <ThemeColorForm key={p.id}
+              name={name} setName={setName} kind={kind} setKind={setKind}
+              vars={vars} setVars={setVars}
+              onSave={updateTheme} onCancel={cancelForm} saveLabel="Save Changes"
+            />
+          )
+        }
+
         return (
           <div key={p.id} className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -548,10 +628,17 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
                 <span className="text-xs text-[var(--ph-text-muted)] ml-2">{cfg.kind || 'custom'}</span>
               </div>
             </div>
-            {!p.is_core && (
-              <button onClick={() => deleteTheme(p.id)}
-                className="text-xs text-red-400 hover:text-red-300">Delete</button>
-            )}
+            <div className="flex items-center gap-2">
+              <Toggle label="" checked={p.enabled} onChange={() => toggleEnabled(p)} />
+              <button onClick={() => startEdit(p)}
+                className="text-xs px-2 py-1 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]">
+                Edit
+              </button>
+              {!p.is_core && (
+                <button onClick={() => deleteTheme(p.id)}
+                  className="text-xs text-red-400 hover:text-red-300">Delete</button>
+              )}
+            </div>
           </div>
         )
       })}
