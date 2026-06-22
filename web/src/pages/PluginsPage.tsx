@@ -115,7 +115,7 @@ function NotifiersTab({ plugins, coreEnabled, onRefresh }: {
 function SecretField({ value, onChange, isSecret }: {
   value: string; onChange: (v: string) => void; isSecret: boolean
 }) {
-  const [hidden, setHidden] = useState(isSecret && !!value && !value.startsWith('${'))
+  const [hidden, setHidden] = useState(false)
 
   return (
     <div className="relative">
