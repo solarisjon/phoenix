@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-06-16 (v0.3)  
+**Last updated:** 2026-06-22 (v0.4)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -57,8 +57,11 @@ internal/
       009_system_settings.sql          # system_settings key/value table (global guardrails)
       010_task_source.sql              # tasks.source free-text provenance field
       011_project_kind.sql             # projects.kind ('project' | 'monitor')
+      033_plugins.sql                  # plugins + notification_rules tables, master switch settings
+      034_project_objective.sql        # projects.objective TEXT DEFAULT ''
     agent.go, task.go, project.go, team.go, agent_draft.go, stats.go, admin.go, sqlite.go
     system_settings.go                 # SystemSettingsRepo: Get/Save global guardrails
+    plugin.go, notification_rule.go    # PluginRepo + NotificationRuleRepo
   api/
     server.go                          # router — ALL routes registered here
     agent.go                           # CRUD + generate + spawnTask (source field added)
@@ -67,6 +70,7 @@ internal/
     inbox.go                           # approve + reject + revise + dismissAll
     settings.go                        # GET/PUT /admin/settings + generate-guardrails
     provider.go, project.go, team.go, stats.go, admin.go
+    plugin.go                          # CRUD + enable/disable + chats (Telegram) + /api/themes
     hub.go / ws.go / events.go         # WebSocket
   agent/
     runner.go                          # goroutine lifecycle, task execution, PID tracking, timeout
@@ -95,13 +99,15 @@ web/src/
     ui/follow-up-thread.tsx            # chat-bubble follow-up UI (used in all task modals)
     ui/markdown-output.tsx             # react-markdown with --ph-* var scoped CSS
     ui/quick-task.tsx                  # floating FAB + ⌘K modal
-    ui/theme-picker.tsx                # theme switcher
+    ui/theme-picker.tsx                # theme switcher; fetches /api/themes, injects community theme CSS
   pages/
     DashboardPage.tsx, InboxPage.tsx, TasksPage.tsx
-    ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task inbox | task detail/compose
+    PluginsPage.tsx                    # plugin management: notifiers (Telegram/Webhook), custom themes
+    ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task view | task detail/compose
                                        # replaces old ProjectsPage.tsx + ProjectDetailPage.tsx
-                                       # includes: ProjectListItem, TaskRow, TaskDetailView, TaskComposeView,
-                                       #           FileRow, FilePreviewView, AgentPickerModal
+                                       # includes: ProjectListItem, MiddlePane (status-grouped sections,
+                                       #   inline objective editor, AI suggest card), TaskRow, TaskDetailView,
+                                       #   TaskComposeView, FileRow, FilePreviewView, AgentPickerModal
     MonitorsPage.tsx                   # lists kind=monitor; flat dark cards with health-signal dots
     MonitorDetailPage.tsx              # run log, countdown, run-now; RunCard with left-border status color
     AgentsPage.tsx, ProvidersPage.tsx
@@ -159,6 +165,7 @@ created_at, updated_at
 ### projects
 ```sql
 id, name, description,
+objective TEXT NOT NULL DEFAULT '',  -- migration 034: plain-English goal statement
 working_dir TEXT DEFAULT '',
 kind TEXT DEFAULT 'project' CHECK(kind IN ('project','monitor')),  -- migration 011
 schedule_interval INTEGER,           -- seconds between monitor runs (migration 015); nil=no schedule
@@ -169,6 +176,22 @@ critic_agent_id TEXT,                -- deprecated; use critic_mode (migration 0
 critic_mode TEXT DEFAULT 'none',     -- none|builtin|agent:<id> (migration 024)
 owner, status, created_at,
 tags TEXT NOT NULL DEFAULT '[]'      -- migration 023: JSON array of tag strings
+```
+
+### plugins (migration 033)
+```sql
+id, name, type TEXT,   -- 'notifier' | 'theme'
+kind TEXT,             -- 'telegram' | 'webhook' | 'custom' (themes)
+config TEXT,           -- JSON blob (provider-specific)
+enabled INTEGER DEFAULT 1,
+created_at
+```
+
+### notification_rules (migration 033)
+```sql
+id, plugin_id, event TEXT,  -- task.completed | task.failed | task.awaiting_approval | etc.
+enabled INTEGER DEFAULT 1,
+created_at
 ```
 
 ### memos (migration 022)
@@ -183,7 +206,8 @@ created_at
 ### system_settings (migration 009)
 ```sql
 key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME
--- rows: global_guardrails_enabled ('0'/'1'), global_guardrails (text)
+-- rows: global_guardrails_enabled ('0'/'1'), global_guardrails (text),
+--       core_plugins_enabled ('0'/'1'), community_plugins_enabled ('0'/'1')
 ```
 
 ### teams + team_agents + project_agents (from migration 005)
@@ -209,7 +233,7 @@ POST               /api/agent-drafts/:id/reject
 POST               /api/agent-drafts/:id/dismiss
 
 GET/POST           /api/projects                  # GET: ?kind=project|monitor&status=active|archived (default status=active)
-GET/PUT/DELETE     /api/projects/:id              # PUT: kind field accepted; DELETE hard-deletes project + all tasks
+GET/PUT/DELETE     /api/projects/:id              # PUT: kind + objective fields accepted; DELETE hard-deletes project + all tasks
 POST               /api/projects/:id/archive      # sets status=archived; blocks if tasks running
 POST               /api/projects/:id/restore      # sets status=active
 GET                /api/projects/summaries        # task health summary keyed by project ID
@@ -218,6 +242,8 @@ DELETE             /api/projects/:id/agents/:agentId
 POST               /api/projects/:id/teams
 GET                /api/projects/:id/files        # list files in working_dir (depth ≤3, no hidden)
 GET                /api/projects/:id/files/*      # get file content (≤256KB)
+GET                /api/projects/:id/history      # all completed tasks regardless of dismissed state (v0.4)
+POST               /api/projects/:id/suggest      # AI next-action suggestions based on objective + history (v0.4)
 
 GET/POST           /api/tasks                    # ?project_id= filter; POST: source field optional
 POST               /api/tasks/quick              # sandbox project
@@ -248,15 +274,24 @@ GET                /api/memos/count              # {count} of unread+flagged (si
 PUT                /api/memos/:id/status         # {status: unread|read|flagged|archived}
 DELETE             /api/memos/:id
 
+GET/POST           /api/plugins                  # plugin CRUD (v0.4)
+GET/PUT/DELETE     /api/plugins/:id
+POST               /api/plugins/:id/enable
+POST               /api/plugins/:id/disable
+GET                /api/plugins/:id/chats        # Telegram: discover chat IDs via getUpdates
+GET/POST           /api/notification-rules
+PUT/DELETE         /api/notification-rules/:id
+GET                /api/themes                   # enabled community themes (type=theme plugins)
+
 GET                /api/stats/costs
 GET                /api/admin/backup
-GET/PUT            /api/admin/settings            # global guardrails
+GET/PUT            /api/admin/settings            # global guardrails + plugin master switches
 POST               /api/admin/settings/generate-guardrails
 
 WS                 /api/ws
 ```
 
-**Route ordering:** static routes MUST be before `{id}` params in chi. `/tasks/quick`, `/tasks/running`, `/tasks/attention`, `/agents/generate`, `/agents/spawn`, `/inbox/dismiss-all` all registered before `/:id` params.
+**Route ordering:** static routes MUST be before `{id}` params in chi. `/tasks/quick`, `/tasks/running`, `/tasks/attention`, `/agents/generate`, `/agents/spawn`, `/inbox/dismiss-all`, `/projects/summaries`, `/projects/generate-description` all registered before `/:id` params.
 
 ---
 
@@ -333,7 +368,7 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–024
+- Migrations applied: 001–034
 
 ---
 
@@ -361,6 +396,15 @@ Recently completed (2026-06-04):
 - ✓ Project/Monitor tags — filter bar, sort (including group-by-tag), tag pills on cards
 - ✓ Devil's Advocate / Critic Mode (migration 024) — builtin ephemeral critic, no agent record needed
 - ✓ Agents page cleanup — removed template_id field from UI, renamed page from "Agent Templates" to "Agents"
+
+Recently completed (2026-06-22 — v0.4):
+- ✓ Plugin system — core/community architecture, Telegram + Webhook notifiers, notification rules engine
+- ✓ Custom themes — visual editor (grouped colour pickers, live preview), community themes in sidebar picker, instant apply
+- ✓ Dashboard: active task cards clickable — opens live-streaming detail modal with WS output feed
+- ✓ Project view redesign — projects.objective field (migration 034), inline-editable in header
+- ✓ Status-grouped task sections (Needs Attention → Running → Failed → Completed) with collapsible completed
+- ✓ Full project history — GET /api/projects/:id/history returns completed tasks regardless of dismissed state; dismiss only affects Inbox, not project
+- ✓ AI next-action suggestion — POST /api/projects/:id/suggest; inline suggestion card with one-click Run
 
 Open backlog — https://github.com/solarisjon/phoenix/issues:
 1. **#13** Mobile-friendly layout (sidebar collapses to bottom nav)

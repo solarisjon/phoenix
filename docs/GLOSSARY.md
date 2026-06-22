@@ -121,11 +121,14 @@ When in doubt about what something is or how it relates to something else, start
 
 > A human-driven workspace that groups related Tasks toward a bigger goal.
 > A Project has no fixed end date — it is done when the user says it is done.
-> The human decides what work to create, which Agent to use for each Task,
-> and what to do with the results.
+> Think of a Project as a **todo list** with an AI collaborator: you set the objective,
+> and the AI can help you figure out what to do next.
 
-- Has: name, description, optional working directory, assigned Team or individual Agents
-- Tasks in a Project are created by humans (or by Agents spawning subtasks)
+- Has: name, **objective** (plain-English goal statement), optional working directory, assigned Team or individual Agents
+- The **Objective** is the high-level statement of intent — e.g. "Build out articles and resources to help managers grow"
+- Tasks in a Project are created by humans, by Agents spawning subtasks, or via the **✦ Suggest** button
+- Tasks are grouped by status: Needs Attention → Running → Failed → Completed
+- Completed Tasks (including inbox-dismissed ones) are always visible in the Project's history
 - A Project can optionally have a Critic enabled — reviewing Task outputs before the human sees them
 - Archived when complete — history and outputs are preserved
 
@@ -273,6 +276,50 @@ Provider ◄─────────────── used by ────�
 
 ---
 
+### Plugin
+
+> A unit of extensibility that adds capabilities to Phoenix without changing the core binary.
+> Plugins are configured in Settings → Plugins and can be individually enabled or disabled.
+
+**Two categories:**
+
+| Category | Description | Examples |
+|---|---|---|
+| **Core** | Ship built-in with Phoenix | Telegram notifier, Webhook notifier |
+| **Community** | Created by users via the Themes editor | Custom colour themes |
+
+- Each plugin has a `type` (notifier or theme) and a `kind` (telegram, webhook, custom, etc.)
+- Plugins are stored in the `plugins` table and managed via `/api/plugins`
+- Master switches in Settings control all core and all community plugins globally
+
+---
+
+### Notifier
+
+> A Plugin that sends an external notification when a Task event occurs.
+> Notifiers connect Phoenix to external communication channels so users know when
+> something needs their attention even when Phoenix is not open.
+
+- Configured with Notification Rules that specify which events trigger which notifier
+- **Telegram notifier:** sends messages via a Telegram bot; chat ID can be auto-discovered
+- **Webhook notifier:** sends a JSON POST to any URL; supports `Authorization` headers with `${ENV_VAR}` secrets
+- Events that can trigger notifiers: task completed, task failed, task awaiting approval, etc.
+
+---
+
+### Theme
+
+> A custom colour scheme for the Phoenix UI. Themes replace the built-in colour palette
+> with a user-defined set of CSS variables covering backgrounds, text, accents, and borders.
+
+- Five built-in themes: Dark, Midnight, Forest, Ember, Light
+- Custom themes created via Settings → Plugins → Themes → + Create Theme
+- The theme editor shows grouped colour pickers with a live preview that updates in real-time
+- Custom themes appear in the sidebar theme picker under a "Custom" section
+- Themes are stored as community plugins (`type=theme`) and apply instantly on save
+
+---
+
 ## What is NOT in scope (yet)
 
 - **Workflow / Pipeline** — ordered or conditional chains of Tasks
@@ -284,5 +331,5 @@ Provider ◄─────────────── used by ────�
 
 ---
 
-*Last updated: 2026-06-01*
+*Last updated: 2026-06-22 (v0.4)*
 *Agreed with: Jon Bowman*

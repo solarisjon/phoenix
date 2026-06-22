@@ -17,12 +17,12 @@ A self-hosted **harness engineering** platform for AI agents. Define agents with
 | Feature | Description |
 |---|---|
 | **Agents** | Reusable AI personas with instructions, guardrails, and a provider. |
-| **Projects** | Three-pane workspace (project list → task inbox → task detail). Assign agents, compose tasks, browse generated files. |
+| **Projects** | Goal-driven workspaces. Set an objective, compose tasks, and let AI suggest what to do next. Tasks grouped by status — needs attention, running, failed, completed. Full history preserved even after inbox dismissal. |
 | **Monitors** | Harness engineering for recurring work — autonomous projects on a schedule. Set a fixed interval or a daily trigger time (e.g. 07:00). Catch-up mode fires the run on the next available tick if the machine was offline at the scheduled time. Health-signal dots show run state at a glance. |
-| **Tasks** | Run immediately, stream output live, track cost and token usage. Status dots, left-border color coding, and a "Needs You" badge make state obvious. |
+| **Tasks** | Run immediately, stream output live, track cost and token usage. Click any active task on the dashboard for a live-streaming detail view. |
 | **Follow-up threads** | Chat-style refinement on any task — previous output carried forward as context. |
 | **Quick Tasks** | One-off tasks without a project (⌘K from anywhere). |
-| **Inbox** | Failed, awaiting-approval, completed tasks, and pending agent hire proposals in one place. |
+| **Inbox** | Failed, awaiting-approval, completed tasks, and pending agent hire proposals in one place. Dismissing from Inbox no longer removes tasks from the project view. |
 | **Critic / Devil's Advocate** | Toggle a critic on any task. `builtin` spins up an ephemeral contrarian review using the same provider; `agent:<id>` routes to a specific registered agent. |
 | **Agent spawning** | Agents delegate work to other agents via the Phoenix API. |
 | **Agent hiring** | Agents propose new hires → land in Inbox for human approval before any agent is created. |
@@ -32,7 +32,8 @@ A self-hosted **harness engineering** platform for AI agents. Define agents with
 | **File browser** | Browse the project working directory from inside the workspace. Preview text, code, and markdown files in-pane. |
 | **Global guardrails** | Platform-wide rules injected into every agent's system prompt, managed in Settings. |
 | **Usage tracking** | Tokens and cost tracked per task, per agent, per project, per provider, and per model. Dashboard shows totals, daily bar chart, and full breakdowns — making the economics of your harness visible. |
-| **Themes** | 5 built-in themes (Dark, Midnight, Forest, Ember, Light), live switcher. |
+| **Plugins** | Extend Phoenix with notifiers (Telegram, Webhook) and custom themes. Core plugins ship built-in; community plugins can be enabled separately. |
+| **Custom themes** | Create custom colour themes via a visual editor with grouped colour pickers, live preview, and instant apply. Community themes appear in the sidebar theme picker alongside built-ins. |
 | **DB backup** | `GET /api/admin/backup` streams a consistent SQLite snapshot safe during live operation. |
 
 ---
@@ -147,15 +148,27 @@ Enable **Allow agent to hire new agents 🧑‍💼**. When the agent identifies
 
 ## Projects
 
-Human-driven workspaces with a **three-pane email-inbox layout**: project list on the left, task inbox in the centre, task detail on the right. Click any task to read its full output, follow up, or refine.
+Goal-driven workspaces with a **three-pane layout**: project list on the left, task view in the centre, task detail on the right.
 
-An optional **Working Directory** is passed to coding agents as their working directory on disk. Set it to the repo or folder the agent should operate in.
+**Objective:** Every project has a plain-English objective — click the objective field to edit it inline. This is the high-level statement of what the project is trying to accomplish (e.g. "Build out articles and resources to help managers grow").
 
-**Composing a task:** Click **+ New Task** in the centre pane to open the task compose panel on the right. The agent picker shows only agents assigned to the project. A **Devil's Advocate** toggle lets you attach a critic to the task without leaving the compose view.
+**Working Directory:** An optional filesystem path passed to coding agents as their working directory. Set it to the repo or folder the agent should operate in. Also acts as the artifact and memory store for the project.
 
-**File browser:** The **Files** tab in the right pane lets you browse the project working directory, view text/code/markdown files in-pane, and see which files were emitted as artifacts.
+**Task view — status grouped:** Tasks are organised into collapsible sections by priority:
+1. **Needs Attention** — tasks awaiting your approval (amber)
+2. **Running** — active or queued tasks (violet)
+3. **Failed** — errored tasks with a retry link (red)
+4. **Completed** — full history, including tasks previously dismissed from Inbox (emerald, collapsed by default)
 
-**Health-signal dots** on each project card (violet = running, amber = needs you, red = failed, green = all clear) let you scan state at a glance without opening a project.
+Dismissing a task from Inbox clears it from the Inbox only. The project always shows the full task history.
+
+**✦ Suggest:** Click to ask AI to propose the next most useful task based on the project's objective and recent task history. A suggestion card appears with a **Run this** button to create and launch it immediately.
+
+**Composing a task:** Click **+ Task** in the centre pane. The agent picker shows only agents assigned to the project. A **Devil's Advocate** toggle lets you attach a critic.
+
+**File browser:** The **Files** tab lets you browse the working directory and preview text, code, and markdown files in-pane.
+
+**Health-signal dots** on each project card (violet = running, amber = needs you, red = failed, green = all clear) let you scan state at a glance.
 
 ### Follow-up threads
 
@@ -216,11 +229,58 @@ Four sections, highest priority first:
 
 The sidebar badge counts all active (non-completed) categories in real time. Use **Dismiss all** to bulk-clear a section.
 
+> **Note:** Dismissing a task from Inbox only hides it from the Inbox. The task remains visible in its project's Completed section.
+
+---
+
+## Plugins
+
+Settings → Plugins. Two plugin categories:
+
+- **Core plugins** — ship with Phoenix. Currently includes Telegram notifier and Webhook notifier.
+- **Community plugins** — custom themes created via the Themes tab.
+
+### Notifiers
+
+Notifiers fire on task events (task completed, task failed, task needs approval, etc.). Configure a Telegram bot or a generic Webhook endpoint and set up notification rules to control which events trigger which notifier.
+
+**Telegram setup:**
+1. Create a bot via [@BotFather](https://t.me/BotFather), get your bot token.
+2. Settings → Plugins → Notifiers → Add → Telegram.
+3. Enter your bot token and click **Detect Chat ID** to auto-discover your chat.
+4. Add notification rules on the Rules tab.
+
+**Webhook:**
+- Sends a JSON POST to any URL on configured events.
+- Supports an optional `Authorization` header (use `${ENV_VAR}` for secrets).
+
+### Custom themes
+
+Settings → Plugins → Themes → **+ Create Theme**.
+
+The theme editor shows:
+- **Grouped colour pickers** — colours organised by purpose: Backgrounds, Text, Accent, Borders. Each has a colour picker, a human-readable label, and a hex input for precise values.
+- **Live preview** — a mock Phoenix UI updates in real-time as you adjust colours.
+- Saving applies the theme immediately — no need to reselect.
+
+Custom themes appear in the sidebar theme picker under a **Custom** section alongside the five built-in themes.
+
 ---
 
 ## Global guardrails
 
 Settings → System → **Global Guardrails**. Rules entered here are appended to every agent's system prompt under a mandatory section. Use for organisation-wide constraints (e.g. "never commit directly to main", "always write tests"). Click **✦ Generate** to draft them from a plain-English description.
+
+---
+
+## Dashboard
+
+The dashboard gives a cross-project status view:
+
+- **Active Tasks** — all currently running or queued tasks. Click any card to open a live-streaming detail modal showing real-time output, elapsed time, and cancel controls.
+- **Cost charts** — daily spend bar chart and breakdowns by agent, project, provider, and model.
+- **Teams** — at-a-glance activity for each team.
+- **Recent Activity** — clickable log of recent tasks across all projects.
 
 ---
 
@@ -258,7 +318,7 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | Method | Path | |
 |---|---|---|
 | GET | `/api/projects` | List all (add `?kind=project` or `?kind=monitor` to filter) |
-| POST | `/api/projects` | Create |
+| POST | `/api/projects` | Create (accepts `objective` field) |
 | GET/PUT/DELETE | `/api/projects/:id` | Read / update / delete |
 | GET | `/api/projects/summaries` | Task health summary keyed by project ID |
 | GET/POST | `/api/projects/:id/agents` | List / assign agents |
@@ -268,18 +328,20 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | POST | `/api/projects/:id/restore` | Restore archived project |
 | GET | `/api/projects/:id/files` | List files in working directory |
 | GET | `/api/projects/:id/files/*` | Get file content |
+| GET | `/api/projects/:id/history` | All completed tasks regardless of dismissed state |
+| POST | `/api/projects/:id/suggest` | AI-generated next-action suggestions |
 
 ### Tasks
 | Method | Path | |
 |---|---|---|
-| GET | `/api/tasks?project_id=` | List project tasks |
+| GET | `/api/tasks?project_id=` | List project tasks (undismissed) |
 | POST | `/api/tasks` | Create and run |
 | POST | `/api/tasks/quick` | Create quick task (sandbox project) |
 | GET | `/api/tasks/running` | All running + queued (cross-project) |
 | GET | `/api/tasks/attention` | All failed + awaiting-approval (cross-project) |
 | GET/PUT/DELETE | `/api/tasks/:id` | Read / edit / delete |
 | POST | `/api/tasks/:id/retry` | Re-run a failed task |
-| POST | `/api/tasks/:id/dismiss` | Soft-hide from inbox |
+| POST | `/api/tasks/:id/dismiss` | Soft-hide from inbox (project history unaffected) |
 | POST | `/api/tasks/:id/followup` | Create a follow-up task |
 
 ### Inbox
@@ -312,6 +374,20 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | PUT | `/api/memos/:id/status` | Update memo status |
 | DELETE | `/api/memos/:id` | Delete memo |
 
+### Plugins
+| Method | Path | |
+|---|---|---|
+| GET | `/api/plugins` | List all plugins |
+| POST | `/api/plugins` | Create plugin |
+| GET/PUT/DELETE | `/api/plugins/:id` | Read / update / delete |
+| POST | `/api/plugins/:id/enable` | Enable plugin |
+| POST | `/api/plugins/:id/disable` | Disable plugin |
+| GET | `/api/plugins/:id/chats` | List Telegram chats (Telegram plugins only) |
+| GET | `/api/notification-rules` | List notification rules |
+| POST | `/api/notification-rules` | Create notification rule |
+| PUT/DELETE | `/api/notification-rules/:id` | Update / delete rule |
+| GET | `/api/themes` | List enabled community themes |
+
 ### Stats & Admin
 | Method | Path | |
 |---|---|---|
@@ -321,7 +397,7 @@ Settings → System → **Global Guardrails**. Rules entered here are appended t
 | POST | `/api/admin/settings/generate-guardrails` | AI-generate global guardrails |
 
 ### WebSocket
-| | `/api/ws` | Events: `task.status_changed`, `task.output_stream`, `agent.status_changed`, `inbox.new_item`, `agent_draft.created` |
+| | `/api/ws` | Events: `task.status_changed`, `task.output_stream`, `agent.status_changed`, `inbox.new_item`, `agent_draft.created`, `memo.created` |
 
 ---
 
@@ -363,6 +439,7 @@ internal/
   api/                 HTTP handlers + WebSocket hub
   agent/               task runner + prompt assembly
   scheduler/           heartbeat ticker management
+  plugin/              plugin manager, notifier registry, event dispatch
   provider/            Provider interface + adapters
     llm/               OpenAI-compatible HTTP adapter
     ollama/            Ollama local model adapter
@@ -376,11 +453,54 @@ internal/
   model/               shared domain types
   frontend/            embedded React dist (web/dist → compiled in)
 web/                   React + TypeScript + Vite + Tailwind
+docs/
+  plugins/             Plugin developer documentation and examples
+  superpowers/specs/   Design specs and implementation plans
+  GLOSSARY.md          Domain glossary
 ```
 
 ### Migrations
 
-SQL files in `internal/store/sqlite/migrations/` are embedded and applied in order at startup. To add a migration, create `NNN_description.sql` with a number higher than the current highest.
+SQL files in `internal/store/sqlite/migrations/` are embedded and applied in order at startup. To add a migration, create `NNN_description.sql` with a number higher than the current highest (currently `034`).
+
+---
+
+## Changelog
+
+### v0.4 (2026-06-22)
+
+**Project view redesign**
+- Projects now have an **Objective** field — a plain-English goal statement, inline-editable directly in the project pane.
+- Tasks grouped by status in priority order: Needs Attention → Running → Failed → Completed.
+- Completed section collapsed by default; expands to show full history including previously inbox-dismissed tasks (which are no longer lost).
+- **✦ Suggest** button: AI analyses the objective and recent task history to propose the next most useful task. One click to run it.
+- Live WebSocket refresh — task sections update automatically as tasks change state.
+
+**Dashboard improvements**
+- Active task cards are now clickable — opens a live-streaming detail modal showing real-time output as the task runs.
+
+**Plugin system**
+- Core and community plugin architecture with enable/disable master switches.
+- **Telegram notifier** with auto chat-ID discovery (click Detect to find your chat).
+- **Webhook notifier** for generic HTTP integrations.
+- Notification rules engine — configure which events trigger which notifier.
+
+**Custom themes**
+- Visual theme editor with colour pickers grouped by purpose (Backgrounds, Text, Accent, Borders).
+- Live preview panel updates in real-time as colours change.
+- Custom themes appear in the sidebar picker alongside built-ins and apply instantly on save.
+
+### v0.3
+
+Projects workspace redesign (three-pane layout), file browser, artifact parsing, health-signal dots, monitor daily schedules, critic/devil's advocate mode, briefing/memos, project tags, agent hiring.
+
+### v0.2
+
+Initial three-pane workspace, task compose panel, follow-up threads, quick tasks, teams, usage tracking dashboard.
+
+### v0.1
+
+Initial release: agents, projects, monitors, tasks, inbox, providers, WebSocket streaming.
 
 ---
 
@@ -391,7 +511,6 @@ See [GitHub Issues](https://github.com/solarisjon/phoenix/issues) for the full b
 Upcoming:
 - Task cancellation (SIGTERM a running task)
 - Per-project agent task routing (assign specific agents to specific task types)
-- Full-text task search
 - Copilot CLI adapter
 - Multi-user authentication
 - Mobile-friendly layout
