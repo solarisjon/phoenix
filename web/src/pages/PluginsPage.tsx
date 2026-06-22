@@ -224,8 +224,12 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     setTesting(true)
     setTestResult(null)
     try {
+      // Save current form state first so the test uses the latest config.
+      const configStr = JSON.stringify(configValues)
+      await api.plugins.update(plugin.id, { ...plugin, config: configStr })
       const res = await api.plugins.test(plugin.id)
       setTestResult(res.message)
+      onRefresh()
     } catch (e: any) { setTestResult(`Error: ${e.message}`) }
     finally { setTesting(false) }
   }
