@@ -234,6 +234,29 @@ func (r *fakeTaskRepo) ListTimedOut(_ context.Context) ([]*model.Task, error) {
 	return nil, nil
 }
 
+func (r *fakeTaskRepo) ListFollowUpChain(_ context.Context, rootTaskID string) ([]*model.Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.tasks {
+		if t.ID == rootTaskID {
+			return []*model.Task{t}, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeTaskRepo) SaveSummaryCache(_ context.Context, taskID, summary string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.tasks {
+		if t.ID == taskID {
+			t.SummaryCache = summary
+			return nil
+		}
+	}
+	return nil
+}
+
 func (r *fakeTaskRepo) ListProjectHistory(_ context.Context, projectID string) ([]*model.Task, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

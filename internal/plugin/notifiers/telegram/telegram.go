@@ -25,7 +25,16 @@ type Config struct {
 	BotToken  string `json:"bot_token"`
 	ChatID    string `json:"chat_id"`
 	ParseMode string `json:"parse_mode"`
+
+	// Inbound task creation settings.
+	InboundEnabled   bool   `json:"inbound_enabled"`
+	DefaultProjectID string `json:"default_project_id"`
+	DefaultAgentID   string `json:"default_agent_id"`
 }
+
+// InboundHandler is called when a text message arrives from the configured chat.
+// The returned string (if non-empty) is sent back as a confirmation reply.
+type InboundHandler func(ctx context.Context, text string) (reply string, err error)
 
 // Notifier sends messages to a Telegram chat via the Bot API.
 type Notifier struct{}
@@ -131,6 +140,8 @@ func (n *Notifier) ConfigSchema() notifiers.JSONSchema {
 			},
 		},
 		Required: []string{"bot_token", "chat_id"},
+		// inbound_enabled, default_project_id, default_agent_id are handled
+		// by the frontend as a dedicated Telegram inbound section (not schema-driven).
 	}
 }
 
@@ -215,5 +226,204 @@ func (n *Notifier) TestMessage() notifiers.NotifyMessage {
 		AgentName:   "System",
 		ProjectName: "Phoenix",
 		Timestamp:   time.Now(),
+	}
+}
+
+// StartPoller begins a long-polling loop for inbound messages from Telegram.
+// It blocks until ctx is cancelled. On startup it drains any pending updates
+// (messages sent before the poller started) so they are not replayed as tasks.
+// For each new text message from the configured chat_id, handler is called and
+// the returned reply (if non-empty) is sent back to the chat.
+func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
+	token := strings.TrimSpace(provider.ExpandEnv(cfg.BotToken))
+	if token == "" || strings.HasPrefix(token, "${") {
+		log.Printf("telegram poller: bot_token is empty or unresolved — not starting")
+		return
+	}
+	allowedChatID := strings.TrimSpace(cfg.ChatID)
+
+	client := &http.Client{Timeout: 35 * time.Second}
+
+	// Drain any pending updates first so we don't replay stale messages.
+	offset := drainPendingUpdates(ctx, client, token)
+	log.Printf("telegram poller: started (offset=%d, chat=%s)", offset, allowedChatID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("telegram poller: stopping")
+			return
+		default:
+		}
+
+		url := fmt.Sprintf(
+			"https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=30&allowed_updates=[\"message\"]",
+			token, offset,
+		)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			log.Printf("telegram poller: build request: %v", err)
+			sleepOrDone(ctx, 5*time.Second)
+			continue
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("telegram poller: getUpdates error: %v", err)
+			sleepOrDone(ctx, 5*time.Second)
+			continue
+		}
+
+		var result struct {
+			OK     bool `json:"ok"`
+			Result []struct {
+				UpdateID int64 `json:"update_id"`
+				Message  *struct {
+					Date int64  `json:"date"`
+					Text string `json:"text"`
+					Chat struct {
+						ID int64 `json:"id"`
+					} `json:"chat"`
+				} `json:"message"`
+			} `json:"result"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			log.Printf("telegram poller: decode: %v", err)
+			sleepOrDone(ctx, 5*time.Second)
+			continue
+		}
+		resp.Body.Close()
+
+		if !result.OK {
+			log.Printf("telegram poller: Telegram API returned ok=false")
+			sleepOrDone(ctx, 10*time.Second)
+			continue
+		}
+
+		for _, upd := range result.Result {
+			offset = upd.UpdateID + 1
+
+			if upd.Message == nil {
+				continue
+			}
+
+			// Security: only accept messages from the configured chat.
+			chatStr := fmt.Sprintf("%d", upd.Message.Chat.ID)
+			if allowedChatID != "" && chatStr != allowedChatID {
+				log.Printf("telegram poller: ignoring message from unauthorized chat %s", chatStr)
+				continue
+			}
+
+			text := strings.TrimSpace(upd.Message.Text)
+			if text == "" {
+				continue
+			}
+
+			text = parseCommand(text)
+			if text == "" {
+				// Unrecognised slash command — send a help hint.
+				sendMessage(ctx, client, token, upd.Message.Chat.ID,
+					"Send any text (or /task <description>) to create a Phoenix task.", "Markdown")
+				continue
+			}
+
+			reply, err := handler(ctx, text)
+			if err != nil {
+				log.Printf("telegram poller: handler error: %v", err)
+				sendMessage(ctx, client, token, upd.Message.Chat.ID,
+					fmt.Sprintf("❌ Error: %s", err.Error()), "Markdown")
+				continue
+			}
+			if reply != "" {
+				sendMessage(ctx, client, token, upd.Message.Chat.ID, reply, "Markdown")
+			}
+		}
+	}
+}
+
+// parseCommand normalises the incoming message text.
+// Returns the task description, or "" if the message should be ignored
+// (e.g. an unrecognised slash command).
+func parseCommand(text string) string {
+	lower := strings.ToLower(text)
+	for _, prefix := range []string{"/task ", "/run "} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(text[len(prefix):])
+		}
+	}
+	if text == "/task" || text == "/run" {
+		return "" // bare command with no description — ignore
+	}
+	if strings.HasPrefix(text, "/") {
+		return "" // unrecognised slash command
+	}
+	return text // plain text → use as-is
+}
+
+// drainPendingUpdates calls getUpdates with no wait timeout to consume any
+// backlogged messages, advancing past them. Returns the next offset to use.
+func drainPendingUpdates(ctx context.Context, client *http.Client, token string) int64 {
+	url := fmt.Sprintf(
+		"https://api.telegram.org/bot%s/getUpdates?limit=100&timeout=0&allowed_updates=[\"message\"]",
+		token,
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		OK     bool `json:"ok"`
+		Result []struct {
+			UpdateID int64 `json:"update_id"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || !result.OK || len(result.Result) == 0 {
+		return 0
+	}
+
+	last := result.Result[len(result.Result)-1].UpdateID
+	return last + 1
+}
+
+// sendMessage sends a text message back to a Telegram chat.
+func sendMessage(ctx context.Context, client *http.Client, token string, chatID int64, text, parseMode string) {
+	if parseMode == "" {
+		parseMode = "Markdown"
+	}
+	body, _ := json.Marshal(map[string]interface{}{
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": parseMode,
+	})
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		log.Printf("telegram: sendMessage: build request: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("telegram: sendMessage: %v", err)
+		return
+	}
+	resp.Body.Close()
+}
+
+// sleepOrDone sleeps for d or until ctx is done.
+func sleepOrDone(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
 	}
 }

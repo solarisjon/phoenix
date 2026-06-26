@@ -135,10 +135,11 @@ type Project struct {
 	CriticAgentID    *string       `json:"critic_agent_id"` // deprecated: use CriticMode
 	CriticMode       string        `json:"critic_mode"`     // "none" | "builtin" | "agent:<id>"
 	MonitorModel     string        `json:"monitor_model"`   // if set, overrides the agent's model for monitor runs
-	BudgetUSD        float64       `json:"budget_usd"`      // 0 = no limit; positive = max spend for the period
-	BudgetPeriod     string        `json:"budget_period"`   // "day" | "week" | "month" | "total"
-	Tags             []string      `json:"tags"`              // free-text labels for grouping/filtering
-	CreatedAt        time.Time     `json:"created_at"`
+	BudgetUSD              float64  `json:"budget_usd"`              // 0 = no limit; positive = max spend for the period
+	BudgetPeriod           string   `json:"budget_period"`           // "day" | "week" | "month" | "total"
+	ContextSummarisation   bool     `json:"context_summarisation"`   // if true, long follow-up chains are summarised before injection
+	Tags                   []string `json:"tags"`                    // free-text labels for grouping/filtering
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // ProjectAgent links an agent to a project.
@@ -173,6 +174,7 @@ type Task struct {
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
 	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
 	PromptHash      string     `json:"prompt_hash"` // SHA-256 of the assembled prompt; used for monitor diffing
+	SummaryCache    string     `json:"summary_cache"` // cached summary of older follow-up turns (stored on the root task)
 	CreatedAt       time.Time  `json:"created_at"`
 	StartedAt       *time.Time `json:"started_at"`
 	CompletedAt     *time.Time `json:"completed_at"`

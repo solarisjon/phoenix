@@ -1410,6 +1410,7 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
   const [name, setName] = useState(project.name)
   const [description, setDescription] = useState(project.description ?? '')
   const [workingDir, setWorkingDir] = useState(project.working_dir ?? '')
+  const [contextSummarisation, setContextSummarisation] = useState(project.context_summarisation ?? false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | null>(null)
@@ -1423,6 +1424,7 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
         name: name.trim(),
         description: description.trim(),
         working_dir: workingDir.trim(),
+        context_summarisation: contextSummarisation,
       })
       onSaved()
     } catch (e: unknown) {
@@ -1494,6 +1496,22 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
             placeholder="/path/to/project"
             className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500 font-mono"
           />
+        </div>
+
+        <div className="flex items-start gap-3">
+          <input
+            id="ctx-summ"
+            type="checkbox"
+            checked={contextSummarisation}
+            onChange={e => setContextSummarisation(e.target.checked)}
+            className="mt-0.5 accent-violet-500"
+          />
+          <label htmlFor="ctx-summ" className="cursor-pointer">
+            <span className="text-xs font-medium text-slate-300">Context summarisation</span>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Summarise older follow-up turns when a chain exceeds 2 messages and ~8 000 chars, reducing input token costs by 50–80%.
+            </p>
+          </label>
         </div>
 
         {error && <p className="text-xs text-red-400">{error}</p>}

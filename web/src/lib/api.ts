@@ -64,6 +64,7 @@ export interface Project {
   monitor_model: string             // if set, overrides the agent's model for monitor runs
   budget_usd: number                // 0 = no limit
   budget_period: 'day' | 'week' | 'month' | 'total'
+  context_summarisation: boolean    // if true, long follow-up chains are summarised before injection
   tags: string[] | null             // free-text grouping labels (null for rows predating migration 023)
   created_at: string
 }

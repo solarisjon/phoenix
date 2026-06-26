@@ -121,6 +121,10 @@ func (s *Server) updatePlugin(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Restart inbound poller if this is a Telegram plugin (config may have changed).
+	if existing.Kind == "telegram" {
+		go s.pluginManager.RestartPoller(existing.ID)
+	}
 	respond(w, http.StatusOK, existing)
 }
 
@@ -138,6 +142,11 @@ func (s *Server) deletePlugin(w http.ResponseWriter, r *http.Request) {
 	if existing.IsCore {
 		respondErr(w, http.StatusForbidden, "cannot delete core plugins")
 		return
+	}
+
+	// Stop any running poller before deleting.
+	if existing.Kind == "telegram" {
+		go s.pluginManager.RestartPoller(existing.ID)
 	}
 
 	if err := s.pluginRepo.Delete(r.Context(), id); err != nil {
@@ -170,6 +179,9 @@ func (s *Server) setPluginEnabled(w http.ResponseWriter, r *http.Request, enable
 	if err := s.pluginRepo.Update(r.Context(), p); err != nil {
 		respondErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if p.Kind == "telegram" {
+		go s.pluginManager.RestartPoller(p.ID)
 	}
 	respond(w, http.StatusOK, p)
 }

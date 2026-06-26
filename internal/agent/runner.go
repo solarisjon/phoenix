@@ -455,9 +455,39 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	} else {
 		req = AssembleRequest(agent, task, globalGuardrails)
 		if task.FollowUpOf != nil {
-			parent, err := r.tasks.Get(ctx, *task.FollowUpOf)
-			if err == nil && parent != nil {
-				req = InjectFollowUpContext(req, parent)
+			// Walk the full follow-up chain from root so all prior context is available.
+			rootID := *task.FollowUpOf
+			chain, chainErr := r.tasks.ListFollowUpChain(ctx, rootID)
+			if chainErr != nil || len(chain) == 0 {
+				// Fallback: single-parent injection (original behaviour).
+				if parent, err := r.tasks.Get(ctx, rootID); err == nil && parent != nil {
+					req = InjectFollowUpContext(req, parent)
+				}
+			} else if proj != nil && proj.ContextSummarisation && ShouldSummariseChain(chain) {
+				// Summarisation path: use cached summary or fire a summarise call.
+				root := chain[0]
+				summary := root.SummaryCache
+				if summary == "" {
+					// Turns to summarise = everything except the most recent contextSummarisationKeepRecent.
+					oldTurns := chain
+					if len(chain) > contextSummarisationKeepRecent {
+						oldTurns = chain[:len(chain)-contextSummarisationKeepRecent]
+					}
+					summReq := BuildSummaryRequest(oldTurns)
+					summResp, summErr := prov.Execute(ctx, summReq)
+					if summErr != nil {
+						log.Printf("runner: task %s: context summarisation failed (falling back to verbatim): %v", task.ID, summErr)
+					} else {
+						summary = summResp.Output
+						if saveErr := r.tasks.SaveSummaryCache(ctx, root.ID, summary); saveErr != nil {
+							log.Printf("runner: task %s: save summary cache: %v", task.ID, saveErr)
+						}
+					}
+				}
+				req = InjectFollowUpChainContext(req, chain, summary)
+			} else {
+				// Verbatim path (no summarisation): include all prior turns.
+				req = InjectFollowUpChainContext(req, chain, "")
 			}
 		}
 	}

@@ -271,6 +271,21 @@ func (r *memTaskRepo) ListTimedOut(_ context.Context) ([]*model.Task, error) {
 	return nil, nil
 }
 
+func (r *memTaskRepo) ListFollowUpChain(_ context.Context, rootTaskID string) ([]*model.Task, error) {
+	root, ok := r.tasks[rootTaskID]
+	if !ok {
+		return nil, nil
+	}
+	return []*model.Task{root}, nil
+}
+
+func (r *memTaskRepo) SaveSummaryCache(_ context.Context, taskID, summary string) error {
+	if t, ok := r.tasks[taskID]; ok {
+		t.SummaryCache = summary
+	}
+	return nil
+}
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}

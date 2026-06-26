@@ -102,6 +102,17 @@ type TaskRepo interface {
 	// whose timeout_at timestamp has already passed. Used by the watchdog to
 	// reap tasks whose goroutine exited without updating the DB.
 	ListTimedOut(ctx context.Context) ([]*model.Task, error)
+
+	// ListFollowUpChain returns all tasks in the follow-up chain rooted at
+	// rootTaskID, ordered oldest first (root task first). The chain is built by
+	// following follow_up_of links from the current task back to the root, then
+	// returning them in ascending creation order. Returns at least the root task
+	// if it exists.
+	ListFollowUpChain(ctx context.Context, rootTaskID string) ([]*model.Task, error)
+
+	// SaveSummaryCache persists a summary string on the root task of a follow-up
+	// chain so future follow-ups can skip re-summarising the same turns.
+	SaveSummaryCache(ctx context.Context, taskID, summary string) error
 }
 
 // TeamRepo manages agent teams.

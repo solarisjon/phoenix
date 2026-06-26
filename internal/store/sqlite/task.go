@@ -19,7 +19,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
-	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash `
+	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -311,6 +311,39 @@ func (r *TaskRepo) ListProjectHistory(ctx context.Context, projectID string) ([]
 	return scanTasks(rows)
 }
 
+// ListFollowUpChain returns all tasks in the follow-up chain that includes rootTaskID,
+// ordered oldest first. It walks follow_up_of links starting from rootTaskID forward
+// (i.e. it fetches tasks whose follow_up_of points back to rootTaskID transitively).
+// The root task itself is always the first element.
+func (r *TaskRepo) ListFollowUpChain(ctx context.Context, rootTaskID string) ([]*model.Task, error) {
+	// Use a recursive CTE to walk the chain from root to current leaf.
+	rows, err := r.db.QueryContext(ctx,
+		`WITH RECURSIVE chain(id) AS (
+		   SELECT ? AS id
+		   UNION ALL
+		   SELECT t.id FROM tasks t JOIN chain c ON t.follow_up_of = c.id
+		 )
+		 SELECT`+taskSelectCols+`FROM tasks
+		 WHERE id IN (SELECT id FROM chain)
+		 ORDER BY created_at ASC`, rootTaskID)
+	if err != nil {
+		return nil, fmt.Errorf("list follow-up chain: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
+// SaveSummaryCache persists a summary string on a task (typically the root of a follow-up
+// chain). This avoids re-summarising on every subsequent follow-up turn.
+func (r *TaskRepo) SaveSummaryCache(ctx context.Context, taskID, summary string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET summary_cache = ? WHERE id = ?`, summary, taskID)
+	if err != nil {
+		return fmt.Errorf("save summary cache: %w", err)
+	}
+	return nil
+}
+
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
 	var status string
@@ -326,7 +359,7 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 		&runnerPID, &timeoutAt,
 		&t.Source, &healthSignal, &guardrailReason, &lastError,
-		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash,
+		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -390,7 +423,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 			&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 			&runnerPID, &timeoutAt,
 			&t.Source, &healthSignal, &guardrailReason, &lastError,
-			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash,
+			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache,
 		); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
 		}

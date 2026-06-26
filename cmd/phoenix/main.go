@@ -13,6 +13,7 @@ import (
 	"time"
 	_ "time/tzdata" // embed timezone data for scratch/minimal containers
 
+	"github.com/google/uuid"
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/config"
@@ -84,7 +85,6 @@ func main() {
 	if *noPlugins {
 		log.Println("Plugin dispatch disabled via --no-plugins flag")
 	}
-
 	// Wire up pricing registry: load user overrides from DB, refresh from OpenRouter.
 	pricingReg := pricing.New()
 	if overridesJSON, err := systemSettingsRepo.GetRaw(context.Background(), "pricing_overrides"); err != nil {
@@ -136,12 +136,43 @@ func main() {
 		})
 	})
 
+	// Wire inbound Telegram → task creation handler.
+	pluginManager.SetInboundHandler(func(ctx context.Context, projectID, agentID, title, source string) (string, error) {
+		t := &model.Task{
+			ID:          uuid.New().String(),
+			ProjectID:   projectID,
+			AgentID:     agentID,
+			Title:       title,
+			Description: title,
+			Status:      model.TaskStatusPending,
+			Source:      source,
+			CriticMode:  model.CriticModeInherit,
+			Input:       "{}",
+			Output:      "{}",
+			CreatedAt:   time.Now().UTC(),
+		}
+		if err := taskRepo.Create(ctx, t); err != nil {
+			return "", fmt.Errorf("create task: %w", err)
+		}
+		if err := runner.RunTask(ctx, t.ID); err != nil {
+			log.Printf("telegram inbound: task %s created but failed to queue: %v", t.ID, err)
+		}
+		return t.ID, nil
+	})
+
+	// Capture SIGINT / SIGTERM so we can drain in-flight requests cleanly.
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Start Telegram inbound pollers (after sigCtx so they share the same lifetime).
+	pluginManager.StartPollers(sigCtx)
+	defer pluginManager.StopPollers()
+
 	// Start the monitor scheduler. Scans monitors every SchedulerInterval and
 	// fires tasks for monitors with schedule_interval set.
 	sched := scheduler.New(agentRepo, projectRepo, taskRepo, runner, cfg.SchedulerInterval)
 	sched.Start()
 	defer sched.Stop()
-
 	// Apply configurable task timeout.
 	runner.SetTaskTimeout(cfg.TaskTimeout)
 
@@ -184,10 +215,6 @@ func main() {
 		Addr:    addr,
 		Handler: mux,
 	}
-
-	// Capture SIGINT / SIGTERM so we can drain in-flight requests cleanly.
-	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go func() {
 		log.Printf("Phoenix listening on http://localhost%s", addr)

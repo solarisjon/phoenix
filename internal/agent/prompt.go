@@ -230,6 +230,92 @@ func InjectFollowUpContext(req provider.TaskRequest, parent *model.Task) provide
 	return req
 }
 
+// contextSummarisationThreshold is the minimum total character count of prior
+// follow-up turns before context summarisation is triggered.
+const contextSummarisationThreshold = 8000
+
+// contextSummarisationKeepRecent is the number of most recent turns to keep
+// verbatim when summarising.
+const contextSummarisationKeepRecent = 2
+
+// ShouldSummariseChain reports whether the follow-up chain is long enough to
+// warrant context summarisation. Returns true when chain depth > 2 AND the
+// combined character count of all prior outputs exceeds the threshold.
+func ShouldSummariseChain(chain []*model.Task) bool {
+	if len(chain) <= 2 {
+		return false
+	}
+	var total int
+	for _, t := range chain {
+		total += len(extractOutputText(t.Output))
+	}
+	return total > contextSummarisationThreshold
+}
+
+// BuildSummaryRequest returns a TaskRequest that asks the LLM to produce a
+// ≤200-word summary of the given prior conversation turns. The request uses a
+// minimal system prompt so the cheapest available provider suffices.
+func BuildSummaryRequest(turns []*model.Task) provider.TaskRequest {
+	var b strings.Builder
+	b.WriteString("Summarise the following conversation in ≤200 words, preserving key decisions, facts, and any action items. Be concise.\n\n")
+	for _, t := range turns {
+		text := extractOutputText(t.Output)
+		if text == "" {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("### Task: %s\n%s\n\n", t.Title, text))
+	}
+	return provider.TaskRequest{
+		SystemPrompt: "You are a concise summariser. Output only the summary — no preamble.",
+		Prompt:       strings.TrimSpace(b.String()),
+	}
+}
+
+// InjectFollowUpChainContext builds the user prompt for a follow-up task by
+// prepending context from the entire prior chain. When a non-empty summary is
+// provided, old turns (all except the most recent contextSummarisationKeepRecent)
+// are replaced by the summary; otherwise, all prior turns are included verbatim.
+func InjectFollowUpChainContext(req provider.TaskRequest, chain []*model.Task, summary string) provider.TaskRequest {
+	if len(chain) == 0 {
+		return req
+	}
+
+	var b strings.Builder
+
+	if summary != "" && len(chain) > contextSummarisationKeepRecent {
+		// Summarised path: abbreviated older context + recent turns verbatim.
+		b.WriteString("## Earlier conversation (summarised)\n")
+		b.WriteString(summary)
+		b.WriteString("\n\n")
+
+		recent := chain
+		if len(chain) > contextSummarisationKeepRecent {
+			recent = chain[len(chain)-contextSummarisationKeepRecent:]
+		}
+		for _, t := range recent {
+			text := extractOutputText(t.Output)
+			if text == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("## Recent output (task: %s)\n%s\n\n", t.Title, text))
+		}
+	} else {
+		// Verbatim path: include all prior turns.
+		for _, t := range chain {
+			text := extractOutputText(t.Output)
+			if text == "" {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("## Previous output (task: %s)\n%s\n\n", t.Title, text))
+		}
+	}
+
+	b.WriteString("## Your follow-up instructions\n")
+	b.WriteString(req.Prompt)
+	req.Prompt = b.String()
+	return req
+}
+
 // extractOutputText pulls the "text" field from a task output JSON blob,
 // falling back to the raw string if it's not JSON.
 func extractOutputText(output string) string {

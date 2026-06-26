@@ -16,7 +16,7 @@ func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
 const projectSelectCols = `id, name, description, objective, working_dir, kind, schedule_interval,
 	schedule_kind, schedule_times, schedule_catch_up,
-	owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, tags, created_at`
+	owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags, created_at`
 
 // ListByKind returns projects filtered by kind, active only.
 func (r *ProjectRepo) ListByKind(ctx context.Context, kind string) ([]*model.Project, error) {
@@ -73,12 +73,12 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO projects (id, name, description, objective, working_dir, kind, schedule_interval,
 		 schedule_kind, schedule_times, schedule_catch_up,
-		 owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, tags)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Description, p.Objective, p.WorkingDir, kind, p.ScheduleInterval,
 		scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
-		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), tagsJSON)
+		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), boolToInt(p.ContextSummarisation), tagsJSON)
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -100,11 +100,11 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 		`UPDATE projects SET name = ?, description = ?, objective = ?, working_dir = ?, kind = ?,
 		 schedule_interval = ?, schedule_kind = ?, schedule_times = ?, schedule_catch_up = ?,
 		 status = ?, critic_agent_id = ?, critic_mode = ?, monitor_model = ?,
-		 budget_usd = ?, budget_period = ?, tags = ? WHERE id = ?`,
+		 budget_usd = ?, budget_period = ?, context_summarisation = ?, tags = ? WHERE id = ?`,
 		p.Name, p.Description, p.Objective, p.WorkingDir, kind,
 		p.ScheduleInterval, scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
-		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), tagsJSON, p.ID)
+		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), boolToInt(p.ContextSummarisation), tagsJSON, p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
@@ -193,13 +193,13 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 	var p model.Project
 	var status, kind, tagsJSON string
 	var scheduleKind, timesJSON string
-	var catchUp int
+	var catchUp, ctxSumm int
 	var criticAgentID sql.NullString
 	err := row.Scan(
 		&p.ID, &p.Name, &p.Description, &p.Objective, &p.WorkingDir, &kind, &p.ScheduleInterval,
 		&scheduleKind, &timesJSON, &catchUp,
 		&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel,
-		&p.BudgetUSD, &p.BudgetPeriod, &tagsJSON, &p.CreatedAt,
+		&p.BudgetUSD, &p.BudgetPeriod, &ctxSumm, &tagsJSON, &p.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -224,6 +224,7 @@ func scanProject(row *sql.Row) (*model.Project, error) {
 	}
 	p.ScheduleTimes = unmarshalStringSlice(timesJSON)
 	p.ScheduleCatchUp = catchUp != 0
+	p.ContextSummarisation = ctxSumm != 0
 	p.Tags = unmarshalTags(tagsJSON)
 	return &p, nil
 }
@@ -234,13 +235,13 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 		var p model.Project
 		var status, kind, tagsJSON string
 		var scheduleKind, timesJSON string
-		var catchUp int
+		var catchUp, ctxSumm int
 		var criticAgentID sql.NullString
 		if err := rows.Scan(
 			&p.ID, &p.Name, &p.Description, &p.Objective, &p.WorkingDir, &kind, &p.ScheduleInterval,
 			&scheduleKind, &timesJSON, &catchUp,
 			&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel,
-			&p.BudgetUSD, &p.BudgetPeriod, &tagsJSON, &p.CreatedAt,
+			&p.BudgetUSD, &p.BudgetPeriod, &ctxSumm, &tagsJSON, &p.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
 		}
@@ -261,6 +262,7 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 		}
 		p.ScheduleTimes = unmarshalStringSlice(timesJSON)
 		p.ScheduleCatchUp = catchUp != 0
+		p.ContextSummarisation = ctxSumm != 0
 		p.Tags = unmarshalTags(tagsJSON)
 		out = append(out, &p)
 	}

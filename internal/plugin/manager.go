@@ -8,18 +8,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers"
+	"github.com/solarisjon/phoenix/internal/plugin/notifiers/telegram"
 	"github.com/solarisjon/phoenix/internal/store"
 
 	// Import notifier packages for their init() registration side-effects.
 	_ "github.com/solarisjon/phoenix/internal/plugin/notifiers/telegram"
 	_ "github.com/solarisjon/phoenix/internal/plugin/notifiers/webhook"
 )
+
+// InboundTaskFunc is the callback registered by main.go to create a task from
+// an inbound Telegram message. Returns the new task ID or an error.
+type InboundTaskFunc func(ctx context.Context, projectID, agentID, title, source string) (taskID string, err error)
 
 // ManagerOpts holds startup configuration for the plugin manager.
 type ManagerOpts struct {
@@ -28,15 +34,20 @@ type ManagerOpts struct {
 
 // Manager coordinates plugin lifecycle, event dispatch, and notification delivery.
 type Manager struct {
-	plugins store.PluginRepo
-	rules   store.NotificationRuleRepo
+	plugins  store.PluginRepo
+	rules    store.NotificationRuleRepo
 	settings store.SystemSettingsRepo
 
 	noPlugins bool // runtime override from CLI flag
 
-	mu                    sync.RWMutex
-	corePluginsEnabled    bool
+	mu                      sync.RWMutex
+	corePluginsEnabled      bool
 	communityPluginsEnabled bool
+
+	// Inbound polling state.
+	pollerParentCtx context.Context
+	pollers         map[string]context.CancelFunc // pluginID → cancel
+	inboundHandler  InboundTaskFunc
 }
 
 // NewManager creates a plugin manager. Call SeedCorePlugins and LoadAll after construction.
@@ -51,6 +62,7 @@ func NewManager(
 		rules:     rules,
 		settings:  settings,
 		noPlugins: opts.NoPlugins,
+		pollers:   make(map[string]context.CancelFunc),
 	}
 }
 
@@ -274,6 +286,150 @@ func renderTemplate(tmpl string, msg notifiers.NotifyMessage) string {
 		return fmt.Sprintf("%s: %s", msg.EventType, msg.TaskTitle)
 	}
 	return buf.String()
+}
+
+// ---- Inbound polling ----
+
+// SetInboundHandler registers the callback used to create tasks from inbound Telegram messages.
+// Must be called before StartPollers.
+func (m *Manager) SetInboundHandler(fn InboundTaskFunc) {
+	m.mu.Lock()
+	m.inboundHandler = fn
+	m.mu.Unlock()
+}
+
+// StartPollers launches long-polling goroutines for all enabled Telegram plugins
+// that have inbound_enabled=true. The provided ctx controls their lifetime;
+// cancel it (or call StopPollers) to shut everything down.
+func (m *Manager) StartPollers(ctx context.Context) {
+	if m.noPlugins {
+		return
+	}
+	m.mu.Lock()
+	m.pollerParentCtx = ctx
+	m.mu.Unlock()
+
+	plugins, err := m.plugins.List(ctx)
+	if err != nil {
+		log.Printf("plugin: StartPollers: list plugins: %v", err)
+		return
+	}
+	for _, p := range plugins {
+		if p.Kind == "telegram" {
+			m.startPoller(p)
+		}
+	}
+}
+
+// StopPollers cancels all running poller goroutines.
+func (m *Manager) StopPollers() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, cancel := range m.pollers {
+		cancel()
+		delete(m.pollers, id)
+	}
+}
+
+// RestartPoller stops any existing poller for the given plugin and starts a
+// new one if the plugin is still eligible (enabled, telegram kind, inbound on).
+// Safe to call from HTTP handlers — uses the parent context stored by StartPollers.
+func (m *Manager) RestartPoller(pluginID string) {
+	m.mu.Lock()
+	ctx := m.pollerParentCtx
+	m.mu.Unlock()
+	if ctx == nil {
+		return // StartPollers not called yet
+	}
+
+	// Stop any running poller for this plugin.
+	m.mu.Lock()
+	if cancel, ok := m.pollers[pluginID]; ok {
+		cancel()
+		delete(m.pollers, pluginID)
+	}
+	m.mu.Unlock()
+
+	// Re-fetch plugin and restart if still eligible.
+	p, err := m.plugins.Get(ctx, pluginID)
+	if err != nil || p == nil {
+		return // plugin deleted or error — nothing to start
+	}
+	m.startPoller(p)
+}
+
+// startPoller launches a poller goroutine for p if it qualifies.
+// Must NOT be called with m.mu held.
+func (m *Manager) startPoller(p *model.Plugin) {
+	if m.noPlugins || !m.isPluginActive(p) {
+		return
+	}
+
+	var cfg telegram.Config
+	if err := json.Unmarshal([]byte(p.Config), &cfg); err != nil {
+		log.Printf("plugin: telegram startPoller %s: unmarshal config: %v", p.ID, err)
+		return
+	}
+	if !cfg.InboundEnabled {
+		return
+	}
+	if cfg.DefaultProjectID == "" || cfg.DefaultAgentID == "" {
+		log.Printf("plugin: telegram inbound %s: default_project_id or default_agent_id not set — skipping", p.ID)
+		return
+	}
+
+	m.mu.Lock()
+	parentCtx := m.pollerParentCtx
+	if parentCtx == nil {
+		m.mu.Unlock()
+		return
+	}
+	pollerCtx, cancel := context.WithCancel(parentCtx)
+	m.pollers[p.ID] = cancel
+	m.mu.Unlock()
+
+	pluginID := p.ID
+	projectID := cfg.DefaultProjectID
+	agentID := cfg.DefaultAgentID
+
+	handler := func(ctx context.Context, text string) (string, error) {
+		m.mu.RLock()
+		fn := m.inboundHandler
+		m.mu.RUnlock()
+		if fn == nil {
+			return "", fmt.Errorf("inbound handler not configured")
+		}
+
+		title := text
+		const maxTitle = 200
+		if len([]rune(title)) > maxTitle {
+			runes := []rune(title)
+			title = string(runes[:maxTitle]) + "…"
+		}
+
+		_, err := fn(ctx, projectID, agentID, title, fmt.Sprintf("telegram:%s", pluginID))
+		if err != nil {
+			return fmt.Sprintf("❌ Failed to create task: %s", err.Error()), nil
+		}
+		return fmt.Sprintf("✅ Task queued: *%s*", escapeMarkdown(title)), nil
+	}
+
+	go func() {
+		log.Printf("plugin: telegram poller starting for plugin %s", pluginID)
+		telegram.StartPoller(pollerCtx, cfg, handler)
+		log.Printf("plugin: telegram poller stopped for plugin %s", pluginID)
+	}()
+}
+
+// escapeMarkdown escapes Telegram MarkdownV1 special characters.
+func escapeMarkdown(s string) string {
+	replacer := strings.NewReplacer(
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"`", "\\`",
+	)
+	return replacer.Replace(s)
 }
 
 // TestPlugin sends a test notification through the given plugin.

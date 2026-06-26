@@ -35,6 +35,7 @@ type createProjectRequest struct {
 	MonitorModel     string   `json:"monitor_model"`     // if set, overrides the agent's model for monitor tasks
 	BudgetUSD        float64  `json:"budget_usd"`        // 0 = no limit
 	BudgetPeriod     string   `json:"budget_period"`     // "day" | "week" | "month" | "total"
+	ContextSummarisation bool `json:"context_summarisation"` // opt-in: summarise long follow-up chains
 	Tags             []string `json:"tags"`
 }
 
@@ -180,6 +181,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		MonitorModel:     strings.TrimSpace(req.MonitorModel),
 		BudgetUSD:        req.BudgetUSD,
 		BudgetPeriod:     resolveBudgetPeriod(req.BudgetPeriod),
+		ContextSummarisation: req.ContextSummarisation,
 		Tags:             normaliseTags(req.Tags),
 		CreatedAt:        time.Now(),
 	}
@@ -224,6 +226,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.MonitorModel = strings.TrimSpace(req.MonitorModel)
 	existing.BudgetUSD = req.BudgetUSD
 	existing.BudgetPeriod = resolveBudgetPeriod(req.BudgetPeriod)
+	existing.ContextSummarisation = req.ContextSummarisation
 
 	if msg, err := s.validateCriticAgent(r.Context(), existing.CriticMode, req.CriticAgentID); err != nil {
 		respondInternalErr(w, err)
