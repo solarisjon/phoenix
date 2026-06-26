@@ -500,6 +500,12 @@ export const api = {
         body: JSON.stringify({ input_per_mtoken: inputPerMToken, output_per_mtoken: outputPerMToken }),
       }),
   },
+  fs: {
+    stat: (path: string) =>
+      request<{ exists: boolean; is_dir: boolean }>(`/fs/stat?path=${encodeURIComponent(path)}`),
+    mkdir: (path: string) =>
+      request<{ created: boolean }>('/fs/mkdir', { method: 'POST', body: JSON.stringify({ path }) }),
+  },
   admin: {
     getSettings: () => request<SystemSettings>('/admin/settings'),
     saveSettings: (data: SystemSettings) => request<SystemSettings>('/admin/settings', { method: 'PUT', body: JSON.stringify(data) }),

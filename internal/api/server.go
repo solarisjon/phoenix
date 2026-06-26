@@ -234,6 +234,10 @@ func (s *Server) buildRouter() http.Handler {
 		// Themes
 		r.Get("/themes", s.listThemes)
 
+		// Filesystem helpers
+		r.Get("/fs/stat", s.statHandler)
+		r.Post("/fs/mkdir", s.mkdirHandler)
+
 		// Stats
 		r.Get("/stats/costs", s.getCosts)
 		r.Get("/stats/costs/insights", s.getCostInsights)

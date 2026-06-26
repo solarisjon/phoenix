@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type Project, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
@@ -11,6 +11,8 @@ import { TagInput, TagPill } from '@/components/ui/tag-input'
 import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
 import type { FilterSortState } from '@/components/ui/filter-sort-bar'
 import { timeAgo } from '@/lib/utils'
+
+type DirStatus = 'unknown' | 'exists' | 'missing' | 'not_dir' | 'creating' | 'error'
 
 function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
   initial?: Project; providers: Provider[]; allTags: string[]; onSave: () => void; onClose: () => void
@@ -29,6 +31,50 @@ function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
   )
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiError, setAiError] = useState('')
+  const [dirStatus, setDirStatus] = useState<DirStatus>('unknown')
+  const [dirStatusMsg, setDirStatusMsg] = useState('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const checkDir = useCallback(async (path: string) => {
+    const trimmed = path.trim()
+    if (!trimmed) { setDirStatus('unknown'); return }
+    try {
+      const res = await api.fs.stat(trimmed)
+      if (res.exists) {
+        setDirStatus(res.is_dir ? 'exists' : 'not_dir')
+      } else {
+        setDirStatus('missing')
+      }
+      setDirStatusMsg('')
+    } catch (e: unknown) {
+      setDirStatus('error')
+      setDirStatusMsg(e instanceof Error ? e.message : 'Could not check path')
+    }
+  }, [])
+
+  const handleWorkingDirChange = (val: string) => {
+    setWorkingDir(val)
+    setDirStatus('unknown')
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => checkDir(val), 600)
+  }
+
+  const handleWorkingDirBlur = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    checkDir(workingDir)
+  }
+
+  const handleCreateDir = async () => {
+    setDirStatus('creating')
+    try {
+      await api.fs.mkdir(workingDir.trim())
+      setDirStatus('exists')
+      setDirStatusMsg('Created')
+    } catch (e: unknown) {
+      setDirStatus('error')
+      setDirStatusMsg(e instanceof Error ? e.message : 'Failed to create directory')
+    }
+  }
 
   const save = async () => {
     if (!name.trim()) { setError('Name is required'); return }
@@ -114,9 +160,53 @@ function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
       </div>
       <div>
         <Label htmlFor="wdir">Working Directory <span className="text-slate-500 font-normal">(optional)</span></Label>
-        <Input id="wdir" value={workingDir} onChange={e => setWorkingDir(e.target.value)}
-          placeholder="/path/to/project — passed to coding agents as their working directory" />
-        <p className="text-xs text-slate-500 mt-1">Leave blank to use the coding agent's default directory.</p>
+        <Input
+          id="wdir"
+          value={workingDir}
+          onChange={e => handleWorkingDirChange(e.target.value)}
+          onBlur={handleWorkingDirBlur}
+          placeholder="/path/to/project — passed to coding agents as their working directory"
+        />
+        {dirStatus === 'unknown' && (
+          <p className="text-xs text-slate-500 mt-1">Leave blank to use the coding agent's default directory.</p>
+        )}
+        {dirStatus === 'exists' && (
+          <p className="mt-1 text-xs text-emerald-400 flex items-center gap-1">
+            <span>✓</span>
+            <span>{dirStatusMsg || 'Directory exists'}</span>
+          </p>
+        )}
+        {dirStatus === 'missing' && (
+          <p className="mt-1 text-xs text-amber-400 flex items-center gap-1.5">
+            <span>●</span>
+            <span>Does not exist</span>
+            <button
+              type="button"
+              onClick={handleCreateDir}
+              className="ml-1 px-1.5 py-0.5 text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded border border-amber-500/30"
+            >
+              Create
+            </button>
+          </p>
+        )}
+        {dirStatus === 'not_dir' && (
+          <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
+            <span>●</span>
+            <span>Path exists but is not a directory</span>
+          </p>
+        )}
+        {dirStatus === 'creating' && (
+          <p className="mt-1 text-xs text-slate-400 flex items-center gap-1">
+            <span className="animate-spin inline-block">⟳</span>
+            <span>Creating…</span>
+          </p>
+        )}
+        {dirStatus === 'error' && (
+          <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
+            <span>●</span>
+            <span>{dirStatusMsg || 'Error checking path'}</span>
+          </p>
+        )}
       </div>
       {initial && (
         <div>
