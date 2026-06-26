@@ -404,6 +404,28 @@ function ProviderForm({ initial, onSave, onClose }: {
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [pricingInput, setPricingInput] = useState('')
+  const [pricingOutput, setPricingOutput] = useState('')
+  const [pricingSaving, setPricingSaving] = useState(false)
+  const [pricingSaved, setPricingSaved] = useState(false)
+
+  const savePricing = async () => {
+    if (!initial) return
+    setPricingSaving(true)
+    try {
+      await api.providers_pricing.update(
+        initial.id,
+        parseFloat(pricingInput) || 0,
+        parseFloat(pricingOutput) || 0,
+      )
+      setPricingSaved(true)
+      setTimeout(() => setPricingSaved(false), 2500)
+    } catch (e: any) {
+      setError('Pricing save failed: ' + e.message)
+    } finally {
+      setPricingSaving(false)
+    }
+  }
 
   const save = async () => {
     setError('')
@@ -468,6 +490,51 @@ function ProviderForm({ initial, onSave, onClose }: {
         {uiType === 'ollama' && <OllamaFields cfg={ollamaCfg} onChange={setOllamaCfg} providerId={initial?.id} />}
         {uiType === 'coding_agent' && <CodingAgentFields cfg={codingCfg} onChange={setCodingCfg} />}
       </div>
+
+      {/* Pricing Override — only shown when editing an existing provider */}
+      {initial && (
+        <div className="border-t border-slate-800 pt-4 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Pricing Override</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Override the built-in price used for cost projections in Cost Insights.
+              Leave blank to use the automatic price (from OpenRouter or built-in table).
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="pricing-input">Input ($/M tokens)</Label>
+              <Input
+                id="pricing-input"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 5.00"
+                value={pricingInput}
+                onChange={e => setPricingInput(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="pricing-output">Output ($/M tokens)</Label>
+              <Input
+                id="pricing-output"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 15.00"
+                value={pricingOutput}
+                onChange={e => setPricingOutput(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="secondary" size="sm" onClick={savePricing} disabled={pricingSaving}>
+              {pricingSaving ? 'Saving…' : 'Save Pricing'}
+            </Button>
+            {pricingSaved && <span className="text-emerald-400 text-xs">✓ Saved</span>}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">

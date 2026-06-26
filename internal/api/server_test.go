@@ -12,6 +12,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/plugin"
+	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/provider"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
@@ -52,7 +53,7 @@ func testServer(t *testing.T) *Server {
 	pluginRepo := sqllite.NewPluginRepo(db)
 	ruleRepo := sqllite.NewNotificationRuleRepo(db)
 	pm := plugin.NewManager(pluginRepo, ruleRepo, systemSettingsRepo, plugin.ManagerOpts{NoPlugins: true})
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, pm, runner, reg, adminRepo, 0)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, pm, runner, reg, pricing.New(), adminRepo, 0)
 }
 
 type mockProv struct{}

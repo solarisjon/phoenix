@@ -16,6 +16,7 @@ const FeedPage          = lazy(() => import('@/pages/FeedPage'))
 const BriefingPage      = lazy(() => import('@/pages/BriefingPage').then(m => ({ default: m.BriefingPage })))
 const AgentActivityPage = lazy(() => import('@/pages/AgentActivityPage').then(m => ({ default: m.AgentActivityPage })))
 const PluginsPage       = lazy(() => import('@/pages/PluginsPage').then(m => ({ default: m.PluginsPage })))
+const CostInsightsPage  = lazy(() => import('@/pages/CostInsightsPage'))
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/teams/:id" element={<TeamDetailPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/plugins" element={<PluginsPage />} />
+            <Route path="/cost-insights" element={<CostInsightsPage />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/feed" element={<FeedPage />} />
             <Route path="/queue" element={<Navigate to="/" replace />} />

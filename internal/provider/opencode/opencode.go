@@ -20,6 +20,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/solarisjon/phoenix/internal/provider"
 )
@@ -94,7 +95,13 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 	prompt := a.buildPrompt(req)
 	args := a.buildArgs(prompt)
 
-	cmd := exec.CommandContext(ctx, a.cfg.BinaryPath, args...)
+	// Use exec.Command (not CommandContext) so we can manage process-group
+	// termination ourselves. CommandContext only kills the direct PID; opencode
+	// spawns child processes (nvim, tool helpers) that inherit the stdout pipe
+	// and keep it alive indefinitely after the parent dies, causing the goroutine
+	// to block on scanner.Scan() until those children happen to exit on their own.
+	cmd := exec.Command(a.cfg.BinaryPath, args...) //nolint:gosec
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	switch {
 	case req.WorkingDir != "":
 		cmd.Dir = req.WorkingDir
@@ -119,6 +126,19 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 
 	// Send PID as the first chunk so the runner can record it for crash recovery.
 	pid := cmd.Process.Pid
+
+	// Kill the entire process group when the context is done. This ensures
+	// all child processes spawned by opencode (e.g. nvim subprocesses for file
+	// editing) are also terminated, closing their inherited stdout pipes and
+	// unblocking scanner.Scan() promptly.
+	go func() {
+		<-ctx.Done()
+		if pgid, err := syscall.Getpgid(pid); err == nil {
+			if killErr := syscall.Kill(-pgid, syscall.SIGKILL); killErr != nil {
+				log.Printf("opencode: kill process group -%d: %v", pgid, killErr)
+			}
+		}
+	}()
 
 	go func() {
 		defer close(ch)

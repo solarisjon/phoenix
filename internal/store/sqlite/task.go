@@ -282,6 +282,22 @@ func (r *TaskRepo) ForceFailTask(ctx context.Context, taskID string) (bool, erro
 	return n > 0, nil
 }
 
+// ListTimedOut returns tasks that are still active (running or queued) but whose
+// timeout_at has already passed. Used by the watchdog goroutine to reap tasks
+// whose runner goroutine exited without updating the DB.
+func (r *TaskRepo) ListTimedOut(ctx context.Context) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks
+		 WHERE status IN ('running','queued')
+		   AND timeout_at IS NOT NULL
+		   AND timeout_at < datetime('now')`)
+	if err != nil {
+		return nil, fmt.Errorf("list timed out tasks: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 // ListProjectHistory returns all completed tasks for a project regardless of dismissed state.
 // Used by the project view to show full history including inbox-dismissed tasks.
 func (r *TaskRepo) ListProjectHistory(ctx context.Context, projectID string) ([]*model.Task, error) {

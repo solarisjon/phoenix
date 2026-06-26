@@ -20,6 +20,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/paths"
 	"github.com/solarisjon/phoenix/internal/plugin"
+	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/scheduler"
 	"github.com/solarisjon/phoenix/internal/store/sqlite"
@@ -84,6 +85,18 @@ func main() {
 		log.Println("Plugin dispatch disabled via --no-plugins flag")
 	}
 
+	// Wire up pricing registry: load user overrides from DB, refresh from OpenRouter.
+	pricingReg := pricing.New()
+	if overridesJSON, err := systemSettingsRepo.GetRaw(context.Background(), "pricing_overrides"); err != nil {
+		log.Printf("pricing: failed to load overrides: %v", err)
+	} else if err := pricingReg.LoadOverrides(overridesJSON); err != nil {
+		log.Printf("pricing: failed to parse overrides: %v", err)
+	}
+	if err := pricingReg.Refresh(context.Background()); err != nil {
+		log.Printf("pricing: initial OpenRouter refresh failed (using built-in table): %v", err)
+	}
+	pricingReg.StartRefreshLoop(context.Background(), 24*time.Hour)
+
 	// Wire up provider registry.
 	reg := registry.NewRegistry(providerRepo)
 
@@ -100,7 +113,7 @@ func main() {
 		agentDraftRepo, systemSettingsRepo,
 		memoRepo,
 		pluginRepo, notificationRuleRepo, pluginManager,
-		runner, reg,
+		runner, reg, pricingReg,
 		adminRepo,
 		cfg.HTTPTimeout,
 	)
@@ -131,6 +144,11 @@ func main() {
 
 	// Apply configurable task timeout.
 	runner.SetTaskTimeout(cfg.TaskTimeout)
+
+	// Start the watchdog that reaps tasks past their timeout_at that slipped
+	// through without a DB update (e.g. because the task context was already
+	// expired when the goroutine tried to write the final status).
+	runner.StartTimeoutWatchdog()
 
 	mux := http.NewServeMux()
 

@@ -267,6 +267,50 @@ func (r *Runner) ForceCancel(taskID string) error {
 	return nil
 }
 
+// StartTimeoutWatchdog starts a background goroutine that periodically finds
+// tasks whose timeout_at has passed but whose goroutine exited without updating
+// the DB (e.g. because the context was already dead when the DB write ran).
+// It force-cancels any such tasks every minute until the runner shuts down.
+func (r *Runner) StartTimeoutWatchdog() {
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.bgCtx.Done():
+				return
+			case <-ticker.C:
+				r.reapTimedOutTasks()
+			}
+		}
+	}()
+}
+
+// reapTimedOutTasks finds tasks that are past timeout_at but still show
+// running in the DB without an active goroutine, and force-cancels them.
+func (r *Runner) reapTimedOutTasks() {
+	tasks, err := r.tasks.ListTimedOut(r.bgCtx)
+	if err != nil {
+		log.Printf("runner: watchdog: list timed-out tasks: %v", err)
+		return
+	}
+	r.mu.Lock()
+	orphans := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		if _, active := r.cancels[t.ID]; !active {
+			orphans = append(orphans, t.ID)
+		}
+	}
+	r.mu.Unlock()
+
+	for _, id := range orphans {
+		log.Printf("runner: watchdog: force-cancelling timed-out task %s", id)
+		if err := r.ForceCancel(id); err != nil {
+			log.Printf("runner: watchdog: force-cancel %s: %v", id, err)
+		}
+	}
+}
+
 // Shutdown cancels all running tasks and clears the cancel map.
 func (r *Runner) Shutdown() {
 	// Cancelling bgCtx cascades to all task contexts.
@@ -521,7 +565,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 			if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
 				taskErr = ErrTaskCancelledByUser
 			}
-			r.failTask(ctx, task, taskErr)
+			r.failTask(r.bgCtx, task, taskErr)
 			return
 		}
 		// Capture subprocess PID on the first chunk and persist it so
@@ -553,6 +597,23 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		if chunk.CostUSD > 0 {
 			realCostUSD += chunk.CostUSD
 		}
+	}
+
+	// If the context was cancelled (timeout or user cancel) while the chunk loop
+	// was draining, fail the task now rather than attempting completion. This
+	// handles the case where the provider's goroutine kept running after the
+	// deadline fired (e.g. because orphaned child processes held the stdout pipe
+	// open) and the loop only exited when they eventually died — long after the
+	// context had already expired.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		taskErr := ctxErr
+		if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
+			taskErr = ErrTaskCancelledByUser
+		} else if errors.Is(ctxErr, context.DeadlineExceeded) {
+			taskErr = fmt.Errorf("task timed out after %s", r.taskTimeout)
+		}
+		r.failTask(r.bgCtx, task, taskErr)
+		return
 	}
 
 	// Collect full output.
@@ -636,7 +697,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 
 	finalStatus := model.TaskStatusCompleted
-	if err := r.setStatus(ctx, task, finalStatus, nil); err != nil {
+	if err := r.setStatus(r.bgCtx, task, finalStatus, nil); err != nil {
 		log.Printf("runner: set completed status: %v", err)
 		return
 	}

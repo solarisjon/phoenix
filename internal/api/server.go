@@ -13,6 +13,7 @@ import (
 
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/plugin"
+	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
 	"github.com/solarisjon/phoenix/internal/store/sqlite"
@@ -35,6 +36,7 @@ type Server struct {
 	pluginManager  *plugin.Manager
 	runner         *agent.Runner
 	registry       *registry.Registry
+	pricingReg     *pricing.Registry
 	hub            *Hub
 	router         http.Handler
 	admin          *sqlite.AdminRepo
@@ -60,6 +62,7 @@ func New(
 	pluginManager *plugin.Manager,
 	runner *agent.Runner,
 	reg *registry.Registry,
+	pricingReg *pricing.Registry,
 	admin *sqlite.AdminRepo,
 	httpTimeout time.Duration,
 ) *Server {
@@ -82,6 +85,7 @@ func New(
 		pluginManager:  pluginManager,
 		runner:         runner,
 		registry:       reg,
+		pricingReg:     pricingReg,
 		hub:            NewHub(),
 		admin:          admin,
 		startTime:      time.Now(),
@@ -118,6 +122,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/providers/{id}", s.updateProvider)
 		r.Delete("/providers/{id}", s.deleteProvider)
 		r.Get("/providers/{id}/models", s.listProviderModels)
+		r.Put("/providers/{id}/pricing", s.updateProviderPricing) // before /{id} catch-all
 		r.Post("/providers/{id}/resync", s.resyncProvider)
 		r.Post("/providers/{id}/test", s.testProvider)
 
@@ -231,6 +236,7 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Stats
 		r.Get("/stats/costs", s.getCosts)
+		r.Get("/stats/costs/insights", s.getCostInsights)
 
 		// Admin / system settings
 		r.Get("/admin/backup", s.backupDB)

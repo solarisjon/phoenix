@@ -98,6 +98,10 @@ type TaskRepo interface {
 	// the named period: "day" (calendar day), "week" (rolling 7 days),
 	// "month" (calendar month), or "total" (all time).
 	ProjectSpendForPeriod(ctx context.Context, projectID, period string) (float64, error)
+	// ListTimedOut returns all tasks that are still in running/queued status but
+	// whose timeout_at timestamp has already passed. Used by the watchdog to
+	// reap tasks whose goroutine exited without updating the DB.
+	ListTimedOut(ctx context.Context) ([]*model.Task, error)
 }
 
 // TeamRepo manages agent teams.
@@ -165,6 +169,10 @@ type AgentDraftRepo interface {
 type SystemSettingsRepo interface {
 	Get(ctx context.Context) (*model.SystemSettings, error)
 	Save(ctx context.Context, s *model.SystemSettings) error
+	// GetRaw returns the raw string value for an arbitrary key, or "" if not set.
+	GetRaw(ctx context.Context, key string) (string, error)
+	// SetRaw upserts an arbitrary key/value pair in system_settings.
+	SetRaw(ctx context.Context, key, value string) error
 }
 
 // MemoRepo manages briefing memos.
@@ -210,6 +218,19 @@ type NotificationRuleRepo interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// InsightRow holds aggregated cost data for a single agent, provider, or project.
+type InsightRow struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Model        string  `json:"model,omitempty"`
+	ProviderName string  `json:"provider_name,omitempty"`
+	ProviderID   string  `json:"provider_id,omitempty"`
+	ActualCost   float64 `json:"actual_cost_usd"`
+	TokensIn     int64   `json:"tokens_in"`
+	TokensOut    int64   `json:"tokens_out"`
+	TaskCount    int     `json:"task_count"`
+}
+
 // StatsRepo provides aggregated cost and usage queries.
 type StatsRepo interface {
 	CostByAgent(ctx context.Context) ([]*CostSummary, error)
@@ -224,4 +245,10 @@ type StatsRepo interface {
 	// AllProjectTaskSummaries returns a map of project ID → task summary for
 	// all projects that have at least one task. Projects with no tasks are omitted.
 	AllProjectTaskSummaries(ctx context.Context) (map[string]*ProjectSummary, error)
+	// InsightsByAgent returns cost/token aggregates per agent for the given date range.
+	InsightsByAgent(ctx context.Context, from, to time.Time) ([]*InsightRow, error)
+	// InsightsByProvider returns cost/token aggregates per provider for the given date range.
+	InsightsByProvider(ctx context.Context, from, to time.Time) ([]*InsightRow, error)
+	// InsightsByProject returns cost/token aggregates per project for the given date range.
+	InsightsByProject(ctx context.Context, from, to time.Time) ([]*InsightRow, error)
 }

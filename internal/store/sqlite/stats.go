@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/solarisjon/phoenix/internal/store"
 )
@@ -185,6 +186,110 @@ func scanUsageSummaries(rows interface {
 			return nil, fmt.Errorf("scan usage summary: %w", err)
 		}
 		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
+// InsightsByAgent returns per-agent cost/token aggregates for completed tasks
+// in the given date range, ordered by actual cost descending.
+func (r *StatsRepo) InsightsByAgent(ctx context.Context, from, to time.Time) ([]*store.InsightRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			a.id,
+			a.name,
+			COALESCE(NULLIF(a.model_override,''), NULLIF(json_extract(p.config,'$.model'),''), '') AS model,
+			p.name AS provider_name,
+			p.id   AS provider_id,
+			COALESCE(SUM(t.cost_usd), 0),
+			COALESCE(SUM(t.tokens_in), 0),
+			COALESCE(SUM(t.tokens_out), 0),
+			COUNT(t.id)
+		FROM tasks t
+		JOIN agents a ON t.agent_id = a.id
+		JOIN providers p ON a.provider_id = p.id
+		WHERE t.completed_at BETWEEN ? AND ?
+		  AND t.dismissed = 0
+		GROUP BY a.id
+		ORDER BY SUM(t.cost_usd) DESC`,
+		from.UTC().Format("2006-01-02 15:04:05"),
+		to.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, fmt.Errorf("insights by agent: %w", err)
+	}
+	defer rows.Close()
+	return scanInsightRows(rows)
+}
+
+// InsightsByProvider returns per-provider cost/token aggregates.
+func (r *StatsRepo) InsightsByProvider(ctx context.Context, from, to time.Time) ([]*store.InsightRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			p.id,
+			p.name,
+			COALESCE(NULLIF(json_extract(p.config,'$.model'),''), '') AS model,
+			p.name AS provider_name,
+			p.id   AS provider_id,
+			COALESCE(SUM(t.cost_usd), 0),
+			COALESCE(SUM(t.tokens_in), 0),
+			COALESCE(SUM(t.tokens_out), 0),
+			COUNT(t.id)
+		FROM tasks t
+		JOIN agents a ON t.agent_id = a.id
+		JOIN providers p ON a.provider_id = p.id
+		WHERE t.completed_at BETWEEN ? AND ?
+		  AND t.dismissed = 0
+		GROUP BY p.id
+		ORDER BY SUM(t.cost_usd) DESC`,
+		from.UTC().Format("2006-01-02 15:04:05"),
+		to.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, fmt.Errorf("insights by provider: %w", err)
+	}
+	defer rows.Close()
+	return scanInsightRows(rows)
+}
+
+// InsightsByProject returns per-project cost/token aggregates.
+func (r *StatsRepo) InsightsByProject(ctx context.Context, from, to time.Time) ([]*store.InsightRow, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			pr.id,
+			pr.name,
+			'' AS model,
+			'' AS provider_name,
+			'' AS provider_id,
+			COALESCE(SUM(t.cost_usd), 0),
+			COALESCE(SUM(t.tokens_in), 0),
+			COALESCE(SUM(t.tokens_out), 0),
+			COUNT(t.id)
+		FROM tasks t
+		JOIN projects pr ON t.project_id = pr.id
+		WHERE t.completed_at BETWEEN ? AND ?
+		  AND t.dismissed = 0
+		GROUP BY pr.id
+		ORDER BY SUM(t.cost_usd) DESC`,
+		from.UTC().Format("2006-01-02 15:04:05"),
+		to.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, fmt.Errorf("insights by project: %w", err)
+	}
+	defer rows.Close()
+	return scanInsightRows(rows)
+}
+
+func scanInsightRows(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) ([]*store.InsightRow, error) {
+	var out []*store.InsightRow
+	for rows.Next() {
+		var r store.InsightRow
+		if err := rows.Scan(&r.ID, &r.Name, &r.Model, &r.ProviderName, &r.ProviderID,
+			&r.ActualCost, &r.TokensIn, &r.TokensOut, &r.TaskCount); err != nil {
+			return nil, fmt.Errorf("scan insight row: %w", err)
+		}
+		out = append(out, &r)
 	}
 	return out, rows.Err()
 }

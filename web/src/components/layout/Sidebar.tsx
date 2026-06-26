@@ -11,6 +11,7 @@ const nav = [
   { label: 'Tasks', href: '/tasks', icon: '✦' },
   { label: 'Teams', href: '/teams', icon: '⬡⬡' },
   { label: 'Plugins',  href: '/plugins',  icon: '🧩' },
+  { label: 'Cost Insights', href: '/cost-insights', icon: '💰' },
   { label: 'Settings', href: '/settings', icon: '⚙' },
   { label: 'Help', href: '/help', icon: '?' },
 ]

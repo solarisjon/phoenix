@@ -46,6 +46,26 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 	return s, nil
 }
 
+// GetRaw returns the raw string value for the given key, or "" if not set.
+func (r *SystemSettingsRepo) GetRaw(ctx context.Context, key string) (string, error) {
+	var v string
+	err := r.db.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetRaw upserts an arbitrary key/value pair in system_settings.
+func (r *SystemSettingsRepo) SetRaw(ctx context.Context, key, value string) error {
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		key, value, now)
+	return err
+}
+
 // Save upserts all settings fields.
 func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) error {
 	enabled := "0"

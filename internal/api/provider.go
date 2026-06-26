@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/provider"
 )
 
@@ -370,4 +371,48 @@ func testCodingAgentBinary(configJSON string) error {
 		return fmt.Errorf("binary %q not found on PATH", bin)
 	}
 	return nil
+}
+
+// updateProviderPricing saves per-provider token price overrides used by
+// the Cost Insights page to compute projected monthly costs.
+func (s *Server) updateProviderPricing(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	var body struct {
+		InputPerMToken  float64 `json:"input_per_mtoken"`
+		OutputPerMToken float64 `json:"output_per_mtoken"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+
+	// Validate provider exists.
+	if _, err := s.providers.Get(ctx, id); err != nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	if body.InputPerMToken == 0 && body.OutputPerMToken == 0 {
+		s.pricingReg.DeleteOverride(id)
+	} else {
+		s.pricingReg.SetOverride(id, pricing.ModelPrice{
+			InputPerMToken:  body.InputPerMToken,
+			OutputPerMToken: body.OutputPerMToken,
+		})
+	}
+
+	// Persist to system_settings so overrides survive restarts.
+	blob, err := s.pricingReg.MarshalOverrides()
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if err := s.systemSettings.SetRaw(ctx, "pricing_overrides", blob); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	respond(w, http.StatusOK, map[string]string{"status": "ok"})
 }

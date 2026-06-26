@@ -230,6 +230,22 @@ func (r *fakeTaskRepo) ForceFailTask(_ context.Context, _ string) (bool, error) 
 	return false, nil
 }
 
+func (r *fakeTaskRepo) ListTimedOut(_ context.Context) ([]*model.Task, error) {
+	return nil, nil
+}
+
+func (r *fakeTaskRepo) ListProjectHistory(_ context.Context, projectID string) ([]*model.Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && t.Status == model.TaskStatusCompleted {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 func (r *fakeTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*time.Time, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

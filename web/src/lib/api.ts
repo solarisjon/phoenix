@@ -246,6 +246,42 @@ export interface ProjectFileContent {
   truncated: boolean
 }
 
+export interface CostInsightsBreakdownRow {
+  id: string
+  name: string
+  model?: string
+  provider_name?: string
+  provider_id?: string
+  actual_cost_usd: number
+  tokens_in: number
+  tokens_out: number
+  task_count: number
+  cost_per_task: number
+  projected_monthly_usd: number
+}
+
+export interface CostInsightsRecommendation {
+  severity: 'warning' | 'info'
+  kind: string
+  title: string
+  detail: string
+  agent_id?: string
+  provider_id?: string
+}
+
+export interface CostInsights {
+  period: { from: string; to: string }
+  summary: {
+    total_actual_usd: number
+    projected_monthly_usd: number
+    task_count: number
+  }
+  by_agent: CostInsightsBreakdownRow[]
+  by_provider: CostInsightsBreakdownRow[]
+  by_project: CostInsightsBreakdownRow[]
+  recommendations: CostInsightsRecommendation[]
+}
+
 const BASE = '/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -453,6 +489,15 @@ export const api = {
   },
   stats: {
     costs: () => request<CostsResponse>('/stats/costs'),
+    costInsights: (from: string, to: string) =>
+      request<CostInsights>(`/stats/costs/insights?from=${from}&to=${to}`),
+  },
+  providers_pricing: {
+    update: (id: string, inputPerMToken: number, outputPerMToken: number) =>
+      request<{ status: string }>(`/providers/${id}/pricing`, {
+        method: 'PUT',
+        body: JSON.stringify({ input_per_mtoken: inputPerMToken, output_per_mtoken: outputPerMToken }),
+      }),
   },
   admin: {
     getSettings: () => request<SystemSettings>('/admin/settings'),

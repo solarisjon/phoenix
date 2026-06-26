@@ -231,6 +231,46 @@ func (r *memTaskRepo) ProjectSpendForPeriod(_ context.Context, _ string, _ strin
 	return 0, nil
 }
 
+func (r *memTaskRepo) ForceFailTask(_ context.Context, taskID string) (bool, error) {
+	t, ok := r.tasks[taskID]
+	if !ok {
+		return false, nil
+	}
+	if t.Status == model.TaskStatusCompleted || t.Status == model.TaskStatusFailed {
+		return false, nil
+	}
+	t.Status = model.TaskStatusFailed
+	return true, nil
+}
+
+func (r *memTaskRepo) ListProjectHistory(_ context.Context, projectID string) ([]*model.Task, error) {
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && t.Status == model.TaskStatusCompleted {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (r *memTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*time.Time, error) {
+	var latest *time.Time
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && t.Source == "monitor" {
+			ts := t.CreatedAt
+			if latest == nil || ts.After(*latest) {
+				cp := ts
+				latest = &cp
+			}
+		}
+	}
+	return latest, nil
+}
+
+func (r *memTaskRepo) ListTimedOut(_ context.Context) ([]*model.Task, error) {
+	return nil, nil
+}
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}
