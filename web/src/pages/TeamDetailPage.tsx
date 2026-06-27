@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
-import { formatCost, timeAgo } from '@/lib/utils'
+import { formatCost } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 function formatInterval(secs: number): string {
   if (secs < 60) return `${secs}s`
@@ -77,7 +78,10 @@ export function TeamDetailPage() {
 
   useEffect(() => {
     if (!broadcastProjectId && projects.length > 0) {
-      setBroadcastProjectId(projects[0].id)
+      const timer = window.setTimeout(() => {
+        setBroadcastProjectId(projects[0].id)
+      }, 0)
+      return () => window.clearTimeout(timer)
     }
   }, [projects, broadcastProjectId])
 
@@ -95,8 +99,8 @@ export function TeamDetailPage() {
       setBroadcastTitle('')
       setBroadcastDescription('')
       await load()
-    } catch (e: any) {
-      setBroadcastMessage(e.message || 'Broadcast failed')
+    } catch (error: unknown) {
+      setBroadcastMessage(getErrorMessage(error, 'Broadcast failed'))
     } finally {
       setBroadcastSaving(false)
     }
@@ -377,8 +381,8 @@ export function TeamDetailPage() {
                           setBroadcastDescription(result.description)
                           setShowBroadcastAI(false)
                           setBroadcastAIHint('')
-                        } catch (e: any) {
-                          setBroadcastAIError(e.message)
+                        } catch (error: unknown) {
+                          setBroadcastAIError(getErrorMessage(error))
                         } finally {
                           setBroadcastAIGenerating(false)
                         }

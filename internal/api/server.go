@@ -2,6 +2,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/solarisjon/phoenix/internal/agent"
+	"github.com/solarisjon/phoenix/internal/logging"
 	"github.com/solarisjon/phoenix/internal/plugin"
 	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
@@ -113,6 +115,7 @@ func (s *Server) buildRouter() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(s.httpTimeout))
 	r.Use(corsMiddleware)
+	r.Use(requestLoggerMiddleware)
 
 	r.Route("/api", func(r chi.Router) {
 		// Providers
@@ -137,6 +140,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/agents/{id}", s.updateAgent)
 		r.Delete("/agents/{id}", s.deleteAgent)
 		r.Get("/agents/{id}/tasks", s.listAgentTasks)
+		r.Delete("/agents/{id}/memory", s.clearAgentMemory)
 
 		// Teams
 		r.Get("/teams", s.listTeams)
@@ -277,6 +281,20 @@ func corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// requestLoggerMiddleware injects a request-scoped slog.Logger carrying the
+// chi request ID into the request context. Downstream handlers can retrieve
+// it via logging.FromContext(r.Context()).
+func requestLoggerMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetReqID(r.Context())
+		l := slog.Default()
+		if reqID != "" {
+			l = l.With("req_id", reqID)
+		}
+		next.ServeHTTP(w, r.WithContext(logging.WithLogger(r.Context(), l)))
 	})
 }
 

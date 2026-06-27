@@ -6,6 +6,7 @@ import { ProvidersPage } from './ProvidersPage'
 import { api } from '../lib/api'
 import type { SystemSettings, SysInfo, Project } from '../lib/api'
 import { timeAgo } from '../lib/utils'
+import { getErrorMessage } from '../lib/errors'
 
 function SystemInfoSection() {
   const [info, setInfo] = useState<SysInfo | null>(null)
@@ -287,8 +288,8 @@ function SystemTab() {
         setRestoreMsg({ ok: true, text: data.message })
         setRestoreFile(null)
       }
-    } catch (e: any) {
-      setRestoreMsg({ ok: false, text: e.message ?? 'Restore failed' })
+    } catch (error: unknown) {
+      setRestoreMsg({ ok: false, text: getErrorMessage(error, 'Restore failed') })
     } finally {
       setRestoring(false)
     }
@@ -392,14 +393,19 @@ function ArchivedProjectsTab() {
         api.projects.listArchived('monitor'),
       ])
       setProjects([...archivedProjects, ...archivedMonitors])
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const restore = async (id: string, name: string) => {
     if (!confirm(`Restore "${name}" back to active?`)) return
@@ -408,8 +414,8 @@ function ArchivedProjectsTab() {
     try {
       await api.projects.restore(id)
       await load()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setBusy(null)
     }
@@ -422,8 +428,8 @@ function ArchivedProjectsTab() {
     try {
       await api.projects.delete(id)
       await load()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setBusy(null)
     }

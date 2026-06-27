@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -71,7 +71,7 @@ func (n *Notifier) Send(ctx context.Context, cfg json.RawMessage, msg notifiers.
 	})
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	log.Printf("telegram: sending to chat %s (token length: %d)", chatID, len(token))
+	slog.Debug("telegram: sending to chat", "chat_id", chatID, "token_len", len(token))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("telegram: build request: %w", err)
@@ -87,12 +87,7 @@ func (n *Notifier) Send(ctx context.Context, cfg json.RawMessage, msg notifiers.
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		// Mask the token in logs for safety — show first 5 and last 4 chars.
-		masked := token
-		if len(token) > 12 {
-			masked = token[:5] + "…" + token[len(token)-4:]
-		}
-		log.Printf("telegram: failed — token=%q (length %d), chat_id=%q, status=%d", masked, len(token), chatID, resp.StatusCode)
+		slog.Error("telegram: send failed", "chat_id", chatID, "status", resp.StatusCode)
 		return fmt.Errorf("telegram: API returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -237,7 +232,7 @@ func (n *Notifier) TestMessage() notifiers.NotifyMessage {
 func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 	token := strings.TrimSpace(provider.ExpandEnv(cfg.BotToken))
 	if token == "" || strings.HasPrefix(token, "${") {
-		log.Printf("telegram poller: bot_token is empty or unresolved — not starting")
+		slog.Warn("telegram poller: bot_token is empty or unresolved — not starting")
 		return
 	}
 	allowedChatID := strings.TrimSpace(cfg.ChatID)
@@ -246,12 +241,12 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 
 	// Drain any pending updates first so we don't replay stale messages.
 	offset := drainPendingUpdates(ctx, client, token)
-	log.Printf("telegram poller: started (offset=%d, chat=%s)", offset, allowedChatID)
+	slog.Info("telegram poller: started", "offset", offset, "allowed_chat", allowedChatID)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("telegram poller: stopping")
+			slog.Info("telegram poller: stopping")
 			return
 		default:
 		}
@@ -262,7 +257,7 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 		)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			log.Printf("telegram poller: build request: %v", err)
+			slog.Error("telegram poller: build request", "error", err)
 			sleepOrDone(ctx, 5*time.Second)
 			continue
 		}
@@ -272,7 +267,7 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("telegram poller: getUpdates error: %v", err)
+			slog.Error("telegram poller: getUpdates error", "error", err)
 			sleepOrDone(ctx, 5*time.Second)
 			continue
 		}
@@ -292,14 +287,14 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			resp.Body.Close()
-			log.Printf("telegram poller: decode: %v", err)
+			slog.Error("telegram poller: decode", "error", err)
 			sleepOrDone(ctx, 5*time.Second)
 			continue
 		}
 		resp.Body.Close()
 
 		if !result.OK {
-			log.Printf("telegram poller: Telegram API returned ok=false")
+			slog.Warn("telegram poller: Telegram API returned ok=false")
 			sleepOrDone(ctx, 10*time.Second)
 			continue
 		}
@@ -314,7 +309,7 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 			// Security: only accept messages from the configured chat.
 			chatStr := fmt.Sprintf("%d", upd.Message.Chat.ID)
 			if allowedChatID != "" && chatStr != allowedChatID {
-				log.Printf("telegram poller: ignoring message from unauthorized chat %s", chatStr)
+				slog.Warn("telegram poller: ignoring message from unauthorized chat", "chat", chatStr)
 				continue
 			}
 
@@ -333,7 +328,7 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 
 			reply, err := handler(ctx, text)
 			if err != nil {
-				log.Printf("telegram poller: handler error: %v", err)
+				slog.Error("telegram poller: handler error", "error", err)
 				sendMessage(ctx, client, token, upd.Message.Chat.ID,
 					fmt.Sprintf("❌ Error: %s", err.Error()), "Markdown")
 				continue
@@ -408,13 +403,13 @@ func sendMessage(ctx context.Context, client *http.Client, token string, chatID 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("telegram: sendMessage: build request: %v", err)
+		slog.Error("telegram: sendMessage: build request", "error", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("telegram: sendMessage: %v", err)
+		slog.Error("telegram: sendMessage", "error", err)
 		return
 	}
 	resp.Body.Close()

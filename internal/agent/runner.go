@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/plugin/memory"
 	"github.com/solarisjon/phoenix/internal/provider"
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/store"
@@ -59,16 +60,17 @@ type MemoHandler func(memo *model.Memo)
 // Runner manages agent task execution. Each task runs in its own goroutine.
 // All active goroutines are tracked so they can be cancelled on shutdown.
 type Runner struct {
-	agents   store.AgentRepo
-	tasks    store.TaskRepo
-	projects store.ProjectRepo
-	settings store.SystemSettingsRepo
-	memos    store.MemoRepo
-	registry *registry.Registry
-	onEvent  EventHandler
-	onMemo   MemoHandler
-	bgCtx    context.Context    // long-lived background context for task goroutines
-	bgCancel context.CancelFunc // cancelled on Shutdown
+	agents       store.AgentRepo
+	tasks        store.TaskRepo
+	projects     store.ProjectRepo
+	settings     store.SystemSettingsRepo
+	memos        store.MemoRepo
+	registry     *registry.Registry
+	onEvent      EventHandler
+	onMemo       MemoHandler
+	memoryClient memory.MemoryClient // nil = disabled
+	bgCtx        context.Context     // long-lived background context for task goroutines
+	bgCancel     context.CancelFunc  // cancelled on Shutdown
 
 	taskTimeout  time.Duration
 	mu           sync.Mutex
@@ -120,6 +122,14 @@ func (r *Runner) SetEventHandler(h EventHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.onEvent = h
+}
+
+// SetMemoryClient sets the memory backend used for recall/retain.
+// Pass nil to disable persistent memory.
+func (r *Runner) SetMemoryClient(c memory.MemoryClient) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.memoryClient = c
 }
 
 // RunTask starts execution of the given task in a background goroutine.
@@ -207,7 +217,7 @@ func (r *Runner) CancelTask(taskID string) {
 	// Task may be queued but not yet running (no goroutine). Cancel it in DB.
 	cancelled, err := r.tasks.CancelQueuedTask(r.bgCtx, taskID)
 	if err != nil {
-		log.Printf("runner: cancel queued task %s: %v", taskID, err)
+		slog.Error("runner: cancel queued task", "task_id", taskID, "error", err)
 		return
 	}
 	if cancelled {
@@ -243,9 +253,9 @@ func (r *Runner) ForceCancel(taskID string) error {
 	if task.RunnerPID > 0 {
 		if proc, procErr := os.FindProcess(task.RunnerPID); procErr == nil {
 			if killErr := proc.Kill(); killErr != nil {
-				log.Printf("runner: force cancel: kill pid %d: %v", task.RunnerPID, killErr)
+				slog.Error("runner: force cancel: kill pid", "pid", task.RunnerPID, "error", killErr)
 			} else {
-				log.Printf("runner: force cancel: killed pid %d for task %s", task.RunnerPID, taskID)
+				slog.Info("runner: force cancel: killed pid", "pid", task.RunnerPID, "task_id", taskID)
 			}
 		}
 	}
@@ -262,7 +272,7 @@ func (r *Runner) ForceCancel(taskID string) error {
 			StatusDone: &status,
 			Err:        ErrTaskCancelledByUser,
 		})
-		log.Printf("runner: force cancelled task %s", taskID)
+		slog.Info("runner: force cancelled task", "task_id", taskID)
 	}
 	return nil
 }
@@ -291,7 +301,7 @@ func (r *Runner) StartTimeoutWatchdog() {
 func (r *Runner) reapTimedOutTasks() {
 	tasks, err := r.tasks.ListTimedOut(r.bgCtx)
 	if err != nil {
-		log.Printf("runner: watchdog: list timed-out tasks: %v", err)
+		slog.Error("runner: watchdog: list timed-out tasks", "error", err)
 		return
 	}
 	r.mu.Lock()
@@ -304,9 +314,9 @@ func (r *Runner) reapTimedOutTasks() {
 	r.mu.Unlock()
 
 	for _, id := range orphans {
-		log.Printf("runner: watchdog: force-cancelling timed-out task %s", id)
+		slog.Info("runner: watchdog: force-cancelling timed-out task", "task_id", id)
 		if err := r.ForceCancel(id); err != nil {
-			log.Printf("runner: watchdog: force-cancel %s: %v", id, err)
+			slog.Error("runner: watchdog: force-cancel", "task_id", id, "error", err)
 		}
 	}
 }
@@ -430,7 +440,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	timeoutAt := now.Add(r.taskTimeout)
 	task.TimeoutAt = &timeoutAt
 	if err := r.setStatus(ctx, task, model.TaskStatusRunning, nil); err != nil {
-		log.Printf("runner: set running status: %v", err)
+		slog.Error("runner: set running status", "error", err)
 		return
 	}
 
@@ -476,11 +486,11 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 					summReq := BuildSummaryRequest(oldTurns)
 					summResp, summErr := prov.Execute(ctx, summReq)
 					if summErr != nil {
-						log.Printf("runner: task %s: context summarisation failed (falling back to verbatim): %v", task.ID, summErr)
+						slog.Warn("runner: context summarisation failed (falling back to verbatim)", "task_id", task.ID, "error", summErr)
 					} else {
 						summary = summResp.Output
 						if saveErr := r.tasks.SaveSummaryCache(ctx, root.ID, summary); saveErr != nil {
-							log.Printf("runner: task %s: save summary cache: %v", task.ID, saveErr)
+							slog.Error("runner: save summary cache", "task_id", task.ID, "error", saveErr)
 						}
 					}
 				}
@@ -492,6 +502,19 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		}
 	}
 	req.WorkingDir = workingDir
+
+	// Recall relevant memories for this task and inject them into the prompt.
+	// Errors are logged but never propagate — memory failure must not block execution.
+	r.mu.Lock()
+	memClient := r.memoryClient
+	r.mu.Unlock()
+	if memClient != nil && !task.IsCriticReview {
+		if memories, err := memClient.Recall(ctx, agent.ID, task.Title+" "+task.Description); err != nil {
+			slog.Warn("runner: memory recall failed", "task_id", task.ID, "agent_id", agent.ID, "error", err)
+		} else if memories != "" {
+			req = InjectMemories(req, memories)
+		}
+	}
 
 	// Cost budget guardrail: if the agent has a max_cost_per_run ceiling and
 	// the provider can estimate cost, check the assembled prompt against the
@@ -508,8 +531,11 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 			}
 			if prov.EstimateCost(req).EstimatedCostUSD > agent.MaxCostPerRun {
 				if agent.FallbackModel != "" {
-					log.Printf("runner: task %s: estimated cost ($%.5f) exceeds max_cost_per_run ($%.5f) after context truncation — switching to fallback model %q",
-						task.ID, prov.EstimateCost(req).EstimatedCostUSD, agent.MaxCostPerRun, agent.FallbackModel)
+					slog.Warn("runner: estimated cost exceeds max_cost_per_run — switching to fallback model",
+						"task_id", task.ID,
+						"cost_usd", prov.EstimateCost(req).EstimatedCostUSD,
+						"max_cost_usd", agent.MaxCostPerRun,
+						"fallback_model", agent.FallbackModel)
 					fallbackProv, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.FallbackModel)
 					if err != nil {
 						r.failTask(ctx, task, fmt.Errorf("cost budget exceeded and fallback model load failed (%s): %w", agent.FallbackModel, err))
@@ -530,7 +556,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		hash := promptHash(req)
 		task.PromptHash = hash
 		if cached, err := r.tasks.FindByPromptHash(ctx, task.ProjectID, hash); err == nil && cached != nil {
-			log.Printf("runner: monitor task %s: prompt unchanged (hash=%s), reusing cached output", task.ID, hash[:8])
+			slog.Info("runner: monitor task prompt unchanged, reusing cached output", "task_id", task.ID, "hash", hash[:8])
 			completedAt := time.Now()
 			task.Output = cached.Output
 			task.HealthSignal = cached.HealthSignal
@@ -541,7 +567,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 			task.RunnerPID = 0
 			task.Source = "monitor:cached"
 			if err := r.setStatus(ctx, task, model.TaskStatusCompleted, nil); err != nil {
-				log.Printf("runner: set cached status: %v", err)
+				slog.Error("runner: set cached status", "error", err)
 			}
 			r.emit(StreamEvent{
 				TaskID:     task.ID,
@@ -558,10 +584,9 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	if proj != nil && proj.BudgetUSD > 0 {
 		spent, err := r.tasks.ProjectSpendForPeriod(ctx, proj.ID, proj.BudgetPeriod)
 		if err != nil {
-			log.Printf("runner: budget check failed for project %s: %v", proj.ID, err)
+			slog.Error("runner: budget check failed", "project_id", proj.ID, "error", err)
 		} else if spent >= proj.BudgetUSD {
-			log.Printf("runner: project %s budget exceeded — spent=$%.4f budget=$%.4f period=%s",
-				proj.ID, spent, proj.BudgetUSD, proj.BudgetPeriod)
+			slog.Warn("runner: project budget exceeded", "project_id", proj.ID, "spent_usd", spent, "budget_usd", proj.BudgetUSD, "period", proj.BudgetPeriod)
 			r.emit(StreamEvent{
 				BudgetExceeded: &BudgetInfo{
 					ProjectID: proj.ID,
@@ -603,7 +628,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		if chunk.PID != 0 && task.RunnerPID == 0 {
 			task.RunnerPID = chunk.PID
 			if updateErr := r.tasks.Update(ctx, task); updateErr != nil {
-				log.Printf("runner: persist pid: %v", updateErr)
+				slog.Error("runner: persist pid", "error", updateErr)
 			}
 		}
 		if chunk.Content != "" {
@@ -710,7 +735,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	if reason := extractGuardrailTrigger(fullOutput); reason != "" {
 		task.GuardrailReason = &reason
 		if err := r.setStatus(ctx, task, model.TaskStatusAwaitingApproval, nil); err != nil {
-			log.Printf("runner: set awaiting_approval status: %v", err)
+			slog.Error("runner: set awaiting_approval status", "error", err)
 		}
 		r.emit(StreamEvent{
 			TaskID:     task.ID,
@@ -728,7 +753,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 
 	finalStatus := model.TaskStatusCompleted
 	if err := r.setStatus(r.bgCtx, task, finalStatus, nil); err != nil {
-		log.Printf("runner: set completed status: %v", err)
+		slog.Error("runner: set completed status", "error", err)
 		return
 	}
 
@@ -742,6 +767,19 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		if !posted && !task.IsCriticReview {
 			r.autoMemo(task, agent, fullOutput)
 		}
+	}
+
+	// Retain the task output as a memory for this agent.
+	// Fire-and-forget: errors are logged but never affect the task result.
+	if memClient != nil && !task.IsCriticReview {
+		retainContent := task.Title + "\n\n" + fullOutput
+		go func() {
+			retainCtx, cancel := context.WithTimeout(r.bgCtx, 30*time.Second)
+			defer cancel()
+			if err := memClient.Retain(retainCtx, agent.ID, retainContent); err != nil {
+				slog.Warn("runner: memory retain failed", "task_id", task.ID, "agent_id", agent.ID, "error", err)
+			}
+		}()
 	}
 
 	// After successful completion, run a critic/devil's-advocate review if configured.
@@ -762,7 +800,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 // so that a cancelled task context (e.g. user cancellation) doesn't prevent
 // the failure record from being persisted.
 func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
-	log.Printf("runner: task %s failed: %v", task.ID, err)
+	slog.Error("runner: task failed", "task_id", task.ID, "error", err)
 
 	errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
 	task.Output = string(errJSON)
@@ -787,7 +825,7 @@ func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
 		task.HealthSignal = &sig
 	}
 	if setErr := r.setStatus(dbCtx, task, status, nil); setErr != nil {
-		log.Printf("runner: set failed status: %v", setErr)
+		slog.Error("runner: set failed status", "error", setErr)
 	}
 
 	r.emit(StreamEvent{
@@ -856,10 +894,10 @@ func (r *Runner) extractAndSaveMemos(task *model.Task, a *model.Agent, output st
 			CreatedAt:   time.Now(),
 		}
 		if err := r.memos.Create(r.bgCtx, memo); err != nil {
-			log.Printf("runner: save memo from task %s: %v", task.ID, err)
+			slog.Error("runner: save memo from task", "task_id", task.ID, "error", err)
 			continue
 		}
-		log.Printf("runner: memo saved from task %s: %q", task.ID, memo.Title)
+		slog.Info("runner: memo saved from task", "task_id", task.ID, "title", memo.Title)
 		if r.onMemo != nil {
 			r.onMemo(memo)
 		}
@@ -898,10 +936,10 @@ func (r *Runner) autoMemo(task *model.Task, a *model.Agent, output string) {
 		CreatedAt:   time.Now(),
 	}
 	if err := r.memos.Create(r.bgCtx, memo); err != nil {
-		log.Printf("runner: auto-memo for task %s: %v", task.ID, err)
+		slog.Error("runner: auto-memo for task", "task_id", task.ID, "error", err)
 		return
 	}
-	log.Printf("runner: auto-memo created for task %s: %q", task.ID, memo.Title)
+	slog.Info("runner: auto-memo created", "task_id", task.ID, "title", memo.Title)
 	if r.onMemo != nil {
 		r.onMemo(memo)
 	}
@@ -950,11 +988,11 @@ func (r *Runner) launchBuiltinCritic(task *model.Task, originalAgent *model.Agen
 		CreatedAt:      time.Now(),
 	}
 	if err := r.tasks.Create(r.bgCtx, criticTask); err != nil {
-		log.Printf("runner: create builtin critic task: %v", err)
+		slog.Error("runner: create builtin critic task", "error", err)
 		return
 	}
 	if err := r.RunTask(r.bgCtx, criticTask.ID); err != nil {
-		log.Printf("runner: run builtin critic task: %v", err)
+		slog.Error("runner: run builtin critic task", "error", err)
 	}
 }
 
@@ -962,7 +1000,7 @@ func (r *Runner) launchBuiltinCritic(task *model.Task, originalAgent *model.Agen
 func (r *Runner) launchAgentCritic(task *model.Task, criticAgentID string) {
 	criticAgent, err := r.agents.Get(r.bgCtx, criticAgentID)
 	if err != nil || criticAgent == nil {
-		log.Printf("runner: critic agent %s not found: %v", criticAgentID, err)
+		slog.Error("runner: critic agent not found", "agent_id", criticAgentID, "error", err)
 		return
 	}
 	criticTask := &model.Task{
@@ -979,11 +1017,11 @@ func (r *Runner) launchAgentCritic(task *model.Task, criticAgentID string) {
 		CreatedAt:      time.Now(),
 	}
 	if err := r.tasks.Create(r.bgCtx, criticTask); err != nil {
-		log.Printf("runner: create agent critic task: %v", err)
+		slog.Error("runner: create agent critic task", "error", err)
 		return
 	}
 	if err := r.RunTask(r.bgCtx, criticTask.ID); err != nil {
-		log.Printf("runner: run agent critic task: %v", err)
+		slog.Error("runner: run agent critic task", "error", err)
 	}
 }
 
@@ -1052,62 +1090,10 @@ func parseMemoBlocks(output string) []parsedMemo {
 
 // ---- Artifact extraction ----
 
-// parsedArtifact holds one ARTIFACT_START … ARTIFACT_END block.
-type parsedArtifact struct {
-	artType string // "file" | "url" | "jira" | "confluence" | "html"
-	path    string // file path or URL
-	title   string
-}
-
-// parseArtifactBlocks extracts all ARTIFACT_START … ARTIFACT_END sections from text.
-//
-// Expected format in agent output:
-//
-//	ARTIFACT_START
-//	Type: file          (or "url", "jira", "confluence", "html")
-//	Path: /abs/path     (use URL: for non-file types)
-//	Title: My Document
-//	ARTIFACT_END
-func parseArtifactBlocks(output string) []parsedArtifact {
-	var results []parsedArtifact
-	lines := strings.Split(output, "\n")
-	i := 0
-	for i < len(lines) {
-		if strings.TrimSpace(lines[i]) != "ARTIFACT_START" {
-			i++
-			continue
-		}
-		i++
-		var a parsedArtifact
-		for i < len(lines) {
-			if strings.TrimSpace(lines[i]) == "ARTIFACT_END" {
-				i++
-				break
-			}
-			line := lines[i]
-			switch {
-			case strings.HasPrefix(line, "Type:"):
-				a.artType = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "Type:")))
-			case strings.HasPrefix(line, "Path:"):
-				a.path = strings.TrimSpace(strings.TrimPrefix(line, "Path:"))
-			case strings.HasPrefix(line, "URL:"):
-				a.path = strings.TrimSpace(strings.TrimPrefix(line, "URL:"))
-			case strings.HasPrefix(line, "Title:"):
-				a.title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
-			}
-			i++
-		}
-		if a.artType != "" && a.path != "" {
-			results = append(results, a)
-		}
-	}
-	return results
-}
-
 // extractAndSaveArtifacts scans agent output for ARTIFACT_START blocks and creates
 // a briefing memo entry for each one so they appear in the Briefing panel.
 func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, output string) {
-	artifacts := parseArtifactBlocks(output)
+	artifacts := ParseArtifactBlocks(output)
 	if len(artifacts) == 0 {
 		return
 	}
@@ -1116,11 +1102,11 @@ func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, outpu
 		projectName = proj.Name
 	}
 	for _, art := range artifacts {
-		title := art.title
+		title := art.Title
 		if title == "" {
-			title = art.path
+			title = art.Path
 		}
-		body := fmt.Sprintf("**Type:** %s\n\n**Location:** %s", art.artType, art.path)
+		body := fmt.Sprintf("**Type:** %s\n\n**Location:** %s", art.ArtType, art.Path)
 		memo := &model.Memo{
 			ID:          uuid.New().String(),
 			ProjectID:   task.ProjectID,
@@ -1135,10 +1121,10 @@ func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, outpu
 			CreatedAt:   time.Now(),
 		}
 		if err := r.memos.Create(r.bgCtx, memo); err != nil {
-			log.Printf("runner: save artifact memo for task %s: %v", task.ID, err)
+			slog.Error("runner: save artifact memo", "task_id", task.ID, "error", err)
 			continue
 		}
-		log.Printf("runner: artifact memo saved for task %s: %q", task.ID, memo.Title)
+		slog.Info("runner: artifact memo saved", "task_id", task.ID, "title", memo.Title)
 		if r.onMemo != nil {
 			r.onMemo(memo)
 		}

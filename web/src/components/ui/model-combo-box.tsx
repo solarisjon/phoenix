@@ -10,8 +10,9 @@
  * If models can't be fetched the list is empty and the user can still type freely.
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { getErrorMessage } from '@/lib/errors'
 
 export interface OllamaDirectConfig { kind: 'ollama'; baseUrl: string }
 export interface LLMDirectConfig    { kind: 'llm';    endpoint: string; authHeader: string }
@@ -60,50 +61,43 @@ export function ModelComboBox({
   const [filter,     setFilter]     = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const wrapRef  = useRef<HTMLDivElement>(null)
+  const directFetchKind = directFetch?.kind
+  const directFetchBaseUrl = directFetchKind === 'ollama' ? directFetch.baseUrl : ''
+  const directFetchEndpoint = directFetchKind === 'llm' ? directFetch.endpoint : ''
+  const directFetchAuthHeader = directFetchKind === 'llm' ? directFetch.authHeader : ''
 
   // ---- fetch logic ----
-  async function fetchModels() {
+  const fetchModels = useCallback(async () => {
     setLoading(true); setFetchErr('')
     try {
       let names: string[] = []
       if (providerId) {
         const r = await api.providers.listModels(providerId)
         names = r.supported ? (r.models ?? []) : []
-      } else if (directFetch?.kind === 'ollama') {
-        names = await ollamaModels(directFetch.baseUrl)
-      } else if (directFetch?.kind === 'llm') {
-        names = await llmModels(directFetch.endpoint, directFetch.authHeader)
+      } else if (directFetchKind === 'ollama' && directFetchBaseUrl) {
+        names = await ollamaModels(directFetchBaseUrl)
+      } else if (directFetchKind === 'llm' && directFetchEndpoint) {
+        names = await llmModels(directFetchEndpoint, directFetchAuthHeader)
       }
       setModels(names)
-    } catch (e: any) {
-      setFetchErr(e.message ?? 'Could not fetch models')
+    } catch (error: unknown) {
+      setFetchErr(getErrorMessage(error, 'Could not fetch models'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [directFetchAuthHeader, directFetchBaseUrl, directFetchEndpoint, directFetchKind, providerId])
 
-  // Auto-fetch when providerId changes
   useEffect(() => {
-    if (!providerId) return
-    fetchModels()
-  }, [providerId]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-fetch for directFetch when endpoint/baseUrl is present.
-  // Only runs when there is no providerId — avoids wiping the providerId fetch.
-  useEffect(() => {
-    if (providerId) return   // providerId fetch handles this
-    if (!directFetch) { setModels([]); return }
     const hasTarget =
-      (directFetch.kind === 'ollama' && directFetch.baseUrl) ||
-      (directFetch.kind === 'llm'    && directFetch.endpoint)
-    if (hasTarget) fetchModels()
-  }, [ // eslint-disable-line react-hooks/exhaustive-deps
-    providerId,
-    directFetch?.kind,
-    directFetch?.kind === 'ollama' ? (directFetch as OllamaDirectConfig).baseUrl  : '',
-    directFetch?.kind === 'llm'    ? (directFetch as LLMDirectConfig).endpoint    : '',
-    directFetch?.kind === 'llm'    ? (directFetch as LLMDirectConfig).authHeader  : '',
-  ])
+      !!providerId ||
+      (directFetchKind === 'ollama' && !!directFetchBaseUrl) ||
+      (directFetchKind === 'llm' && !!directFetchEndpoint)
+    if (!hasTarget) return
+    const timer = window.setTimeout(() => {
+      void fetchModels()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [directFetchBaseUrl, directFetchEndpoint, directFetchKind, fetchModels, providerId])
 
   // Close on outside click
   useEffect(() => {
@@ -116,9 +110,10 @@ export function ModelComboBox({
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
+  const availableModels = providerId || directFetch ? models : []
   const filtered = filter
-    ? models.filter(m => m.toLowerCase().includes(filter.toLowerCase()))
-    : models
+    ? availableModels.filter(m => m.toLowerCase().includes(filter.toLowerCase()))
+    : availableModels
 
   const canFetch = !!(providerId || directFetch)
 
@@ -152,7 +147,7 @@ export function ModelComboBox({
         {/* Right-side controls */}
         {loading ? (
           <span className="text-xs text-slate-500 animate-pulse flex-shrink-0">loading…</span>
-        ) : models.length > 0 ? (
+        ) : availableModels.length > 0 ? (
           <button type="button"
             onClick={e => { e.stopPropagation(); setOpen(o => !o); setFilter('') }}
             className="text-slate-500 hover:text-slate-300 flex-shrink-0 text-xs px-1"
@@ -204,14 +199,14 @@ export function ModelComboBox({
           </div>
           <div className="px-3 py-1.5 border-t border-slate-800">
             <p className="text-xs text-slate-600">
-              {models.length} model{models.length !== 1 ? 's' : ''} · type to filter · Enter selects first
+              {availableModels.length} model{availableModels.length !== 1 ? 's' : ''} · type to filter · Enter selects first
             </p>
           </div>
         </div>
       )}
 
       {/* No match hint */}
-      {open && filter && filtered.length === 0 && models.length > 0 && (
+      {open && filter && filtered.length === 0 && availableModels.length > 0 && (
         <div className="absolute z-50 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl px-3 py-2">
           <p className="text-xs text-slate-500">
             No match — keep typing to use <span className="text-slate-300">"{filter}"</span> as a custom model name.

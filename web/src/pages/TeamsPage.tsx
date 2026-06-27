@@ -8,6 +8,7 @@ import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { ImportTeamWizard } from '@/components/ui/import-team-wizard'
 import { timeAgo } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Team form ----
 
@@ -60,7 +61,7 @@ function TeamForm({ initial, allAgents, providers, onSave, onClose }: {
         await api.teams.create({ name, description, agent_ids: [...selectedAgents] })
       }
       onSave()
-    } catch (e: any) { setError(e.message) }
+    } catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setSaving(false) }
   }
 
@@ -73,8 +74,8 @@ function TeamForm({ initial, allAgents, providers, onSave, onClose }: {
       setDescription(result.description)
       setShowAI(false)
       setAiHint('')
-    } catch (e: any) {
-      setAiError(e.message)
+    } catch (error: unknown) {
+      setAiError(getErrorMessage(error))
     } finally {
       setAiGenerating(false)
     }

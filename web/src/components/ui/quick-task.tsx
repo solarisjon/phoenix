@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { Agent, Provider } from '@/lib/api'
 import { formatCost } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 /**
  * Floating "+" button always visible in the bottom-right corner.
@@ -73,7 +74,7 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!agentId) return
     const combined = (title + ' ' + description).trim()
-    if (!combined) { setEstimate(null); return }
+    if (!combined) return
     const timer = setTimeout(async () => {
       try {
         const est = await api.tasks.estimate(agentId, combined)
@@ -94,8 +95,8 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
       setDescription(result.description)
       setShowAI(false)
       setAiHint('')
-    } catch (e: any) {
-      setAiError(e.message ?? 'Generation failed')
+    } catch (error: unknown) {
+      setAiError(getErrorMessage(error, 'Generation failed'))
     } finally {
       setAiGenerating(false)
     }
@@ -107,11 +108,11 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
     setRunning(true)
     setError('')
     try {
-      const task = await api.tasks.quick(agentId, title.trim(), description.trim())
+      await api.tasks.quick(agentId, title.trim(), description.trim())
       onClose()
       navigate('/tasks')
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to create task')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to create task'))
       setRunning(false)
     }
   }

@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -135,7 +135,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		<-ctx.Done()
 		if pgid, err := syscall.Getpgid(pid); err == nil {
 			if killErr := syscall.Kill(-pgid, syscall.SIGKILL); killErr != nil {
-				log.Printf("opencode: kill process group -%d: %v", pgid, killErr)
+				slog.Error("opencode: kill process group", "pgid", pgid, "error", killErr)
 			}
 		}
 	}()
@@ -158,14 +158,14 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		<-stderrDone
 
 		if err := cmd.Wait(); err != nil {
-			log.Printf("opencode: process exited: %v", err)
+			slog.Debug("opencode: process exited", "error", err)
 		}
 
 		// If opencode produced no text output, surface stderr so the caller
 		// can see startup / auth errors (e.g. "Unknown authorization credentials").
 		if !gotOutput {
 			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
-				log.Printf("opencode: stderr: %s", stderrMsg)
+				slog.Debug("opencode: stderr", "msg", stderrMsg)
 				ch <- provider.StreamChunk{Error: fmt.Errorf("opencode: no output — %s", stderrMsg), Done: true}
 			}
 		}
@@ -295,8 +295,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		case "step_finish":
 			var p stepFinishPart
 			if err := json.Unmarshal(ev.Part, &p); err == nil {
-				log.Printf("opencode: step finished — input=%d output=%d cost=$%.6f",
-					p.Tokens.Input, p.Tokens.Output, p.Cost)
+				slog.Debug("opencode: step finished", "input_tokens", p.Tokens.Input, "output_tokens", p.Tokens.Output, "cost_usd", p.Cost)
 				totalCost += p.Cost
 				totalTokensIn += p.Tokens.Input
 				totalTokensOut += p.Tokens.Output

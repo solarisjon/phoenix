@@ -1,12 +1,5 @@
-import { TagPill, tagColour } from './tag-input'
-
-export type SortKey = 'name-asc' | 'name-desc' | 'created-asc' | 'created-desc' | 'tag'
-
-export interface FilterSortState {
-  search: string
-  activeTags: string[]
-  sort: SortKey
-}
+import { tagColour } from './tag-utils'
+import type { FilterSortState, SortKey } from './filter-sort-utils'
 
 interface Props {
   state: FilterSortState
@@ -99,74 +92,4 @@ export function FilterSortBar({ state, onChange, allTags, total, filtered }: Pro
       )}
     </div>
   )
-}
-
-// ---- Utility: apply filter + sort to a project list ----
-
-export interface Taggable {
-  name: string
-  tags: string[] | null   // API may return null for rows that predate the tags migration
-  created_at: string
-}
-
-/** Normalise tags to a safe array regardless of what the API returned */
-function tags(p: Taggable): string[] {
-  return p.tags ?? []
-}
-
-export function applyFilterSort<T extends Taggable>(
-  items: T[],
-  state: FilterSortState,
-): T[] {
-  let result = items
-
-  // Text search
-  const q = state.search.trim().toLowerCase()
-  if (q) {
-    result = result.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      tags(p).some(t => t.includes(q))
-    )
-  }
-
-  // Tag filter — project must have ALL active tags
-  if (state.activeTags.length > 0) {
-    result = result.filter(p =>
-      state.activeTags.every(t => tags(p).includes(t))
-    )
-  }
-
-  // Sort
-  const sorted = [...result]
-  switch (state.sort) {
-    case 'name-asc':
-      sorted.sort((a, b) => a.name.localeCompare(b.name))
-      break
-    case 'name-desc':
-      sorted.sort((a, b) => b.name.localeCompare(a.name))
-      break
-    case 'created-asc':
-      sorted.sort((a, b) => a.created_at.localeCompare(b.created_at))
-      break
-    case 'created-desc':
-      sorted.sort((a, b) => b.created_at.localeCompare(a.created_at))
-      break
-    case 'tag':
-      // Group by first tag alphabetically; untagged go last
-      sorted.sort((a, b) => {
-        const ta = [...tags(a)].sort()[0] ?? '\uffff'
-        const tb = [...tags(b)].sort()[0] ?? '\uffff'
-        if (ta !== tb) return ta.localeCompare(tb)
-        return a.name.localeCompare(b.name)
-      })
-      break
-  }
-  return sorted
-}
-
-// Returns sorted, deduped list of all tags across items
-export function collectAllTags(items: Taggable[]): string[] {
-  const set = new Set<string>()
-  items.forEach(p => p.tags?.forEach(t => set.add(t)))
-  return [...set].sort()
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/plugin/memory/hindsight"
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers"
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers/telegram"
 )
@@ -61,7 +62,7 @@ func (s *Server) createPlugin(w http.ResponseWriter, r *http.Request) {
 	p.CreatedAt = time.Now().UTC()
 	p.UpdatedAt = p.CreatedAt
 
-	// Validate notifier config if applicable.
+	// Validate config.
 	if p.Type == model.PluginTypeNotifier {
 		n := notifiers.Get(p.Kind)
 		if n != nil {
@@ -69,6 +70,12 @@ func (s *Server) createPlugin(w http.ResponseWriter, r *http.Request) {
 				respondErr(w, http.StatusBadRequest, err.Error())
 				return
 			}
+		}
+	}
+	if p.Type == model.PluginTypeMemory && p.Kind == "hindsight" && p.Config != "" && p.Config != "{}" {
+		if err := hindsight.ValidateConfig([]byte(p.Config)); err != nil {
+			respondErr(w, http.StatusBadRequest, err.Error())
+			return
 		}
 	}
 
@@ -97,7 +104,7 @@ func (s *Server) updatePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate notifier config if applicable.
+	// Validate config.
 	if existing.Type == model.PluginTypeNotifier && update.Config != "" {
 		n := notifiers.Get(existing.Kind)
 		if n != nil {
@@ -105,6 +112,12 @@ func (s *Server) updatePlugin(w http.ResponseWriter, r *http.Request) {
 				respondErr(w, http.StatusBadRequest, err.Error())
 				return
 			}
+		}
+	}
+	if existing.Type == model.PluginTypeMemory && existing.Kind == "hindsight" && update.Config != "" {
+		if err := hindsight.ValidateConfig([]byte(update.Config)); err != nil {
+			respondErr(w, http.StatusBadRequest, err.Error())
+			return
 		}
 	}
 
@@ -125,6 +138,7 @@ func (s *Server) updatePlugin(w http.ResponseWriter, r *http.Request) {
 	if existing.Kind == "telegram" {
 		go s.pluginManager.RestartPoller(existing.ID)
 	}
+	s.pluginManager.NotifyPluginUpdated(r.Context(), existing.ID)
 	respond(w, http.StatusOK, existing)
 }
 
@@ -183,6 +197,7 @@ func (s *Server) setPluginEnabled(w http.ResponseWriter, r *http.Request, enable
 	if p.Kind == "telegram" {
 		go s.pluginManager.RestartPoller(p.ID)
 	}
+	s.pluginManager.NotifyPluginUpdated(r.Context(), p.ID)
 	respond(w, http.StatusOK, p)
 }
 
@@ -280,6 +295,12 @@ func (s *Server) getPluginSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	if p == nil {
 		respondErr(w, http.StatusNotFound, "plugin not found")
+		return
+	}
+
+	// Memory plugins have their own schema.
+	if p.Type == model.PluginTypeMemory && p.Kind == "hindsight" {
+		respond(w, http.StatusOK, hindsight.ConfigSchema())
 		return
 	}
 

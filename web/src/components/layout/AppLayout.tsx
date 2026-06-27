@@ -55,9 +55,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    refreshInbox()
-    refreshRunning()
-    refreshMemos()
+    const initialLoad = window.setTimeout(() => {
+      void refreshInbox()
+      void refreshRunning()
+      void refreshMemos()
+    }, 0)
     phoenixWS.connect()
     const unsub = phoenixWS.on((ev) => {
       if (
@@ -76,7 +78,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     })
     // Periodic re-sync in case WS missed an event (dismissed tasks, reconnects)
     const poll = setInterval(() => { refreshInbox(); refreshRunning(); refreshMemos() }, 30_000)
-    return () => { unsub(); clearInterval(poll) }
+    return () => { unsub(); clearInterval(poll); clearTimeout(initialLoad) }
   }, [refreshInbox, refreshRunning, refreshMemos])
 
   return (

@@ -363,6 +363,22 @@ func (s *Server) spawnTask(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusCreated, t)
 }
 
+func (s *Server) clearAgentMemory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	mc := s.pluginManager.MemoryClient()
+	if mc == nil {
+		respondErr(w, http.StatusServiceUnavailable, "memory plugin is not enabled")
+		return
+	}
+
+	if err := mc.ClearBank(r.Context(), id); err != nil {
+		respondErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.agents.Get(r.Context(), id)

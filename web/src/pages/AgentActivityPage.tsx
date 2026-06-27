@@ -116,7 +116,7 @@ export function AgentActivityPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<StatusFilter>('all')
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -135,25 +135,23 @@ export function AgentActivityPage() {
   }, [id])
 
   useEffect(() => {
-    load()
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
     const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.status_changed') load()
     })
-    return unsub
-  }, [load])
-
-  // Refresh selected task from updated list after status change
-  useEffect(() => {
-    if (selectedTask) {
-      const updated = tasks.find(t => t.id === selectedTask.id)
-      if (updated) setSelectedTask(updated)
+    return () => {
+      clearTimeout(timer)
+      unsub()
     }
-  }, [tasks])
+  }, [load])
 
   const filtered = tasks.filter(t => filter === 'all' || t.status === filter)
   const counts: Record<string, number> = {}
   for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p]))
+  const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) ?? null : null
 
   const totalCost = tasks.reduce((sum, t) => sum + (t.cost_usd ?? 0), 0)
 
@@ -219,7 +217,7 @@ export function AgentActivityPage() {
             return (
               <Card key={task.id}>
                 <CardBody className="py-3">
-                  <div className="cursor-pointer" onClick={() => setSelectedTask(task)}>
+                  <div className="cursor-pointer" onClick={() => setSelectedTaskId(task.id)}>
                   <div className="flex items-center gap-3">
                     <Badge variant={taskStatusVariant(task.status)} className="flex-shrink-0">
                       {taskStatusLabel(task.status)}
@@ -258,7 +256,7 @@ export function AgentActivityPage() {
       {selectedTask && (
         <Modal
           title={selectedTask.title}
-          onClose={() => setSelectedTask(null)}
+          onClose={() => setSelectedTaskId(null)}
           className="max-w-2xl"
         >
           <TaskDetailModal
@@ -266,7 +264,7 @@ export function AgentActivityPage() {
             agents={agents}
             projects={projects}
             onRefresh={load}
-            onClose={() => setSelectedTask(null)}
+            onClose={() => setSelectedTaskId(null)}
           />
         </Modal>
       )}

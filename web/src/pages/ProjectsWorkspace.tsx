@@ -57,7 +57,12 @@ export function ProjectsWorkspace() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadBase() }, [loadBase])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadBase()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadBase])
 
   // Load tasks + project agents whenever selected project changes
   const loadProject = useCallback(async (id: string) => {
@@ -70,13 +75,11 @@ export function ProjectsWorkspace() {
   }, [])
 
   useEffect(() => {
-    if (projectId) {
-      loadProject(projectId)
-      setRightPane({ type: 'empty' })
-    } else {
-      setTasks([])
-      setProjectAgents([])
-    }
+    if (!projectId) return
+    const timer = window.setTimeout(() => {
+      void loadProject(projectId)
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [projectId, loadProject])
 
   // Auto-select first project when none selected and list is ready
@@ -87,6 +90,12 @@ export function ProjectsWorkspace() {
   }, [loading, projectId, projects, navigate])
 
   const selectedProject = projects.find(p => p.id === projectId) ?? null
+  const displayedTasks = projectId ? tasks : []
+  const displayedProjectAgents = projectId ? projectAgents : []
+  const displayedRightPane = projectId && (
+    (rightPane.type === 'task' && rightPane.task.project_id !== projectId) ||
+    (rightPane.type === 'file' && !selectedProject)
+  ) ? { type: 'empty' } satisfies RightPane : rightPane
 
   const refreshTasks = useCallback(async () => {
     if (!projectId) return
@@ -112,11 +121,12 @@ export function ProjectsWorkspace() {
       {/* MIDDLE PANE — task list */}
       <MiddlePane
         project={selectedProject}
-        projectAgents={projectAgents}
+        key={selectedProject?.id ?? 'none'}
+        projectAgents={displayedProjectAgents}
         allAgents={allAgents}
-        tasks={tasks}
-        selectedTask={rightPane.type === 'task' ? rightPane.task : null}
-        selectedFile={rightPane.type === 'file' ? rightPane.entry : null}
+        tasks={displayedTasks}
+        selectedTask={displayedRightPane.type === 'task' ? displayedRightPane.task : null}
+        selectedFile={displayedRightPane.type === 'file' ? displayedRightPane.entry : null}
         onTaskClick={task => setRightPane({ type: 'task', task })}
         onFileClick={async (entry) => {
           const { content, truncated } = await api.projects.getFileContent(
@@ -133,9 +143,9 @@ export function ProjectsWorkspace() {
 
       {/* RIGHT PANE — detail / compose / new-project */}
       <RightPaneArea
-        pane={rightPane}
+        pane={displayedRightPane}
         project={selectedProject}
-        projectAgents={projectAgents}
+        projectAgents={displayedProjectAgents}
         allAgents={allAgents}
         onClose={() => setRightPane({ type: 'empty' })}
         onTaskCreated={async () => {
@@ -342,35 +352,26 @@ function MiddlePane({
 
   const unassignedAgents = allAgents.filter(a => !projectAgents.find(pa => pa.id === a.id))
 
-  // Reset per-project state when project changes
-  useEffect(() => {
-    setHistory([])
-    setHistoryLoaded(false)
-    setSuggestion(null)
-    setEditingObjective(false)
-    if (project) {
-      const stored = localStorage.getItem(`phoenix-sections-${project.id}`)
-      setCollapsed(stored ? JSON.parse(stored) : { completed: true })
-    }
-  }, [project?.id])
-
   // Load file list when Files tab is selected
   useEffect(() => {
     if (tab !== 'files' || !project) return
-    setFilesLoading(true)
-    api.projects.listFiles(project.id)
-      .then(setFiles)
-      .catch(() => setFiles([]))
-      .finally(() => setFilesLoading(false))
-  }, [tab, project?.id])
+    const timer = window.setTimeout(() => {
+      setFilesLoading(true)
+      void api.projects.listFiles(project.id)
+        .then(setFiles)
+        .catch(() => setFiles([]))
+        .finally(() => setFilesLoading(false))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [project, tab])
 
   // WS: refresh task list when a task status changes for the current project
   useEffect(() => {
     if (!project) return
     const unsub = phoenixWS.on(ev => {
       if (ev.type === 'task.status_changed') {
-        const p = ev.payload as any
-        if (p?.project_id === project.id) {
+        const p = ev.payload
+        if (p.project_id === project.id) {
           onTasksRefresh()
           // If completed section is open, refresh history too
           if (!collapsed['completed'] && historyLoaded) {
@@ -380,7 +381,7 @@ function MiddlePane({
       }
     })
     return unsub
-  }, [project?.id, collapsed, historyLoaded, onTasksRefresh])
+  }, [collapsed, historyLoaded, onTasksRefresh, project])
 
   const toggleSection = (key: string) => {
     setCollapsed(prev => {
@@ -393,12 +394,15 @@ function MiddlePane({
   // Load history when completed section is expanded for the first time
   useEffect(() => {
     if (!project || collapsed['completed'] || historyLoaded) return
-    setHistoryLoading(true)
-    api.projects.history(project.id)
-      .then(h => { setHistory(h); setHistoryLoaded(true) })
-      .catch(() => {})
-      .finally(() => setHistoryLoading(false))
-  }, [project?.id, collapsed, historyLoaded])
+    const timer = window.setTimeout(() => {
+      setHistoryLoading(true)
+      void api.projects.history(project.id)
+        .then(h => { setHistory(h); setHistoryLoaded(true) })
+        .catch(() => {})
+        .finally(() => setHistoryLoading(false))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [collapsed, historyLoaded, project])
 
   const handleAssign = async () => {
     if (!project || !assignAgentId) return

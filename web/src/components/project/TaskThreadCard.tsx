@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import type { Task, Agent } from '../../lib/api'
 import { phoenixWS } from '../../lib/ws'
+import type { TaskOutputStreamPayload, TaskStatusChangedPayload } from '../../lib/ws'
 import { MarkdownOutput } from '../ui/markdown-output'
 
 function ElapsedTimer({ startedAt }: { startedAt: string }) {
@@ -81,10 +82,10 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
   const [pinning, setPinning] = useState(false)
 
   useEffect(() => {
-    if (task.status !== 'running') { setStream(''); return }
+    if (task.status !== 'running') return
     return phoenixWS.on((ev) => {
       if (ev.type === 'task.output_stream') {
-        const p = ev.payload as any
+        const p: TaskOutputStreamPayload = ev.payload
         if (p.task_id === task.id) {
           setStream(prev => prev + p.chunk)
           // auto-scroll
@@ -95,7 +96,7 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
         }
       }
       if (ev.type === 'task.status_changed') {
-        const p = ev.payload as any
+        const p: TaskStatusChangedPayload = ev.payload
         if (p.task_id === task.id) onUpdate()
       }
     })

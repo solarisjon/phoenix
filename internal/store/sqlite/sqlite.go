@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	_ "modernc.org/sqlite"
@@ -27,11 +27,11 @@ type DB struct {
 func Open(path string) (*DB, error) {
 	pendingPath := path + ".restore-pending"
 	if _, err := os.Stat(pendingPath); err == nil {
-		log.Printf("sqlite: applying staged restore from %s", pendingPath)
+		slog.Info("sqlite: applying staged restore", "path", pendingPath)
 		if err := os.Rename(pendingPath, path); err != nil {
 			return nil, fmt.Errorf("apply staged restore: %w", err)
 		}
-		log.Printf("sqlite: restore applied — existing data replaced")
+		slog.Info("sqlite: restore applied — existing data replaced")
 	}
 
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000", path)
@@ -93,7 +93,7 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
 
-		log.Printf("applying migration: %s", name)
+		slog.Info("applying migration", "name", name)
 		if _, err := db.Exec(string(data)); err != nil {
 			return fmt.Errorf("apply migration %s: %w", name, err)
 		}
@@ -131,7 +131,7 @@ func (db *DB) ResetOrphanedTasks(ctx context.Context) error {
 	for _, o := range orphans {
 		if proc, err := os.FindProcess(o.pid); err == nil {
 			if killErr := proc.Kill(); killErr == nil {
-				log.Printf("startup: killed orphaned subprocess PID %d (task %s: %q)", o.pid, o.id, o.title)
+				slog.Info("startup: killed orphaned subprocess", "pid", o.pid, "task_id", o.id, "title", o.title)
 			}
 		}
 	}
@@ -149,7 +149,7 @@ func (db *DB) ResetOrphanedTasks(ctx context.Context) error {
 	}
 	n, _ := res.RowsAffected()
 	if n > 0 {
-		log.Printf("startup: reset %d orphaned task(s) to failed", n)
+		slog.Info("startup: reset orphaned tasks to failed", "count", n)
 	}
 	return nil
 }
@@ -164,11 +164,10 @@ func (db *DB) StartupHealthCheck(ctx context.Context) {
 	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE status = 'active'`).Scan(&totalAgents)
 	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE status = 'active'`).Scan(&totalProjects)
 
-	log.Printf("health : %d active agent(s), %d active project(s)", totalAgents, totalProjects)
-	log.Printf("health : %d total task(s) — %d completed, %d failed (needs attention)",
-		totalTasks, completedTasks, failedTasks)
+	slog.Info("health check", "active_agents", totalAgents, "active_projects", totalProjects)
+	slog.Info("health check: tasks", "total", totalTasks, "completed", completedTasks, "failed", failedTasks)
 	if failedTasks > 0 {
-		log.Printf("health : ⚠ %d task(s) need attention — open Inbox to review", failedTasks)
+		slog.Warn("health check: tasks need attention — open Inbox to review", "count", failedTasks)
 	}
 }
 

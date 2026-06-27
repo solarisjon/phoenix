@@ -8,6 +8,7 @@ import { Input, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { cn } from '@/lib/utils'
 import { ModelComboBox } from '@/components/ui/model-combo-box'
+import { getErrorMessage } from '@/lib/errors'
 
 // Env variable helper — renders a small hint and lets the user type ${ENV_VAR}
 function EnvHint() {
@@ -157,12 +158,12 @@ function CodingAgentFields({ cfg, onChange }: {
   cfg: CodingAgentConfig
   onChange: (c: CodingAgentConfig) => void
 }) {
-  const setStr = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    onChange({ ...cfg, [key]: e.target.value })
-  const setBool = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange({ ...cfg, [key]: e.target.checked })
-  const setNum = (key: keyof CodingAgentConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange({ ...cfg, [key]: Number(e.target.value) })
+  const setStr = <K extends keyof CodingAgentConfig>(key: K) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    onChange({ ...cfg, [key]: e.target.value } as CodingAgentConfig)
+  const setBool = <K extends keyof CodingAgentConfig>(key: K) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.checked } as CodingAgentConfig)
+  const setNum = <K extends keyof CodingAgentConfig>(key: K) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: Number(e.target.value) } as CodingAgentConfig)
 
   const binaryPlaceholder: Record<string, string> = {
     opencode: 'opencode  or  /opt/homebrew/bin/opencode',
@@ -176,7 +177,7 @@ function CodingAgentFields({ cfg, onChange }: {
       {/* Kind */}
       <div>
         <Label htmlFor="kind">Agent Kind</Label>
-        <Select id="kind" value={cfg.kind} onChange={setStr('kind') as any}>
+        <Select id="kind" value={cfg.kind} onChange={setStr('kind')}>
           <option value="opencode">opencode</option>
           <option value="pi">pi</option>
           <option value="claudecode">Claude Code (claude)</option>
@@ -187,14 +188,14 @@ function CodingAgentFields({ cfg, onChange }: {
       {/* Binary + working dir — common to all */}
       <div>
         <Label htmlFor="binary">Binary Path</Label>
-        <Input id="binary" value={cfg.binary_path} onChange={setStr('binary_path') as any}
+        <Input id="binary" value={cfg.binary_path} onChange={setStr('binary_path')}
           placeholder={binaryPlaceholder[cfg.kind] ?? 'path or leave blank for PATH'} />
         <p className="text-xs text-slate-600 mt-1">Leave blank to resolve from PATH</p>
         <EnvHint />
       </div>
       <div>
         <Label htmlFor="workdir">Working Directory</Label>
-        <Input id="workdir" value={cfg.working_dir} onChange={setStr('working_dir') as any}
+        <Input id="workdir" value={cfg.working_dir} onChange={setStr('working_dir')}
           placeholder="/home/user/project  or  ${WORKSPACE}" />
         <EnvHint />
       </div>
@@ -202,7 +203,7 @@ function CodingAgentFields({ cfg, onChange }: {
       {/* Model — common */}
       <div>
         <Label htmlFor="oc-model">Model</Label>
-        <Input id="oc-model" value={cfg.model} onChange={setStr('model') as any}
+        <Input id="oc-model" value={cfg.model} onChange={setStr('model')}
           placeholder={
             cfg.kind === 'opencode' ? 'llm-proxy/claude-sonnet-4.6' :
             cfg.kind === 'pi'       ? 'llm-proxy/claude-sonnet-4.6  or  sonnet' :
@@ -216,7 +217,7 @@ function CodingAgentFields({ cfg, onChange }: {
       {cfg.kind === 'opencode' && (
         <div>
           <Label htmlFor="oc-agent">Agent Config Name</Label>
-          <Input id="oc-agent" value={cfg.agent} onChange={setStr('agent') as any}
+          <Input id="oc-agent" value={cfg.agent} onChange={setStr('agent')}
             placeholder="my-agent" />
           <p className="text-xs text-slate-600 mt-1">Named opencode agent configuration (optional)</p>
         </div>
@@ -227,7 +228,7 @@ function CodingAgentFields({ cfg, onChange }: {
         <div className="space-y-4">
           <div>
             <Label htmlFor="pi-thinking">Thinking Level</Label>
-            <Select id="pi-thinking" value={cfg.thinking} onChange={setStr('thinking') as any}>
+            <Select id="pi-thinking" value={cfg.thinking} onChange={setStr('thinking')}>
               <option value="">(default)</option>
               <option value="off">off</option>
               <option value="minimal">minimal</option>
@@ -239,11 +240,11 @@ function CodingAgentFields({ cfg, onChange }: {
           </div>
           <div>
             <Label htmlFor="pi-tools">Allowed Tools</Label>
-            <Input id="pi-tools" value={cfg.tools} onChange={setStr('tools') as any}
+            <Input id="pi-tools" value={cfg.tools} onChange={setStr('tools')}
               placeholder="read,bash,write  (blank = all)" />
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={cfg.no_session} onChange={setBool('no_session') as any}
+            <input type="checkbox" checked={cfg.no_session} onChange={setBool('no_session')}
               className="rounded" />
             No session (ephemeral — recommended for Phoenix-managed tasks)
           </label>
@@ -266,7 +267,7 @@ function CodingAgentFields({ cfg, onChange }: {
           <div>
             <Label htmlFor="cc-budget">Max Budget (USD, 0 = unlimited)</Label>
             <Input id="cc-budget" type="number" step="0.01" value={cfg.max_budget_usd}
-              onChange={setNum('max_budget_usd') as any} placeholder="0" />
+              onChange={setNum('max_budget_usd')} placeholder="0" />
           </div>
         </div>
       )}
@@ -274,7 +275,7 @@ function CodingAgentFields({ cfg, onChange }: {
       {/* Skip permissions — common */}
       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
         <input type="checkbox" checked={cfg.dangerously_skip_permissions}
-          onChange={setBool('dangerously_skip_permissions') as any}
+          onChange={setBool('dangerously_skip_permissions')}
           className="rounded" />
         Dangerously skip permissions (auto-approve all tool use)
       </label>
@@ -420,8 +421,8 @@ function ProviderForm({ initial, onSave, onClose }: {
       )
       setPricingSaved(true)
       setTimeout(() => setPricingSaved(false), 2500)
-    } catch (e: any) {
-      setError('Pricing save failed: ' + e.message)
+    } catch (error: unknown) {
+      setError('Pricing save failed: ' + getErrorMessage(error))
     } finally {
       setPricingSaving(false)
     }
@@ -452,8 +453,8 @@ function ProviderForm({ initial, onSave, onClose }: {
       if (initial) await api.providers.update(initial.id, data)
       else await api.providers.create(data)
       onSave()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setSaving(false)
     }
@@ -471,7 +472,7 @@ function ProviderForm({ initial, onSave, onClose }: {
         <div>
           <Label htmlFor="type">Type</Label>
           <Select id="type" value={uiType} onChange={e => {
-            setUiType(e.target.value as any)
+            setUiType(e.target.value as 'llm' | 'ollama' | 'coding_agent')
             setError('')
           }}>
             <option value="ollama">🧠 Ollama (local models)</option>
@@ -572,16 +573,16 @@ export function ProvidersPage() {
   const remove = async (id: string) => {
     if (!confirm('Delete this provider? Any agents using it will stop working.')) return
     try { await api.providers.delete(id); load() }
-    catch (e: any) { alert(e.message) }
+    catch (error: unknown) { alert(getErrorMessage(error)) }
   }
 
-  const resync = async (id: string, _name: string) => {
+  const resync = async (id: string) => {
     try {
       const result = await api.providers.resync(id)
       setResyncedId(id)
       setResyncMessage(result.message ?? '✓ Resynced')
       setTimeout(() => { setResyncedId(null); setResyncMessage('') }, 4000)
-    } catch (e: any) { alert(`Resync failed: ${e.message}`) }
+    } catch (error: unknown) { alert(`Resync failed: ${getErrorMessage(error)}`) }
   }
 
   const testProvider = async (id: string) => {
@@ -592,8 +593,8 @@ export function ProvidersPage() {
       setTimeout(() => setTestStates(prev => {
         const next = { ...prev }; delete next[id]; return next
       }), 5000)
-    } catch (e: any) {
-      setTestStates(prev => ({ ...prev, [id]: { testing: false, ok: false, message: e.message } }))
+    } catch (error: unknown) {
+      setTestStates(prev => ({ ...prev, [id]: { testing: false, ok: false, message: getErrorMessage(error) } }))
       setTimeout(() => setTestStates(prev => {
         const next = { ...prev }; delete next[id]; return next
       }), 5000)
@@ -695,7 +696,7 @@ export function ProvidersPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => resync(p.id, p.name)}
+                    onClick={() => resync(p.id)}
                   >
                     {resyncedId === p.id ? '✓ Resynced' : '↺ Resync'}
                   </Button>

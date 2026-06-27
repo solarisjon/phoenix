@@ -3,7 +3,7 @@ package api
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -50,12 +50,12 @@ func (s *Server) restoreDB(w http.ResponseWriter, r *http.Request) {
 	tmp.Close()
 
 	if err := s.admin.StageRestore(tmpPath); err != nil {
-		log.Printf("restore: stage failed: %v", err)
+		slog.Error("restore: stage failed", "error", err)
 		respondErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	log.Printf("restore: backup staged; restart required to apply")
+	slog.Info("restore: backup staged; restart required to apply")
 	respond(w, http.StatusOK, map[string]string{
 		"message": "Restore staged. Restart the Phoenix server to apply the backup. All current data will be replaced.",
 	})
@@ -118,14 +118,14 @@ func (s *Server) backupDB(w http.ResponseWriter, r *http.Request) {
 	defer os.Remove(tmpPath) // clean up even if streaming fails
 
 	if err := s.admin.VacuumInto(r.Context(), tmpPath); err != nil {
-		log.Printf("backup: %v", err)
+		slog.Error("backup: vacuum failed", "error", err)
 		respondInternalErr(w, err)
 		return
 	}
 
 	f, err := os.Open(tmpPath)
 	if err != nil {
-		log.Printf("backup: open temp file: %v", err)
+		slog.Error("backup: open temp file", "error", err)
 		respondInternalErr(w, fmt.Errorf("backup open: %w", err))
 		return
 	}
@@ -144,6 +144,6 @@ func (s *Server) backupDB(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := io.Copy(w, f); err != nil {
-		log.Printf("backup: stream error: %v", err)
+		slog.Error("backup: stream error", "error", err)
 	}
 }

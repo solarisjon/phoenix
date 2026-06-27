@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -577,7 +577,7 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 	for _, agent := range team.Agents {
 		// Enroll the agent in the project if not already assigned.
 		if _, err := s.projects.AssignAgent(r.Context(), req.ProjectID, agent.ID); err != nil {
-			log.Printf("broadcast: assign agent %s to project %s: %v", agent.ID, req.ProjectID, err)
+			slog.Error("broadcast: assign agent to project", "agent_id", agent.ID, "project_id", req.ProjectID, "error", err)
 		}
 
 		task := &model.Task{
@@ -596,7 +596,7 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 			// Rollback: delete everything created so far.
 			for _, t := range created {
 				if delErr := s.tasks.Delete(r.Context(), t.ID); delErr != nil {
-					log.Printf("broadcast: rollback delete task %s: %v", t.ID, delErr)
+					slog.Error("broadcast: rollback delete task", "task_id", t.ID, "error", delErr)
 				}
 			}
 			respondInternalErr(w, fmt.Errorf("create task for agent %s: %w", agent.ID, err))
@@ -610,7 +610,7 @@ func (s *Server) broadcastTeam(w http.ResponseWriter, r *http.Request) {
 	taskIDs := make([]string, 0, len(created))
 	for _, task := range created {
 		if err := s.runner.RunTask(r.Context(), task.ID); err != nil {
-			log.Printf("broadcast: queue task %s (agent %s): %v", task.ID, task.AgentID, err)
+			slog.Error("broadcast: queue task", "task_id", task.ID, "agent_id", task.AgentID, "error", err)
 		}
 		taskIDs = append(taskIDs, task.ID)
 	}

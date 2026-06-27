@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -19,7 +19,7 @@ func respond(w http.ResponseWriter, status int, data any) {
 		return
 	}
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("api: encode response: %v", err)
+		slog.Error("api: encode response", "error", err)
 	}
 }
 
@@ -30,7 +30,7 @@ func respondErr(w http.ResponseWriter, status int, msg string) {
 
 // respondInternalErr logs the error and returns a generic 500.
 func respondInternalErr(w http.ResponseWriter, err error) {
-	log.Printf("api: internal error: %v", err)
+	slog.Error("api: internal error", "error", err)
 	respondErr(w, http.StatusInternalServerError, "internal server error")
 }
 

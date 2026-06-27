@@ -8,15 +8,9 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { ModelComboBox } from '@/components/ui/model-combo-box'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Generate modal ----
-
-function formatInterval(secs: number): string {
-  if (secs < 60) return `${secs}s`
-  if (secs < 3600) return `${Math.round(secs / 60)}m`
-  if (secs < 86400) return `${(secs / 3600).toFixed(1).replace(/\.0$/, '')}h`
-  return `${(secs / 86400).toFixed(1).replace(/\.0$/, '')}d`
-}
 
 function GenerateModal({ providers, onApply, onClose }: {
   providers: Provider[]
@@ -41,8 +35,8 @@ function GenerateModal({ providers, onApply, onClose }: {
         result.guardrails,
         result.hard_guardrails ?? ''
       )
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setGenerating(false)
     }
@@ -77,10 +71,9 @@ function GenerateModal({ providers, onApply, onClose }: {
 
 // ---- Agent form ----
 
-function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
+function AgentForm({ initial, providers, onSave, onClose }: {
   initial?: Agent
   providers: Provider[]
-  allAgents: Agent[]
   onSave: () => void
   onClose: () => void
 }) {
@@ -103,7 +96,6 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
   const [showGenerate, setShowGenerate] = useState(false)
 
   const selectedProvider = providers.find(p => p.id === providerID)
-  const templateOptions = allAgents.filter(agent => agent.id !== initial?.id)
 
   const save = async () => {
     setError('')
@@ -115,8 +107,8 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setSaving(false)
     }
@@ -146,7 +138,7 @@ function AgentForm({ initial, providers, allAgents, onSave, onClose }: {
           </div>
           <div>
             <Label htmlFor="status">Status</Label>
-            <Select id="status" value={status} onChange={e => setStatus(e.target.value as any)}>
+            <Select id="status" value={status} onChange={e => setStatus(e.target.value as Agent['status'])}>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
               <option value="disabled">Disabled</option>
@@ -384,8 +376,8 @@ export function AgentsPage() {
       const agent = await api.agents.importAgent({ bundle })
       setImportMessage(`Imported ${agent.name}.`)
       await load()
-    } catch (e: any) {
-      setImportMessage(e.message || 'Import failed')
+    } catch (error: unknown) {
+      setImportMessage(getErrorMessage(error, 'Import failed'))
     }
   }
 
@@ -464,7 +456,7 @@ export function AgentsPage() {
 
       {showForm && (
         <Modal title={editing ? 'Edit Agent' : 'Create Agent'} onClose={() => setShowForm(false)} className="max-w-2xl">
-          <AgentForm initial={editing} providers={providers} allAgents={agents} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
+          <AgentForm initial={editing} providers={providers} onSave={() => { setShowForm(false); load() }} onClose={() => setShowForm(false)} />
         </Modal>
       )}
     </div>

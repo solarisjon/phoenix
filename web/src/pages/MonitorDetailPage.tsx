@@ -12,13 +12,16 @@ import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } 
 import { AgentsSection } from '@/components/shared/AgentsSection'
 import {
   ScheduleEditor,
+} from '@/components/monitor/ScheduleEditor'
+import {
   scheduleFromProject,
   schedulePayload,
   scheduleError,
   scheduleSummary,
   type ScheduleValue,
-} from '@/components/monitor/ScheduleEditor'
+} from '@/components/monitor/schedule'
 import { cn } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Countdown clock ----
 
@@ -121,10 +124,10 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
   const variant = taskStatusVariant(task.status)
 
   useEffect(() => {
-    if (task.status !== 'running') { setStream(''); return }
+    if (task.status !== 'running') return
     return phoenixWS.on((ev) => {
       if (ev.type === 'task.output_stream') {
-        const p = ev.payload as any
+        const p = ev.payload
         if (p.task_id === task.id) {
           setStream(prev => prev + p.chunk)
           setTimeout(() => {
@@ -272,7 +275,12 @@ export function MonitorDetailPage() {
     }
   }, [id])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
 
   useEffect(() => {
     const unsub = phoenixWS.on((ev) => {
@@ -326,8 +334,8 @@ export function MonitorDetailPage() {
       setRunExtraPrompt(result.description)
       setRunShowAI(false)
       setRunAiHint('')
-    } catch (e: unknown) {
-      setRunAiError(e instanceof Error ? e.message : 'Generation failed')
+    } catch (error: unknown) {
+      setRunAiError(getErrorMessage(error, 'Generation failed'))
     } finally {
       setRunAiExpanding(false)
     }
@@ -354,8 +362,8 @@ export function MonitorDetailPage() {
       })
       setShowRunModal(false)
       load()
-    } catch (e: unknown) {
-      setTriggerError(e instanceof Error ? e.message : 'Failed to trigger run')
+    } catch (error: unknown) {
+      setTriggerError(getErrorMessage(error, 'Failed to trigger run'))
     } finally {
       setTriggering(false)
     }

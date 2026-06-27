@@ -11,6 +11,7 @@ import type { Task, Agent } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 interface Props {
   task: Task
@@ -37,7 +38,10 @@ export function FollowUpThread({ task, agents, onSent }: Props) {
   }, [task.id, task.project_id])
 
   useEffect(() => {
-    loadFollowUps()
+    const timer = window.setTimeout(() => {
+      void loadFollowUps()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [loadFollowUps])
 
   const send = async () => {
@@ -49,8 +53,8 @@ export function FollowUpThread({ task, agents, onSent }: Props) {
       setText('')
       await loadFollowUps()
       onSent?.()
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to send follow-up')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to send follow-up'))
     } finally {
       setSending(false)
     }

@@ -23,7 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -148,7 +148,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 			if ctx.Err() != nil {
 				wg.Wait()
 				if err := cmd.Wait(); err != nil {
-					log.Printf("crush: process exited: %v", err)
+					slog.Debug("crush: process exited", "error", err)
 				}
 				return
 			}
@@ -158,7 +158,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		if err := scanner.Err(); err != nil && ctx.Err() == nil {
 			wg.Wait()
 			if err := cmd.Wait(); err != nil {
-				log.Printf("crush: process exited: %v", err)
+				slog.Debug("crush: process exited", "error", err)
 			}
 			ch <- provider.StreamChunk{Error: fmt.Errorf("crush: read stdout: %w", err)}
 			return
@@ -166,19 +166,19 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 
 		wg.Wait()
 		if err := cmd.Wait(); err != nil {
-			log.Printf("crush: process exited: %v", err)
+			slog.Debug("crush: process exited", "error", err)
 		}
 
 		if lineCount == 0 {
 			// No stdout output — include stderr in the error so the user can
 			// see the actual reason (rate limit, auth error, model error, etc.).
 			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
-				log.Printf("crush: stderr: %s", stderrMsg)
+				slog.Debug("crush: stderr", "msg", stderrMsg)
 				ch <- provider.StreamChunk{Error: fmt.Errorf("crush: no output — stderr: %s", stderrMsg)}
 				return
 			}
 		}
-		log.Printf("crush: completed — %d lines of output", lineCount)
+		slog.Debug("crush: completed", "lines", lineCount)
 	}()
 
 	return ch, nil
@@ -254,7 +254,7 @@ func (a *Adapter) prepareWorkDir(req provider.TaskRequest) (workDir string, clea
 		copy(originalContent, existing)
 		cleanup = func() {
 			if err := os.WriteFile(agentsPath, originalContent, 0644); err != nil {
-				log.Printf("crush: restore AGENTS.md: %v", err)
+				slog.Error("crush: restore AGENTS.md", "error", err)
 			}
 		}
 	} else {

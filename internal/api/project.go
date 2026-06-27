@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/provider"
 )
@@ -779,63 +780,13 @@ func collectArtifactPaths(ctx context.Context, s *Server, projectID string) map[
 		return out
 	}
 	for _, t := range tasks {
-		for _, a := range parseArtifactBlocks(t.Output) {
-			if a.artType == "file" && a.path != "" {
-				out[filepath.Clean(a.path)] = struct{}{}
+		for _, a := range agent.ParseArtifactBlocks(t.Output) {
+			if a.ArtType == "file" && a.Path != "" {
+				out[filepath.Clean(a.Path)] = struct{}{}
 			}
 		}
 	}
 	return out
-}
-
-// parsedArtifact holds a single parsed ARTIFACT_START…ARTIFACT_END block.
-type parsedArtifact struct {
-	artType string // "file" | "url" | "jira" | "confluence" | "html"
-	path    string // file path or URL
-	title   string
-}
-
-// parseArtifactBlocks extracts ARTIFACT_START … ARTIFACT_END blocks from text.
-//
-//	ARTIFACT_START
-//	Type: file
-//	Path: /abs/path/to/file.md
-//	Title: My Document
-//	ARTIFACT_END
-func parseArtifactBlocks(output string) []parsedArtifact {
-	var results []parsedArtifact
-	lines := strings.Split(output, "\n")
-	i := 0
-	for i < len(lines) {
-		if strings.TrimSpace(lines[i]) != "ARTIFACT_START" {
-			i++
-			continue
-		}
-		i++
-		var a parsedArtifact
-		for i < len(lines) {
-			if strings.TrimSpace(lines[i]) == "ARTIFACT_END" {
-				i++
-				break
-			}
-			line := lines[i]
-			switch {
-			case strings.HasPrefix(line, "Type:"):
-				a.artType = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "Type:")))
-			case strings.HasPrefix(line, "Path:"):
-				a.path = strings.TrimSpace(strings.TrimPrefix(line, "Path:"))
-			case strings.HasPrefix(line, "URL:"):
-				a.path = strings.TrimSpace(strings.TrimPrefix(line, "URL:"))
-			case strings.HasPrefix(line, "Title:"):
-				a.title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
-			}
-			i++
-		}
-		if a.artType != "" && a.path != "" {
-			results = append(results, a)
-		}
-	}
-	return results
 }
 
 // listProjectHistory returns all completed tasks for a project regardless of dismissed state.

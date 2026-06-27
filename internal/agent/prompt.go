@@ -316,6 +316,22 @@ func InjectFollowUpChainContext(req provider.TaskRequest, chain []*model.Task, s
 	return req
 }
 
+// InjectMemories appends a ## Persistent Memory section to the system prompt
+// when recalled memories are non-empty. The section is informational context
+// and is placed after all other prompt sections, including global guardrails.
+func InjectMemories(req provider.TaskRequest, memories string) provider.TaskRequest {
+	if strings.TrimSpace(memories) == "" {
+		return req
+	}
+	var b strings.Builder
+	b.WriteString(req.SystemPrompt)
+	b.WriteString("\n\n## Persistent Memory\n")
+	b.WriteString("The following memories from your prior work are relevant to this task:\n")
+	b.WriteString(memories)
+	req.SystemPrompt = b.String()
+	return req
+}
+
 // extractOutputText pulls the "text" field from a task output JSON blob,
 // falling back to the raw string if it's not JSON.
 func extractOutputText(output string) string {

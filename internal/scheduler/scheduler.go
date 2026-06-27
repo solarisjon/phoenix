@@ -13,7 +13,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -131,7 +131,7 @@ func (s *Scheduler) sync() {
 
 	projects, err := s.projects.List(ctx)
 	if err != nil {
-		log.Printf("scheduler: list projects: %v", err)
+		slog.Error("scheduler: list projects", "error", err)
 		return
 	}
 
@@ -203,9 +203,9 @@ func (s *Scheduler) sync() {
 			entry.cancel()
 			delete(s.stops, key)
 			if !ok {
-				log.Printf("scheduler: stopped schedule for monitor %s", key)
+				slog.Info("scheduler: stopped schedule", "monitor", key)
 			} else {
-				log.Printf("scheduler: restarting schedule for monitor %s (interval changed to %s)", key, spec.interval)
+				slog.Info("scheduler: restarting schedule (interval changed)", "monitor", key, "interval", spec.interval)
 			}
 		}
 	}
@@ -218,7 +218,7 @@ func (s *Scheduler) sync() {
 		hbCtx, hbCancel := context.WithCancel(s.ctx)
 		s.stops[key] = scheduleEntry{cancel: hbCancel, interval: spec.interval}
 		go s.scheduleLoop(hbCtx, spec)
-		log.Printf("scheduler: started schedule for monitor %s every %s", spec.monitor.Name, spec.interval)
+		slog.Info("scheduler: started schedule", "monitor", spec.monitor.Name, "interval", spec.interval)
 	}
 
 	s.mu.Unlock()
@@ -250,7 +250,7 @@ func (s *Scheduler) scheduleLoop(ctx context.Context, spec scheduleSpec) {
 			return
 		case <-ticker.C:
 			if err := s.fire(ctx, spec); err != nil {
-				log.Printf("scheduler: fire %s: %v", spec.monitor.ID, err)
+				slog.Error("scheduler: fire", "monitor_id", spec.monitor.ID, "error", err)
 			}
 		}
 	}
@@ -269,7 +269,7 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 	}
 	for _, t := range activeTasks {
 		if t.ProjectID == spec.monitor.ID {
-			log.Printf("scheduler: skipping %s — task already active", spec.monitor.Name)
+			slog.Debug("scheduler: skipping monitor — task already active", "monitor", spec.monitor.Name)
 			return nil
 		}
 	}
@@ -290,7 +290,7 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 	if err := s.tasks.Create(ctx, task); err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
-	log.Printf("scheduler: fired task %s for monitor %s (agent %s)", task.ID, spec.monitor.Name, spec.agent.Name)
+	slog.Info("scheduler: fired task", "task_id", task.ID, "monitor", spec.monitor.Name, "agent", spec.agent.Name)
 	return s.runner.RunTask(ctx, task.ID)
 }
 
@@ -306,7 +306,7 @@ func (s *Scheduler) evaluateDaily(ctx context.Context, spec scheduleSpec, now ti
 
 	last, err := s.lastMonitorRun(ctx, spec.monitor.ID)
 	if err != nil {
-		log.Printf("scheduler: daily last-run %s: %v", spec.monitor.ID, err)
+		slog.Error("scheduler: daily last-run lookup", "monitor_id", spec.monitor.ID, "error", err)
 		return
 	}
 	if last != nil && !last.Before(occ) {
@@ -318,7 +318,7 @@ func (s *Scheduler) evaluateDaily(ctx context.Context, spec scheduleSpec, now ti
 	}
 
 	if err := s.fire(ctx, spec); err != nil {
-		log.Printf("scheduler: daily fire %s: %v", spec.monitor.ID, err)
+		slog.Error("scheduler: daily fire", "monitor_id", spec.monitor.ID, "error", err)
 	}
 }
 

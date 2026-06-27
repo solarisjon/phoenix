@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/solarisjon/phoenix/internal/agent"
@@ -65,7 +65,7 @@ func (h *Hub) OnEvent(fn EventCallback) {
 func (h *Hub) Broadcast(ev Event) {
 	data, err := json.Marshal(ev)
 	if err != nil {
-		log.Printf("hub: marshal event: %v", err)
+		slog.Error("hub: marshal event", "error", err)
 		return
 	}
 
@@ -89,7 +89,7 @@ func (h *Hub) Broadcast(ev Event) {
 		select {
 		case ch <- data:
 		default:
-			log.Printf("hub: client too slow, dropping event %s", ev.Type)
+			slog.Warn("hub: client too slow, dropping event", "event_type", ev.Type)
 		}
 	}
 }

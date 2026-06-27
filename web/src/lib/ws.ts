@@ -1,5 +1,7 @@
 // WebSocket client with auto-reconnect and typed event dispatch
 
+import type { AgentDraft, Task } from './api'
+
 export type EventType =
   | 'connected'
   | 'task.status_changed'
@@ -8,11 +10,56 @@ export type EventType =
   | 'inbox.new_item'
   | 'agent_draft.created'
   | 'memo.created'
+  | 'budget.exceeded'
 
-export interface WSEvent {
-  type: EventType
-  payload: unknown
+export interface TaskStatusChangedPayload {
+  task_id: string
+  agent_id: string
+  project_id: string
+  status: Task['status']
+  cost_usd: number
+  title: string
 }
+
+export interface TaskOutputStreamPayload {
+  task_id: string
+  agent_id: string
+  chunk: string
+}
+
+export interface AgentStatusChangedPayload {
+  agent_id: string
+  status: string
+}
+
+export interface InboxNewItemPayload {
+  task_id: string
+  agent_id: string
+  project_id: string
+  title: string
+}
+
+export interface MemoCreatedPayload {
+  memo_id: string
+  title: string
+}
+
+export interface BudgetExceededPayload {
+  project_id: string
+  spent_usd: number
+  budget_usd: number
+  period: string
+}
+
+export type WSEvent =
+  | { type: 'connected'; payload: null }
+  | { type: 'task.status_changed'; payload: TaskStatusChangedPayload }
+  | { type: 'task.output_stream'; payload: TaskOutputStreamPayload }
+  | { type: 'agent.status_changed'; payload: AgentStatusChangedPayload }
+  | { type: 'inbox.new_item'; payload: InboxNewItemPayload }
+  | { type: 'agent_draft.created'; payload: AgentDraft }
+  | { type: 'memo.created'; payload: MemoCreatedPayload }
+  | { type: 'budget.exceeded'; payload: BudgetExceededPayload }
 
 type Handler = (event: WSEvent) => void
 

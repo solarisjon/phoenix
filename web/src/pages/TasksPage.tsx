@@ -136,20 +136,21 @@ export function TasksPage() {
   }, [])
 
   useEffect(() => {
-    load()
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
     const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.status_changed') load()
     })
-    return unsub
+    return () => {
+      clearTimeout(timer)
+      unsub()
+    }
   }, [load])
 
   // Debounced server-side search
   useEffect(() => {
-    if (!search.trim()) {
-      setSearchResults(null)
-      return
-    }
-    setSearching(true)
+    if (!search.trim()) return
     const timer = setTimeout(async () => {
       try {
         const results = await api.tasks.search(search.trim())
@@ -213,7 +214,12 @@ export function TasksPage() {
         <div className="flex-1 min-w-48 relative">
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => {
+              const next = e.target.value
+              setSearch(next)
+              if (!next.trim()) setSearchResults(null)
+              setSearching(next.trim() !== '')
+            }}
             placeholder="Search tasks…"
             className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
           />

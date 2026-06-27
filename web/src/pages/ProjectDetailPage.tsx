@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api, type Project, type Agent, type Task, type Team, type Provider } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
-import { Card, CardHeader, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
@@ -13,6 +12,7 @@ import { ProjectHumanView } from '@/components/project/ProjectHumanView'
 import { AgentsSection } from '@/components/shared/AgentsSection'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
+import { getErrorMessage } from '@/lib/errors'
 
 function TaskForm({ projectId, allAgents, projectAgents, teams, providers, onSave, onClose }: {
   projectId: string
@@ -75,7 +75,7 @@ function TaskForm({ projectId, allAgents, projectAgents, teams, providers, onSav
         }
       }
       onSave()
-    } catch (e: any) { setError(e.message) }
+    } catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setSaving(false); setProgress('') }
   }
 
@@ -88,8 +88,8 @@ function TaskForm({ projectId, allAgents, projectAgents, teams, providers, onSav
       setDescription(result.description)
       setShowAI(false)
       setAiHint('')
-    } catch (e: any) {
-      setAiError(e.message)
+    } catch (error: unknown) {
+      setAiError(getErrorMessage(error))
     } finally {
       setAiGenerating(false)
     }
@@ -287,7 +287,7 @@ function GuidedSetup({ projectId, allAgents, projectAgents, teams, onDone }: {
         await api.tasks.create({ project_id: projectId, agent_id: agent.id, title, description })
       }
       onDone()
-    } catch (e: any) { setError(e.message) }
+    } catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setSaving(false); setProgress('') }
   }
 
@@ -471,126 +471,6 @@ function GuidedSetup({ projectId, allAgents, projectAgents, teams, onDone }: {
   )
 }
 
-// ---- Task Card ----
-
-function TaskCard({ task, agents, onUpdate }: { task: Task; agents: Agent[]; onUpdate: () => void }) {
-  const [expanded, setExpanded] = useState(false)
-  const [stream, setStream] = useState('')
-  const [retrying, setRetrying] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
-  const agent = agents.find(a => a.id === task.agent_id)
-
-  useEffect(() => {
-    if (task.status !== 'running') { setStream(''); return }
-    const unsub = phoenixWS.on((ev) => {
-      if (ev.type === 'task.output_stream') {
-        const p = ev.payload as any
-        if (p.task_id === task.id) setStream(prev => prev + p.chunk)
-      }
-      if (ev.type === 'task.status_changed') {
-        const p = ev.payload as any
-        if (p.task_id === task.id) onUpdate()
-      }
-    })
-    return unsub
-  }, [task.id, task.status, onUpdate])
-
-  const retry = async () => {
-    setRetrying(true)
-    try { await api.tasks.retry(task.id); onUpdate() } finally { setRetrying(false) }
-  }
-
-  const cancel = async () => {
-    setCancelling(true)
-    try { await api.tasks.cancel(task.id); onUpdate() } finally { setCancelling(false) }
-  }
-
-  const output = task.status === 'running' && stream ? stream : parseOutput(task.output)
-  const showOutput = expanded && (output && output !== '{}')
-
-  return (
-    <div className="border border-slate-800 rounded-xl bg-slate-900/50">
-      <div className="flex items-start gap-3 p-4 cursor-pointer" onClick={() => setExpanded(!expanded)}>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h4 className="text-sm font-medium text-white">{task.title}</h4>
-            <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
-            {task.cost_usd > 0 && (
-              <span className="text-xs text-slate-500">{formatCost(task.cost_usd)}</span>
-            )}
-          </div>
-          <p className="text-xs text-slate-500">
-            {agent?.name ?? 'Unknown'} · {timeAgo(task.created_at)}
-          </p>
-          {(task.status === 'running' || task.status === 'queued') && (
-            <div className="flex items-center gap-2 mt-2" onClick={e => e.stopPropagation()}>
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              <span className="text-xs text-violet-400">{task.status === 'queued' ? 'Queued' : 'Running…'}</span>
-              <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling}>
-                {cancelling ? 'Cancelling…' : '✕ Cancel'}
-              </Button>
-            </div>
-          )}
-          {task.status === 'failed' && (
-            <div className="mt-2" onClick={e => e.stopPropagation()}>
-              <Button size="sm" variant="secondary" onClick={retry} disabled={retrying}>
-                {retrying ? 'Retrying…' : '↺ Retry'}
-              </Button>
-            </div>
-          )}
-        </div>
-        <span className="text-slate-600 text-sm mt-0.5">{expanded ? '▲' : '▼'}</span>
-      </div>
-
-      {showOutput && (
-        <div className="px-4 pb-4 border-t border-slate-800 pt-3">
-          <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-slate-950 rounded-lg p-3 max-h-64 overflow-y-auto">
-            {output}
-          </pre>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AssignAgentModal({ projectId, allAgents, assigned, onSave, onClose }: {
-  projectId: string; allAgents: Agent[]; assigned: Agent[]; onSave: () => void; onClose: () => void
-}) {
-  const assignedIds = new Set(assigned.map(a => a.id))
-  const available = allAgents.filter(a => !assignedIds.has(a.id))
-  const [selected, setSelected] = useState(available[0]?.id ?? '')
-  const [saving, setSaving] = useState(false)
-
-  const save = async () => {
-    if (!selected) return
-    setSaving(true)
-    try { await api.projects.assignAgent(projectId, selected); onSave() }
-    catch { /* ignore */ }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div className="space-y-4">
-      {available.length === 0 ? (
-        <p className="text-slate-400 text-sm">All agents are already assigned. <Link to="/agents" className="text-violet-400 hover:underline">Create a new agent</Link>.</p>
-      ) : (
-        <>
-          <div>
-            <Label htmlFor="agent">Select Agent</Label>
-            <Select id="agent" value={selected} onChange={e => setSelected(e.target.value)}>
-              {available.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </Select>
-          </div>
-          <div className="flex gap-3 justify-end">
-            <Button variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button onClick={save} disabled={saving || !selected}>{saving ? 'Assigning…' : 'Assign Agent'}</Button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
 function AssignTeamModal({ projectId, onSave, onClose }: {
   projectId: string; onSave: (msg: string) => void; onClose: () => void
 }) {
@@ -609,7 +489,7 @@ function AssignTeamModal({ projectId, onSave, onClose }: {
     try {
       const r = await api.projects.assignTeam(projectId, selected)
       onSave(`Added ${r.assigned} of ${r.total} agent(s) from "${r.team}"`)
-    } catch (e: any) { setResult(e.message) }
+    } catch (error: unknown) { setResult(getErrorMessage(error)) }
     finally { setSaving(false) }
   }
 
@@ -645,14 +525,14 @@ function TaskDetailModal({ task, agents, onClose, onUpdate }: {
   const agent = agents.find(a => a.id === task.agent_id)
 
   useEffect(() => {
-    if (task.status !== 'running') { setStream(''); return }
+    if (task.status !== 'running') return
     const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.output_stream') {
-        const p = ev.payload as any
+        const p = ev.payload
         if (p.task_id === task.id) setStream(prev => prev + p.chunk)
       }
       if (ev.type === 'task.status_changed') {
-        const p = ev.payload as any
+        const p = ev.payload
         if (p.task_id === task.id) { onUpdate(); onClose() }
       }
     })
@@ -739,14 +619,11 @@ export function ProjectDetailPage() {
       setTasks(tsks)
       setTeams(tms)
       setProviders(provs)
+      setCriticMode(proj.critic_mode ?? 'none')
     } finally { setLoading(false) }
   }, [id])
 
   useEffect(() => { load() }, [load])
-
-  useEffect(() => {
-    setCriticMode(project?.critic_mode ?? 'none')
-  }, [project?.critic_mode])
 
   const saveCritic = async () => {
     if (!project) return
@@ -764,8 +641,8 @@ export function ProjectDetailPage() {
       })
       setProject(updated)
       setCriticMessage('Saved')
-    } catch (e: any) {
-      setCriticMessage(e.message || 'Failed to save')
+    } catch (error: unknown) {
+      setCriticMessage(getErrorMessage(error, 'Failed to save'))
     } finally {
       setSavingCritic(false)
     }
@@ -778,8 +655,8 @@ export function ProjectDetailPage() {
     try {
       await api.projects.delete(id)
       navigate('/projects')
-    } catch (e: any) {
-      setDeleteError(e.message || 'Failed to delete project')
+    } catch (error: unknown) {
+      setDeleteError(getErrorMessage(error, 'Failed to delete project'))
       setDeleting(false)
     }
   }

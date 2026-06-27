@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -22,7 +22,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		OriginPatterns: allowedWSOrigins(),
 	})
 	if err != nil {
-		log.Printf("ws: accept: %v", err)
+		slog.Error("ws: accept", "error", err)
 		return
 	}
 	defer conn.CloseNow()
@@ -30,8 +30,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	ch := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
 
-	log.Printf("ws: client connected (%d total)", s.hub.ClientCount())
-	defer log.Printf("ws: client disconnected (%d remaining)", s.hub.ClientCount()-1)
+	slog.Info("ws: client connected", "total", s.hub.ClientCount())
+	defer func() {
+		slog.Info("ws: client disconnected", "remaining", s.hub.ClientCount()-1)
+	}()
 
 	ctx := conn.CloseRead(r.Context())
 

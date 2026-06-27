@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api, type Project, type Task, type CostsResponse, type Agent, type Team } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
+import { getErrorMessage } from '@/lib/errors'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
@@ -45,6 +46,22 @@ function ElapsedTimer({ startedAt }: { startedAt: string }) {
   return <span className="tabular-nums">{m > 0 ? `${m}m ${s}s` : `${s}s`}</span>
 }
 
+function DailyTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string; color: string }[]; label?: string }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs">
+      <p className="text-slate-400 mb-1">{label}</p>
+      {payload.map(p => (
+        <p key={p.name} style={{ color: p.color }}>
+          {p.name === 'cost_usd' ? fmt(p.value) : `${fmtTokens(p.value)} tok`}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+const DAILY_TOOLTIP_CONTENT = <DailyTooltip />
+
 function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; onCancel: () => void; onOpen: () => void }) {
   const [stream, setStream] = useState('')
   const [cancelling, setCancelling] = useState(false)
@@ -59,7 +76,7 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }:
   useEffect(() => {
     const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.output_stream') {
-        const p = ev.payload as any
+        const p = ev.payload
         if (p.task_id === task.id) setStream(prev => prev + p.chunk)
       }
     })
@@ -81,10 +98,10 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }:
     try {
       await api.tasks.cancel(task.id)
       onCancel()
-    } catch (e: any) {
+    } catch (error: unknown) {
       // Cancel failed — show the card again with an error + force-reset option.
       setHidden(false)
-      setCancelError(e?.message ?? 'Cancel failed')
+      setCancelError(getErrorMessage(error, 'Cancel failed'))
     } finally {
       setCancelling(false)
     }
@@ -96,8 +113,8 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }:
     try {
       await api.tasks.forceReset(task.id)
       onCancel()
-    } catch (e: any) {
-      setCancelError(e?.message ?? 'Force reset failed')
+    } catch (error: unknown) {
+      setCancelError(getErrorMessage(error, 'Force reset failed'))
       setForceResetting(false)
     }
   }
@@ -196,7 +213,7 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
     if (!isLive) return
     const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.output_stream') {
-        const p = ev.payload as any
+        const p = ev.payload
         if (p.task_id === task.id) setStream(prev => prev + p.chunk)
       }
     })
@@ -349,21 +366,6 @@ function CostSection({ costs }: { costs: CostsResponse }) {
   const dailyRows = (costs.by_day ?? [])
   const showDaily = dailyRows.length > 0
 
-  // Recharts custom tooltip
-  const DailyTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string; color: string }[]; label?: string }) => {
-    if (!active || !payload?.length) return null
-    return (
-      <div className="bg-slate-900 border border-slate-700 rounded px-3 py-2 text-xs">
-        <p className="text-slate-400 mb-1">{label}</p>
-        {payload.map(p => (
-          <p key={p.name} style={{ color: p.color }}>
-            {p.name === 'cost_usd' ? fmt(p.value) : `${fmtTokens(p.value)} tok`}
-          </p>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -431,7 +433,7 @@ function CostSection({ costs }: { costs: CostsResponse }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={d => d.slice(5)} />
                 <YAxis tick={{ fontSize: 9, fill: '#64748b' }} />
-                <Tooltip content={<DailyTooltip />} />
+                <Tooltip content={DAILY_TOOLTIP_CONTENT} />
                 {hasSpend
                   ? <Bar dataKey="cost_usd" fill="#8b5cf6" radius={[2,2,0,0]} name="cost_usd" />
                   : <Bar dataKey="tokens_in" fill="#0ea5e9" radius={[2,2,0,0]} name="tokens_in" stackId="tok" />
@@ -585,7 +587,6 @@ function CostSection({ costs }: { costs: CostsResponse }) {
 }
 
 export function DashboardPage() {
-  const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [teams, setTeams] = useState<Team[]>([])

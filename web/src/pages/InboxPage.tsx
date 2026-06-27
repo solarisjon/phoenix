@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty'
 import { parseOutput, timeAgo, taskStatusVariant, taskStatusLabel } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Revise modal ----
 
@@ -114,8 +115,8 @@ function EditTaskModal({ task, onDone, onClose }: { task: Task; onDone: () => vo
     try {
       await api.tasks.update(task.id, { title, description })
       onDone()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (error: unknown) {
+      setError(getErrorMessage(error))
     } finally {
       setSaving(false)
     }
@@ -301,14 +302,14 @@ function HireApprovalCard({ draft, providers, onAction }: {
       })
       setEditing(false)
       onAction()
-    } catch (e: any) { setError(e.message) }
+    } catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setBusy(false) }
   }
 
   const approve = async () => {
     setBusy(true)
     try { await api.agentDrafts.approve(draft.id, selectedProvider); onAction() }
-    catch (e: any) { setError(e.message) }
+    catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setBusy(false) }
   }
 
@@ -588,7 +589,9 @@ export function InboxPage() {
   }, [])
 
   useEffect(() => {
-    load()
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
     const unsub = phoenixWS.on((ev) => {
       if (
         ev.type === 'inbox.new_item' ||
@@ -596,7 +599,10 @@ export function InboxPage() {
         ev.type === 'agent_draft.created'
       ) load()
     })
-    return unsub
+    return () => {
+      clearTimeout(timer)
+      unsub()
+    }
   }, [load])
 
   const agentName = (id: string) => agents.find(a => a.id === id)?.name ?? 'Unknown Agent'

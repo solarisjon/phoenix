@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-import type { PluginRecord, NotificationRule, SystemSettings } from '@/lib/api'
+import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat } from '@/lib/api'
 import { injectCommunityThemes, getTheme, setTheme } from '@/lib/theme'
+import { getErrorMessage } from '@/lib/errors'
 
 export function PluginsPage() {
   const [tab, setTab] = useState<'notifiers' | 'themes'>('notifiers')
@@ -9,14 +10,11 @@ export function PluginsPage() {
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const load = async () => {
-    try {
-      const [p, s] = await Promise.all([api.plugins.list(), api.admin.getSettings()])
-      setPlugins(p)
-      setSettings(s)
-    } catch (e: any) { alert(e.message) }
-    finally { setLoading(false) }
-  }
+  const load = () =>
+    Promise.all([api.plugins.list(), api.admin.getSettings()])
+      .then(([p, s]) => { setPlugins(p); setSettings(s) })
+      .catch((e: unknown) => alert(getErrorMessage(e)))
+      .finally(() => setLoading(false))
 
   useEffect(() => { load() }, [])
 
@@ -26,7 +24,7 @@ export function PluginsPage() {
     try {
       await api.admin.saveSettings(updated)
       setSettings(updated)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   if (loading) return <div className="text-[var(--ph-text-muted)] p-6">Loading…</div>
@@ -103,7 +101,7 @@ function NotifiersTab({ plugins, coreEnabled, onRefresh }: {
         </div>
       )}
       {plugins.map(p => (
-        <NotifierCard key={p.id} plugin={p} dimmed={!coreEnabled} onRefresh={onRefresh} />
+        <NotifierCard key={`${p.id}:${p.config}`} plugin={p} dimmed={!coreEnabled} onRefresh={onRefresh} />
       ))}
       {plugins.length === 0 && (
         <div className="text-sm text-[var(--ph-text-muted)]">No notifier plugins found.</div>
@@ -140,29 +138,15 @@ function SecretField({ value, onChange, isSecret }: {
   )
 }
 
-// Schema field type from the backend ConfigSchema() response.
-interface SchemaField {
-  type: string
-  title: string
-  description?: string
-  default?: any
-  enum?: string[]
-  secret?: boolean
-}
-interface ConfigSchema {
-  type: string
-  properties: Record<string, SchemaField>
-  required?: string[]
-}
 
 function NotifierCard({ plugin, dimmed, onRefresh }: {
   plugin: PluginRecord; dimmed: boolean; onRefresh: () => void
 }) {
   const [configOpen, setConfigOpen] = useState(false)
-  const [configValues, setConfigValues] = useState<Record<string, any>>(() => {
-    try { return JSON.parse(plugin.config) } catch { return {} }
+  const [configValues, setConfigValues] = useState<Record<string, unknown>>(() => {
+    try { return JSON.parse(plugin.config) as Record<string, unknown> } catch { return {} }
   })
-  const [schema, setSchema] = useState<ConfigSchema | null>(null)
+  const [schema, setSchema] = useState<PluginConfigSchema | null>(null)
   const [schemaLoading, setSchemaLoading] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<string | null>(null)
@@ -170,8 +154,13 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
   const [rulesLoaded, setRulesLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [detectingChats, setDetectingChats] = useState(false)
-  const [discoveredChats, setDiscoveredChats] = useState<{id: number, title: string, first_name: string, type: string}[] | null>(null)
+  const [discoveredChats, setDiscoveredChats] = useState<PluginChat[] | null>(null)
   const [chatError, setChatError] = useState<string | null>(null)
+
+  // Inbound task creation — projects/agents for the Telegram picker.
+  const [inboundProjects, setInboundProjects] = useState<Project[]>([])
+  const [inboundAgents, setInboundAgents] = useState<Agent[]>([])
+  const [inboundResourcesLoaded, setInboundResourcesLoaded] = useState(false)
 
   const loadSchema = async () => {
     if (schema) return
@@ -188,26 +177,34 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
       const r = await api.plugins.rules.list(plugin.id)
       setRules(r)
       setRulesLoaded(true)
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
-  useEffect(() => {
-    if (configOpen) {
-      loadSchema()
-      if (!rulesLoaded) loadRules()
+  const openConfig = () => {
+    if (!configOpen) {
+      void loadSchema()
+      if (!rulesLoaded) void loadRules()
+      if (plugin.kind === 'telegram' && !inboundResourcesLoaded) {
+        void Promise.all([api.projects.list('project'), api.agents.list()])
+          .then(([projs, agts]) => {
+            setInboundProjects(projs)
+            setInboundAgents(agts)
+            setInboundResourcesLoaded(true)
+          })
+      }
     }
-  }, [configOpen])
-
-  // Re-parse config when plugin prop changes (after save/refresh).
-  useEffect(() => {
-    try { setConfigValues(JSON.parse(plugin.config)) } catch { setConfigValues({}) }
-  }, [plugin.config])
+    setConfigOpen(!configOpen)
+  }
 
   const toggleEnabled = async () => {
     try {
-      plugin.enabled ? await api.plugins.disable(plugin.id) : await api.plugins.enable(plugin.id)
+      if (plugin.enabled) {
+        await api.plugins.disable(plugin.id)
+      } else {
+        await api.plugins.enable(plugin.id)
+      }
       onRefresh()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   const saveConfig = async () => {
@@ -217,7 +214,7 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
       await api.plugins.update(plugin.id, { ...plugin, config: configStr })
       setConfigOpen(false)
       onRefresh()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
     finally { setSaving(false) }
   }
 
@@ -231,7 +228,7 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
       const res = await api.plugins.test(plugin.id)
       setTestResult(res.message)
       onRefresh()
-    } catch (e: any) { setTestResult(`Error: ${e.message}`) }
+    } catch (e: unknown) { setTestResult(`Error: ${getErrorMessage(e)}`) }
     finally { setTesting(false) }
   }
 
@@ -239,24 +236,24 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     try {
       await api.plugins.rules.create(plugin.id, { event_type: eventType, enabled: true })
       loadRules()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   const deleteRule = async (ruleId: string) => {
     try {
       await api.plugins.rules.delete(plugin.id, ruleId)
       loadRules()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   const toggleRule = async (rule: NotificationRule) => {
     try {
       await api.plugins.rules.update(plugin.id, rule.id, { ...rule, enabled: !rule.enabled })
       loadRules()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
-  const updateField = (key: string, value: any) => {
+  const updateField = (key: string, value: unknown) => {
     setConfigValues(prev => ({ ...prev, [key]: value }))
   }
 
@@ -266,10 +263,10 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
     setDiscoveredChats(null)
     try {
       // Pass the bot token directly from the form — no save required.
-      const chats = await api.plugins.discoverChats(plugin.id, configValues.bot_token)
+      const chats = await api.plugins.discoverChats(plugin.id, configValues.bot_token as string | undefined)
       setDiscoveredChats(chats)
-    } catch (e: any) {
-      setChatError(e.message)
+    } catch (e: unknown) {
+      setChatError(getErrorMessage(e))
     } finally {
       setDetectingChats(false)
     }
@@ -291,7 +288,7 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
         </div>
         <div className="flex items-center gap-2">
           <Toggle label="" checked={plugin.enabled} onChange={toggleEnabled} />
-          <button onClick={() => setConfigOpen(!configOpen)}
+          <button onClick={openConfig}
             className="text-xs px-2 py-1 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]">
             Configure
           </button>
@@ -326,18 +323,18 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
                     <p className="text-[11px] text-[var(--ph-text-faint)] mb-1.5">{field.description}</p>
                   )}
                   {field.enum ? (
-                    <select value={configValues[key] ?? field.default ?? ''}
+                    <select value={(configValues[key] as string | undefined) ?? (field.default as string | undefined) ?? ''}
                       onChange={e => updateField(key, e.target.value)}
                       className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]">
                       {field.enum.map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   ) : field.type === 'integer' ? (
-                    <input type="number" value={configValues[key] ?? field.default ?? ''}
+                    <input type="number" value={(configValues[key] as number | undefined) ?? (field.default as number | undefined) ?? ''}
                       onChange={e => updateField(key, parseInt(e.target.value) || 0)}
                       className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]" />
                   ) : (
                     <SecretField
-                      value={configValues[key] ?? ''}
+                      value={(configValues[key] as string | undefined) ?? ''}
                       onChange={v => updateField(key, v)}
                       isSecret={field.secret ?? false}
                     />
@@ -385,7 +382,7 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
             <div>
               <label className="block text-xs text-[var(--ph-text-muted)] mb-1">Configuration (JSON)</label>
               <textarea value={JSON.stringify(configValues, null, 2)}
-                onChange={e => { try { setConfigValues(JSON.parse(e.target.value)) } catch {} }}
+                onChange={e => { try { setConfigValues(JSON.parse(e.target.value) as Record<string, unknown>) } catch { /* ignore invalid JSON while typing */ } }}
                 rows={4}
                 className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)] font-mono" />
             </div>
@@ -395,6 +392,66 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
             className="text-xs px-3 py-1.5 rounded bg-[var(--ph-accent)] text-[var(--ph-accent-text)] hover:opacity-90 disabled:opacity-50">
             {saving ? 'Saving…' : 'Save Configuration'}
           </button>
+
+          {/* Telegram inbound task creation */}
+          {plugin.kind === 'telegram' && (
+            <div className="pt-3 border-t border-[var(--ph-border)] space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-[var(--ph-text)]">Inbound Task Creation</div>
+                  <div className="text-[11px] text-[var(--ph-text-faint)]">
+                    Send /task &lt;description&gt; (or plain text) to your bot to create a Phoenix task.
+                  </div>
+                </div>
+                <Toggle
+                  label=""
+                  checked={!!configValues.inbound_enabled}
+                  onChange={() => updateField('inbound_enabled', !configValues.inbound_enabled)}
+                />
+              </div>
+
+              {configValues.inbound_enabled && (
+                <div className="space-y-2 pl-1">
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--ph-text)] mb-1">
+                      Default Project <span className="text-red-400">*</span>
+                    </label>
+                    <select
+                      value={(configValues.default_project_id as string | undefined) ?? ''}
+                      onChange={e => updateField('default_project_id', e.target.value)}
+                      className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]"
+                    >
+                      <option value="">— select project —</option>
+                      {inboundProjects.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-[var(--ph-text)] mb-1">
+                      Default Agent <span className="text-red-400">*</span>
+                    </label>
+                    <select
+                      value={(configValues.default_agent_id as string | undefined) ?? ''}
+                      onChange={e => updateField('default_agent_id', e.target.value)}
+                      className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-sm rounded px-3 py-2 border border-[var(--ph-border)]"
+                    >
+                      <option value="">— select agent —</option>
+                      {inboundAgents.map(a => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <p className="text-[11px] text-[var(--ph-text-faint)]">
+                    The selected agent must be assigned to the selected project.
+                    Messages from any other chat ID are silently ignored.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notification Rules */}
           <div className="pt-2 border-t border-[var(--ph-border)]">
@@ -430,6 +487,13 @@ function NotifierCard({ plugin, dimmed, onRefresh }: {
       )}
     </div>
   )
+}
+
+// ---- Theme plugin config shape ----
+interface ThemeConfig {
+  kind?: string
+  vars?: Record<string, string>
+  preview?: string[]
 }
 
 // ---- Default CSS variable values for new themes ----
@@ -620,10 +684,10 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
   }
 
   const startEdit = (p: PluginRecord) => {
-    let cfg: any = {}
-    try { cfg = JSON.parse(p.config) } catch {}
+    let cfg: ThemeConfig = {}
+    try { cfg = JSON.parse(p.config) as ThemeConfig } catch { /* use defaults if config is not valid JSON */ }
     setName(p.name)
-    setKind(cfg.kind || 'dark')
+    setKind(cfg.kind === 'light' ? 'light' : 'dark')
     setVars(cfg.vars || { ...DEFAULT_THEME_VARS })
     setEditingId(p.id)
     setCreating(false)
@@ -659,7 +723,7 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
       cancelForm()
       onRefresh()
       await refreshThemeCSS()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   const updateTheme = async () => {
@@ -673,20 +737,24 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
       cancelForm()
       onRefresh()
       await refreshThemeCSS()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   const toggleEnabled = async (p: PluginRecord) => {
     try {
-      p.enabled ? await api.plugins.disable(p.id) : await api.plugins.enable(p.id)
+      if (p.enabled) {
+        await api.plugins.disable(p.id)
+      } else {
+        await api.plugins.enable(p.id)
+      }
       onRefresh()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   const deleteTheme = async (id: string) => {
     if (!confirm('Delete this theme?')) return
     try { await api.plugins.delete(id); onRefresh() }
-    catch (e: any) { alert(e.message) }
+    catch (e: unknown) { alert(getErrorMessage(e)) }
   }
 
   return (
@@ -713,8 +781,8 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
       )}
 
       {plugins.map(p => {
-        let cfg: any = {}
-        try { cfg = JSON.parse(p.config) } catch {}
+        let cfg: ThemeConfig = {}
+        try { cfg = JSON.parse(p.config) as ThemeConfig } catch { /* use defaults if config is not valid JSON */ }
 
         if (editingId === p.id) {
           return (

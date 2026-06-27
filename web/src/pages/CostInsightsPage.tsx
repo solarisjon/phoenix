@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { api, type CostInsights, type CostInsightsBreakdownRow, type CostInsightsRecommendation } from '@/lib/api'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatCost } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Helpers ----
 
@@ -21,12 +21,6 @@ function fmt$(n: number) {
   if (n === 0) return '$0.00'
   if (n < 0.01) return '<$0.01'
   return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtTokens(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
-  return String(n)
 }
 
 // ---- Sub-components ----
@@ -175,14 +169,19 @@ export default function CostInsightsPage() {
     try {
       const d = await api.stats.costInsights(from, to)
       setData(d)
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load cost insights')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to load cost insights'))
     } finally {
       setLoading(false)
     }
   }, [from, to])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [load])
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'agent', label: 'By Agent' },

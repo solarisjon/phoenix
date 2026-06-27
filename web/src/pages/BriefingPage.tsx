@@ -3,6 +3,7 @@ import { api, type Memo, type Task } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { timeAgo } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Filter tabs ----
 type Filter = 'all' | 'unread' | 'flagged'
@@ -50,7 +51,12 @@ function PromptContinue({ memo }: { memo: Memo }) {
   }, [loadLatest])
 
   // Load on mount.
-  useEffect(() => { loadLatest() }, [loadLatest])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadLatest()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadLatest])
 
   const send = async () => {
     if (!text.trim() || !memo.task_id) return
@@ -60,8 +66,8 @@ function PromptContinue({ memo }: { memo: Memo }) {
       await api.tasks.followUp(memo.task_id, text.trim(), memo.agent_id || undefined)
       setText('')
       await loadLatest()
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to send')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Failed to send'))
     } finally {
       setSending(false)
     }
@@ -289,8 +295,11 @@ export function BriefingPage() {
   }, [filter])
 
   useEffect(() => {
-    setLoading(true)
-    load()
+    const timer = window.setTimeout(() => {
+      setLoading(true)
+      void load()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [load])
 
   useEffect(() => {

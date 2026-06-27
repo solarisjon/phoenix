@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -188,7 +188,7 @@ func (s *Server) resyncProvider(w http.ResponseWriter, r *http.Request) {
 	// This is best-effort — a failure here is logged but doesn't block the resync.
 	envMsg := "environment refreshed"
 	if err := refreshEnvFromLoginShell(); err != nil {
-		log.Printf("resync: refresh env from login shell: %v", err)
+		slog.Warn("resync: refresh env from login shell", "error", err)
 		envMsg = "environment refresh skipped (" + err.Error() + ")"
 	}
 
@@ -337,7 +337,7 @@ func refreshEnvFromLoginShell() error {
 		os.Setenv(key, val) //nolint:errcheck // os.Setenv only fails on empty key
 		updated++
 	}
-	log.Printf("resync: refreshed %d environment variables from %s", updated, shellBase)
+	slog.Info("resync: refreshed environment variables", "count", updated, "shell", shellBase)
 	return nil
 }
 

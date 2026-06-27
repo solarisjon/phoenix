@@ -250,6 +250,7 @@ type PluginType string
 const (
 	PluginTypeNotifier PluginType = "notifier"
 	PluginTypeTheme    PluginType = "theme"
+	PluginTypeMemory   PluginType = "memory"
 )
 
 // NotifyEventType identifies events that can trigger notifications.

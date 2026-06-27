@@ -57,10 +57,16 @@ export default function QueuePage() {
   }, [])
 
   useEffect(() => {
-    load()
-    return phoenixWS.on((ev) => {
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
+    const unsub = phoenixWS.on((ev) => {
       if (ev.type === 'task.status_changed') load()
     })
+    return () => {
+      window.clearTimeout(timer)
+      unsub()
+    }
   }, [load])
 
   const cancel = async (taskId: string) => {
@@ -132,7 +138,7 @@ export default function QueuePage() {
 
             {/* Task rows */}
             <div className="divide-y divide-slate-800">
-              {agentTasks.map((task, idx) => {
+              {agentTasks.map((task) => {
                 const isRunning = task.status === 'running'
                 const queuePos = queuedTasks.indexOf(task)
 

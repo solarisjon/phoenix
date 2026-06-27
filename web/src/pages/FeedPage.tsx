@@ -18,11 +18,11 @@ let seq = 0
 function eventToEntry(ev: WSEvent): FeedEntry | null {
   const at = new Date()
   const id = ++seq
-  const p = ev.payload as Record<string, unknown>
 
   switch (ev.type) {
     case 'task.status_changed': {
-      const status = String(p.status ?? '')
+      const { payload } = ev
+      const status = payload.status
       const icons: Record<string, string> = {
         pending: '○',
         running: '◉',
@@ -32,19 +32,20 @@ function eventToEntry(ev: WSEvent): FeedEntry | null {
         waiting_for_human: '⏸',
       }
       const icon = icons[status] ?? '•'
-      const taskId = String(p.task_id ?? '').slice(0, 8)
-      const cost = typeof p.cost_usd === 'number' ? p.cost_usd : undefined
+      const taskId = payload.task_id.slice(0, 8)
+      const cost = payload.cost_usd
       return {
         id, at, icon, kind: 'task',
         title: `Task ${taskId} → ${status}`,
-        detail: p.project_id ? `project ${String(p.project_id).slice(0, 8)}` : '',
+        detail: payload.project_id ? `project ${payload.project_id.slice(0, 8)}` : '',
         cost,
       }
     }
 
     case 'task.output_stream': {
-      const taskId = String(p.task_id ?? '').slice(0, 8)
-      const chunk = String(p.chunk ?? '').slice(0, 80)
+      const { payload } = ev
+      const taskId = payload.task_id.slice(0, 8)
+      const chunk = payload.chunk.slice(0, 80)
       return {
         id, at, icon: '›', kind: 'task',
         title: `Task ${taskId} output`,
@@ -53,27 +54,48 @@ function eventToEntry(ev: WSEvent): FeedEntry | null {
     }
 
     case 'agent.status_changed': {
-      const status = String(p.status ?? '')
+      const { payload } = ev
+      const status = payload.status
       return {
         id, at, icon: status === 'busy' ? '◉' : '○', kind: 'agent',
         title: `Agent status → ${status}`,
-        detail: String(p.agent_id ?? '').slice(0, 8),
+        detail: payload.agent_id.slice(0, 8),
       }
     }
 
     case 'inbox.new_item': {
+      const { payload } = ev
       return {
         id, at, icon: '⊡', kind: 'inbox',
-        title: `Inbox: ${String(p.title ?? 'new item')}`,
-        detail: `agent ${String(p.agent_id ?? '').slice(0, 8)}`,
+        title: `Inbox: ${payload.title || 'new item'}`,
+        detail: `agent ${payload.agent_id.slice(0, 8)}`,
       }
     }
 
     case 'agent_draft.created': {
+      const { payload } = ev
       return {
         id, at, icon: '✦', kind: 'agent',
         title: 'Agent draft created',
-        detail: String(p.name ?? ''),
+        detail: payload.name,
+      }
+    }
+
+    case 'memo.created': {
+      const { payload } = ev
+      return {
+        id, at, icon: '📝', kind: 'system',
+        title: 'Memo created',
+        detail: payload.title,
+      }
+    }
+
+    case 'budget.exceeded': {
+      const { payload } = ev
+      return {
+        id, at, icon: '⚠', kind: 'system',
+        title: 'Project budget exceeded',
+        detail: `${payload.project_id.slice(0, 8)} · $${payload.spent_usd.toFixed(2)} / $${payload.budget_usd.toFixed(2)}`,
       }
     }
 
@@ -85,12 +107,13 @@ function eventToEntry(ev: WSEvent): FeedEntry | null {
       }
     }
 
-    default:
-      return {
-        id, at, icon: '•', kind: 'system',
-        title: String(ev.type),
-        detail: JSON.stringify(ev.payload ?? '').slice(0, 80),
-      }
+  }
+
+  const unknownEvent = ev as { type: string; payload?: unknown }
+  return {
+    id, at, icon: '•', kind: 'system',
+    title: String(unknownEvent.type),
+    detail: JSON.stringify(unknownEvent.payload ?? '').slice(0, 80),
   }
 }
 
@@ -115,7 +138,10 @@ export default function FeedPage() {
   const [hideStream, setHideStream] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
   const pausedRef = useRef(paused)
-  pausedRef.current = paused
+
+  useEffect(() => {
+    pausedRef.current = paused
+  }, [paused])
 
   useEffect(() => {
     return phoenixWS.on((ev) => {

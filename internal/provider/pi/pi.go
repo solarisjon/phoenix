@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -151,14 +151,14 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 
 		wg.Wait()
 		if err := cmd.Wait(); err != nil {
-			log.Printf("pi: process exited: %v", err)
+			slog.Debug("pi: process exited", "error", err)
 		}
 
 		if outputCount == 0 {
 			// No text output — surface stderr so the user can see the actual
 			// reason (auth error, rate limit, model error, etc.).
 			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
-				log.Printf("pi: stderr: %s", stderrMsg)
+				slog.Debug("pi: stderr", "msg", stderrMsg)
 				ch <- provider.StreamChunk{Error: fmt.Errorf("pi: no output — stderr: %s", stderrMsg)}
 				return
 			}
@@ -333,8 +333,7 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 				if ev.Message.Usage.Cost != nil {
 					cost = ev.Message.Usage.Cost.Total
 				}
-				log.Printf("pi: message end — input=%d output=%d cost=$%.6f",
-					ev.Message.Usage.Input, ev.Message.Usage.Output, cost)
+				slog.Debug("pi: message end", "input_tokens", ev.Message.Usage.Input, "output_tokens", ev.Message.Usage.Output, "cost_usd", cost)
 			}
 
 		case "agent_end":

@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { Button } from './button'
 import { Input, Label } from './input'
 import { Modal } from './modal'
+import { getErrorMessage } from '@/lib/errors'
 
 type Step = 'upload' | 'configure' | 'confirm' | 'done'
 
@@ -83,8 +84,8 @@ export function ImportTeamWizard({ onClose }: { onClose: () => void }) {
       const res = await api.teams.import(bundle, apiKeys)
       setResult(res)
       setStep('done')
-    } catch (e: any) {
-      setImportError(e.message)
+    } catch (error: unknown) {
+      setImportError(getErrorMessage(error, 'Import failed'))
     } finally {
       setImporting(false)
     }

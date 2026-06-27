@@ -35,7 +35,7 @@ function parseOutputText(output: string): string {
   }
 }
 
-function nextScheduledCountdown(tasks: Task[], project: Project): string | null {
+function nextScheduledCountdown(tasks: Task[], project: Project, now: number): string | null {
   if (!project.schedule_interval) return null
   const scheduledTasks = tasks
     .filter(t => t.title.startsWith('Scheduled run') && t.status === 'completed')
@@ -44,7 +44,7 @@ function nextScheduledCountdown(tasks: Task[], project: Project): string | null 
 
   const last = new Date(scheduledTasks[0].created_at).getTime()
   const nextFire = last + project.schedule_interval * 1000
-  const remaining = nextFire - Date.now()
+  const remaining = nextFire - now
   if (remaining <= 0) return 'firing soon'
   const m = Math.floor(remaining / 60000)
   const s = Math.floor((remaining % 60000) / 1000)
@@ -55,14 +55,13 @@ export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTask
   const agentNames = agents.map(a => a.name).join(', ')
 
   const [dismissingId, setDismissingId] = useState<string | null>(null)
-  const [countdown, setCountdown] = useState<string | null>(
-    nextScheduledCountdown(tasks, project)
-  )
+  const [now, setNow] = useState(() => Date.now())
+  const countdown = nextScheduledCountdown(tasks, project, now)
 
   // Refresh countdown every 10s and auto-refresh data every 30s
   useEffect(() => {
     const tick = setInterval(() => {
-      setCountdown(nextScheduledCountdown(tasks, project))
+      setNow(Date.now())
     }, 10_000)
     const dataRefresh = setInterval(onUpdate, 30_000)
     return () => { clearInterval(tick); clearInterval(dataRefresh) }
@@ -75,7 +74,7 @@ export function ProjectAutonomousView({ project, tasks, agents, onUpdate, onTask
   const stuck = tasks.filter(t => t.status === 'failed' && !t.dismissed).length
   const sessions24h = tasks.filter(t => {
     if (!isScheduled(t) || t.status !== 'completed') return false
-    const age = Date.now() - new Date(t.created_at).getTime()
+    const age = now - new Date(t.created_at).getTime()
     return age < 24 * 60 * 60 * 1000
   }).length
 

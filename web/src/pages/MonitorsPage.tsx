@@ -8,18 +8,21 @@ import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { AgentsSection } from '@/components/shared/AgentsSection'
 import { TagInput, TagPill } from '@/components/ui/tag-input'
-import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
-import type { FilterSortState } from '@/components/ui/filter-sort-bar'
+import { FilterSortBar } from '@/components/ui/filter-sort-bar'
+import { applyFilterSort, collectAllTags, type FilterSortState } from '@/components/ui/filter-sort-utils'
 import {
   ScheduleEditor,
+} from '@/components/monitor/ScheduleEditor'
+import {
   scheduleFromProject,
   schedulePayload,
   scheduleError,
   scheduleSummary,
   type ScheduleValue,
-} from '@/components/monitor/ScheduleEditor'
+} from '@/components/monitor/schedule'
 import { timeAgo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 // ---- Create / Edit Monitor form (name + description + working dir only) ----
 function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
@@ -337,7 +340,7 @@ export function MonitorsPage() {
     try {
       await api.projects.archive(id)
       load()
-    } catch (e: any) { alert(e.message) }
+    } catch (error: unknown) { alert(getErrorMessage(error)) }
   }
 
   const deleteMonitor = async (id: string, name: string) => {
@@ -345,7 +348,7 @@ export function MonitorsPage() {
     try {
       await api.projects.delete(id)
       load()
-    } catch (e: any) { alert(e.message) }
+    } catch (error: unknown) { alert(getErrorMessage(error)) }
   }
 
   return (

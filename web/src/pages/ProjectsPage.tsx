@@ -8,9 +8,10 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Label, Select } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { TagInput, TagPill } from '@/components/ui/tag-input'
-import { FilterSortBar, applyFilterSort, collectAllTags } from '@/components/ui/filter-sort-bar'
-import type { FilterSortState } from '@/components/ui/filter-sort-bar'
+import { FilterSortBar } from '@/components/ui/filter-sort-bar'
+import { applyFilterSort, collectAllTags, type FilterSortState } from '@/components/ui/filter-sort-utils'
 import { timeAgo } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/errors'
 
 type DirStatus = 'unknown' | 'exists' | 'missing' | 'not_dir' | 'creating' | 'error'
 
@@ -83,7 +84,7 @@ function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
       if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir, kind, tags })
       else await api.projects.create({ name, description, working_dir: workingDir, kind, tags })
       onSave()
-    } catch (e: any) { setError(e.message) }
+    } catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setSaving(false) }
   }
 
@@ -96,8 +97,8 @@ function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
       setDescription(result.description)
       setShowAI(false)
       setAiHint('')
-    } catch (e: any) {
-      setAiError(e.message)
+    } catch (error: unknown) {
+      setAiError(getErrorMessage(error))
     } finally {
       setAiGenerating(false)
     }
@@ -259,12 +260,12 @@ export function ProjectsPage() {
 
   const archive = async (id: string, name: string) => {
     if (!confirm(`Archive "${name}"? It will disappear from this list but all tasks and history are preserved. You can restore it from Settings → Archived.`)) return
-    try { await api.projects.archive(id); load() } catch (e: any) { alert(e.message) }
+    try { await api.projects.archive(id); load() } catch (error: unknown) { alert(getErrorMessage(error)) }
   }
 
   const remove = async (id: string, name: string) => {
     if (!confirm(`Permanently delete "${name}" and all its tasks? This cannot be undone.`)) return
-    try { await api.projects.delete(id); load() } catch (e: any) { alert(e.message) }
+    try { await api.projects.delete(id); load() } catch (error: unknown) { alert(getErrorMessage(error)) }
   }
 
   const allTags = collectAllTags(projects)

@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +18,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/frontend"
+	"github.com/solarisjon/phoenix/internal/logging"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/paths"
 	"github.com/solarisjon/phoenix/internal/plugin"
@@ -31,13 +32,15 @@ func main() {
 	noPlugins := flag.Bool("no-plugins", false, "disable all plugin dispatch for this session")
 	flag.Parse()
 
+	logging.Init()
+
 	// Resolve and create config/data directories.
 	if err := paths.Init(); err != nil {
-		log.Fatalf("failed to initialise paths: %v", err)
+		slog.Error("failed to initialise paths", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Config dir : %s", paths.ConfigDir())
-	log.Printf("Data dir   : %s", paths.DataDir())
+	slog.Info("startup", "config_dir", paths.ConfigDir(), "data_dir", paths.DataDir())
 
 	cfg := config.Load(paths.DataFile("phoenix.db"))
 
@@ -45,16 +48,19 @@ func main() {
 	dbPath := cfg.DBPath
 	db, err := sqlite.Open(dbPath)
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
-	log.Printf("Database   : %s", dbPath)
+	slog.Info("database opened", "path", dbPath)
 
 	if err := db.Seed(context.Background()); err != nil {
-		log.Fatalf("failed to seed database: %v", err)
+		slog.Error("failed to seed database", "error", err)
+		os.Exit(1)
 	}
 	if err := db.ResetOrphanedTasks(context.Background()); err != nil {
-		log.Fatalf("failed to reset orphaned tasks: %v", err)
+		slog.Error("failed to reset orphaned tasks", "error", err)
+		os.Exit(1)
 	}
 	db.StartupHealthCheck(context.Background())
 
@@ -77,23 +83,25 @@ func main() {
 		NoPlugins: *noPlugins,
 	})
 	if err := pluginManager.SeedCorePlugins(context.Background()); err != nil {
-		log.Fatalf("failed to seed core plugins: %v", err)
+		slog.Error("failed to seed core plugins", "error", err)
+		os.Exit(1)
 	}
 	if err := pluginManager.LoadAll(context.Background()); err != nil {
-		log.Fatalf("failed to load plugins: %v", err)
+		slog.Error("failed to load plugins", "error", err)
+		os.Exit(1)
 	}
 	if *noPlugins {
-		log.Println("Plugin dispatch disabled via --no-plugins flag")
+		slog.Info("plugin dispatch disabled via --no-plugins flag")
 	}
 	// Wire up pricing registry: load user overrides from DB, refresh from OpenRouter.
 	pricingReg := pricing.New()
 	if overridesJSON, err := systemSettingsRepo.GetRaw(context.Background(), "pricing_overrides"); err != nil {
-		log.Printf("pricing: failed to load overrides: %v", err)
+		slog.Warn("pricing: failed to load overrides", "error", err)
 	} else if err := pricingReg.LoadOverrides(overridesJSON); err != nil {
-		log.Printf("pricing: failed to parse overrides: %v", err)
+		slog.Warn("pricing: failed to parse overrides", "error", err)
 	}
 	if err := pricingReg.Refresh(context.Background()); err != nil {
-		log.Printf("pricing: initial OpenRouter refresh failed (using built-in table): %v", err)
+		slog.Warn("pricing: initial OpenRouter refresh failed (using built-in table)", "error", err)
 	}
 	pricingReg.StartRefreshLoop(context.Background(), 24*time.Hour)
 
@@ -117,6 +125,9 @@ func main() {
 		adminRepo,
 		cfg.HTTPTimeout,
 	)
+
+	// Wire memory client into runner (nil if plugin is disabled).
+	runner.SetMemoryClient(pluginManager.MemoryClient())
 
 	// Wire the hub as the runner's event handler so stream events
 	// are broadcast to all WebSocket clients.
@@ -155,7 +166,7 @@ func main() {
 			return "", fmt.Errorf("create task: %w", err)
 		}
 		if err := runner.RunTask(ctx, t.ID); err != nil {
-			log.Printf("telegram inbound: task %s created but failed to queue: %v", t.ID, err)
+			slog.Error("telegram inbound: task created but failed to queue", "task_id", t.ID, "error", err)
 		}
 		return t.ID, nil
 	})
@@ -191,7 +202,8 @@ func main() {
 	// so that React Router can handle client-side navigation (e.g. /monitors).
 	sub, err := frontend.FS()
 	if err != nil {
-		log.Fatalf("failed to load frontend fs: %v", err)
+		slog.Error("failed to load frontend fs", "error", err)
+		os.Exit(1)
 	}
 	fileServer := http.FileServer(http.FS(sub))
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -217,19 +229,20 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Phoenix listening on http://localhost%s", addr)
+		slog.Info("Phoenix listening", "addr", fmt.Sprintf("http://localhost%s", addr))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+			slog.Error("server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	<-sigCtx.Done()
-	log.Println("Shutting down...")
+	slog.Info("shutting down...")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("HTTP shutdown error: %v", err)
+		slog.Error("HTTP shutdown error", "error", err)
 	}
-	log.Println("Shutdown complete")
+	slog.Info("shutdown complete")
 }

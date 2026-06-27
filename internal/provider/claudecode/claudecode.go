@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strings"
 
@@ -142,7 +142,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		defer func() {
 			io.Copy(io.Discard, stderr) //nolint:errcheck
 			if err := cmd.Wait(); err != nil {
-				log.Printf("claudecode: process exited: %v", err)
+				slog.Debug("claudecode: process exited", "error", err)
 			}
 		}()
 		a.parseStream(ctx, stdout, ch)
@@ -318,14 +318,13 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 					tokIn = ev.Usage.InputTokens
 					tokOut = ev.Usage.OutputTokens
 				}
-				log.Printf("claudecode: completed — input=%d output=%d cost=$%.6f",
-					tokIn, tokOut, ev.TotalCostUSD)
+				slog.Debug("claudecode: completed", "input_tokens", tokIn, "output_tokens", tokOut, "cost_usd", ev.TotalCostUSD)
 			}
 
 		case "system":
 			// init event — log model info for debugging.
 			if ev.Subtype == "init" {
-				log.Printf("claudecode: session init (type=system/init)")
+				slog.Debug("claudecode: session init (type=system/init)")
 			}
 
 		default:

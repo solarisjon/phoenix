@@ -169,6 +169,28 @@ export interface NotificationRule {
   created_at: string
 }
 
+export interface PluginSchemaField {
+  type: string
+  title: string
+  description?: string
+  default?: unknown
+  enum?: string[]
+  secret?: boolean
+}
+
+export interface PluginConfigSchema {
+  type: string
+  properties: Record<string, PluginSchemaField>
+  required?: string[]
+}
+
+export interface PluginChat {
+  id: number
+  title: string
+  first_name: string
+  type: string
+}
+
 export interface ThemeResponse {
   id: string
   kind: string
@@ -341,6 +363,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ description, provider_id: providerId ?? '' }),
       }),
+    clearMemory: (id: string) => request<void>(`/agents/${id}/memory`, { method: 'DELETE' }),
   },
   teams: {
     list: () => request<Team[]>('/teams'),
@@ -470,9 +493,9 @@ export const api = {
     enable: (id: string) => request<PluginRecord>(`/plugins/${id}/enable`, { method: 'POST' }),
     disable: (id: string) => request<PluginRecord>(`/plugins/${id}/disable`, { method: 'POST' }),
     test: (id: string) => request<{ status: string; message: string }>(`/plugins/${id}/test`, { method: 'POST' }),
-    schema: (id: string) => request<any>(`/plugins/${id}/schema`),
+    schema: (id: string) => request<PluginConfigSchema>(`/plugins/${id}/schema`),
     discoverChats: (id: string, botToken?: string) =>
-      request<{id: number, title: string, first_name: string, type: string}[]>(
+      request<PluginChat[]>(
         `/plugins/${id}/chats${botToken ? `?bot_token=${encodeURIComponent(botToken)}` : ''}`
       ),
     rules: {

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -137,7 +137,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.openrouter = prices
-	log.Printf("pricing: refreshed %d model prices from OpenRouter", len(prices))
+	slog.Info("pricing: refreshed model prices from OpenRouter", "count", len(prices))
 	return nil
 }
 
@@ -153,7 +153,7 @@ func (r *Registry) StartRefreshLoop(ctx context.Context, interval time.Duration)
 				return
 			case <-ticker.C:
 				if err := r.Refresh(ctx); err != nil {
-					log.Printf("pricing: refresh error: %v", err)
+					slog.Error("pricing: refresh error", "error", err)
 				}
 			}
 		}

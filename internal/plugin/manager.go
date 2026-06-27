@@ -7,19 +7,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/plugin/memory"
+	"github.com/solarisjon/phoenix/internal/plugin/memory/hindsight"
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers"
 	"github.com/solarisjon/phoenix/internal/plugin/notifiers/telegram"
 	"github.com/solarisjon/phoenix/internal/store"
 
-	// Import notifier packages for their init() registration side-effects.
-	_ "github.com/solarisjon/phoenix/internal/plugin/notifiers/telegram"
+	// Import webhook notifier for its init() registration side-effect.
 	_ "github.com/solarisjon/phoenix/internal/plugin/notifiers/webhook"
 )
 
@@ -43,6 +44,9 @@ type Manager struct {
 	mu                      sync.RWMutex
 	corePluginsEnabled      bool
 	communityPluginsEnabled bool
+
+	// Cached memory client (nil = disabled or not configured).
+	memClient memory.MemoryClient
 
 	// Inbound polling state.
 	pollerParentCtx context.Context
@@ -76,22 +80,31 @@ func (m *Manager) NoPluginsFlag() bool {
 func (m *Manager) SeedCorePlugins(ctx context.Context) error {
 	corePlugins := []model.Plugin{
 		{
-			ID:     "core-telegram",
-			Name:   "Telegram",
-			Type:   model.PluginTypeNotifier,
-			Kind:   "telegram",
-			IsCore: true,
-			Enabled: false, // disabled until user configures
-			Config: `{}`,
+			ID:      "core-telegram",
+			Name:    "Telegram",
+			Type:    model.PluginTypeNotifier,
+			Kind:    "telegram",
+			IsCore:  true,
+			Enabled: false,
+			Config:  `{}`,
 		},
 		{
-			ID:     "core-webhook",
-			Name:   "Webhook",
-			Type:   model.PluginTypeNotifier,
-			Kind:   "webhook",
-			IsCore: true,
+			ID:      "core-webhook",
+			Name:    "Webhook",
+			Type:    model.PluginTypeNotifier,
+			Kind:    "webhook",
+			IsCore:  true,
 			Enabled: false,
-			Config: `{}`,
+			Config:  `{}`,
+		},
+		{
+			ID:      "core-hindsight",
+			Name:    "Hindsight Memory",
+			Type:    model.PluginTypeMemory,
+			Kind:    "hindsight",
+			IsCore:  true,
+			Enabled: false,
+			Config:  `{"base_url":"http://localhost:8888","api_key":""}`,
 		},
 	}
 
@@ -104,7 +117,7 @@ func (m *Manager) SeedCorePlugins(ctx context.Context) error {
 			if err := m.plugins.Create(ctx, &cp); err != nil {
 				return fmt.Errorf("create core plugin %s: %w", cp.ID, err)
 			}
-			log.Printf("plugin: seeded core plugin %q (%s)", cp.Name, cp.Kind)
+			slog.Info("plugin: seeded core plugin", "name", cp.Name, "kind", cp.Kind)
 		}
 	}
 	return nil
@@ -120,13 +133,56 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 	m.corePluginsEnabled = settings.CorePluginsEnabled
 	m.communityPluginsEnabled = settings.CommunityPluginsEnabled
 	m.mu.Unlock()
-	log.Printf("plugin: loaded master switches — core=%v, community=%v", settings.CorePluginsEnabled, settings.CommunityPluginsEnabled)
+	slog.Info("plugin: loaded master switches", "core_enabled", settings.CorePluginsEnabled, "community_enabled", settings.CommunityPluginsEnabled)
+	m.refreshMemoryClient(ctx)
 	return nil
 }
 
 // RefreshSettings reloads the master switch state. Called after settings are updated.
 func (m *Manager) RefreshSettings(ctx context.Context) error {
 	return m.LoadAll(ctx)
+}
+
+// MemoryClient returns the active Hindsight memory client, or nil if the
+// plugin is disabled, not configured, or the --no-plugins flag is set.
+// Callers must treat nil as "memory disabled" and skip all memory operations.
+func (m *Manager) MemoryClient() memory.MemoryClient {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.memClient
+}
+
+// refreshMemoryClient rebuilds the cached memory client from the DB.
+// Call after enable/disable/update of the hindsight plugin.
+func (m *Manager) refreshMemoryClient(ctx context.Context) {
+	if m.noPlugins {
+		m.mu.Lock()
+		m.memClient = nil
+		m.mu.Unlock()
+		return
+	}
+
+	p, err := m.plugins.Get(ctx, "core-hindsight")
+	if err != nil || p == nil || !m.isPluginActive(p) {
+		m.mu.Lock()
+		m.memClient = nil
+		m.mu.Unlock()
+		return
+	}
+
+	client, err := hindsight.New(p.Config)
+	if err != nil {
+		slog.Error("plugin: memory: build hindsight client", "error", err)
+		m.mu.Lock()
+		m.memClient = nil
+		m.mu.Unlock()
+		return
+	}
+
+	m.mu.Lock()
+	m.memClient = client
+	m.mu.Unlock()
+	slog.Info("plugin: memory: hindsight client loaded", "base_url", p.Config)
 }
 
 // isPluginActive checks all three enable/disable levels.
@@ -168,7 +224,7 @@ func (m *Manager) HandleEvent(eventType string, payload json.RawMessage) {
 		Title     string  `json:"title"`
 	}
 	if err := json.Unmarshal(payload, &sp); err != nil {
-		log.Printf("plugin: unmarshal status payload: %v", err)
+		slog.Error("plugin: unmarshal status payload", "error", err)
 		return
 	}
 
@@ -198,7 +254,7 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, taskTitle, a
 
 	rules, err := m.rules.ListByEventType(ctx, eventType)
 	if err != nil {
-		log.Printf("plugin: list rules for %s: %v", eventType, err)
+		slog.Error("plugin: list rules", "event_type", eventType, "error", err)
 		return
 	}
 
@@ -210,7 +266,7 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, taskTitle, a
 
 		plugin, err := m.plugins.Get(ctx, rule.PluginID)
 		if err != nil || plugin == nil {
-			log.Printf("plugin: get plugin %s: %v", rule.PluginID, err)
+			slog.Error("plugin: get plugin", "plugin_id", rule.PluginID, "error", err)
 			continue
 		}
 
@@ -220,7 +276,7 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, taskTitle, a
 
 		notifier := notifiers.Get(plugin.Kind)
 		if notifier == nil {
-			log.Printf("plugin: no notifier registered for kind %q", plugin.Kind)
+			slog.Warn("plugin: no notifier registered for kind", "kind", plugin.Kind)
 			continue
 		}
 
@@ -249,9 +305,9 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, taskTitle, a
 			sendCtx, sendCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer sendCancel()
 			if err := n.Send(sendCtx, json.RawMessage(p.Config), m); err != nil {
-				log.Printf("plugin: %s send failed: %v", p.Kind, err)
+				slog.Error("plugin: send failed", "kind", p.Kind, "error", err)
 			} else {
-				log.Printf("plugin: %s notification sent for %s", p.Kind, m.EventType)
+				slog.Info("plugin: notification sent", "kind", p.Kind, "event_type", m.EventType)
 			}
 		}(plugin, notifier, msg)
 	}
@@ -277,12 +333,12 @@ func defaultTemplate(eventType model.NotifyEventType) string {
 func renderTemplate(tmpl string, msg notifiers.NotifyMessage) string {
 	t, err := template.New("notify").Parse(tmpl)
 	if err != nil {
-		log.Printf("plugin: parse template: %v", err)
+		slog.Error("plugin: parse template", "error", err)
 		return fmt.Sprintf("%s: %s", msg.EventType, msg.TaskTitle)
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, msg); err != nil {
-		log.Printf("plugin: execute template: %v", err)
+		slog.Error("plugin: execute template", "error", err)
 		return fmt.Sprintf("%s: %s", msg.EventType, msg.TaskTitle)
 	}
 	return buf.String()
@@ -311,7 +367,7 @@ func (m *Manager) StartPollers(ctx context.Context) {
 
 	plugins, err := m.plugins.List(ctx)
 	if err != nil {
-		log.Printf("plugin: StartPollers: list plugins: %v", err)
+		slog.Error("plugin: StartPollers: list plugins", "error", err)
 		return
 	}
 	for _, p := range plugins {
@@ -367,14 +423,14 @@ func (m *Manager) startPoller(p *model.Plugin) {
 
 	var cfg telegram.Config
 	if err := json.Unmarshal([]byte(p.Config), &cfg); err != nil {
-		log.Printf("plugin: telegram startPoller %s: unmarshal config: %v", p.ID, err)
+		slog.Error("plugin: telegram startPoller: unmarshal config", "plugin_id", p.ID, "error", err)
 		return
 	}
 	if !cfg.InboundEnabled {
 		return
 	}
 	if cfg.DefaultProjectID == "" || cfg.DefaultAgentID == "" {
-		log.Printf("plugin: telegram inbound %s: default_project_id or default_agent_id not set — skipping", p.ID)
+		slog.Warn("plugin: telegram inbound: default_project_id or default_agent_id not set, skipping", "plugin_id", p.ID)
 		return
 	}
 
@@ -415,9 +471,9 @@ func (m *Manager) startPoller(p *model.Plugin) {
 	}
 
 	go func() {
-		log.Printf("plugin: telegram poller starting for plugin %s", pluginID)
+		slog.Info("plugin: telegram poller starting", "plugin_id", pluginID)
 		telegram.StartPoller(pollerCtx, cfg, handler)
-		log.Printf("plugin: telegram poller stopped for plugin %s", pluginID)
+		slog.Info("plugin: telegram poller stopped", "plugin_id", pluginID)
 	}()
 }
 
@@ -432,7 +488,16 @@ func escapeMarkdown(s string) string {
 	return replacer.Replace(s)
 }
 
-// TestPlugin sends a test notification through the given plugin.
+// NotifyPluginUpdated is called by API handlers after a plugin is enabled,
+// disabled, or updated. It refreshes any cached state derived from that plugin.
+func (m *Manager) NotifyPluginUpdated(ctx context.Context, pluginID string) {
+	if pluginID == "core-hindsight" {
+		m.refreshMemoryClient(ctx)
+	}
+}
+
+// TestPlugin sends a test notification through the given plugin,
+// or pings the memory backend for memory plugins.
 func (m *Manager) TestPlugin(ctx context.Context, pluginID string) error {
 	plugin, err := m.plugins.Get(ctx, pluginID)
 	if err != nil {
@@ -440,6 +505,18 @@ func (m *Manager) TestPlugin(ctx context.Context, pluginID string) error {
 	}
 	if plugin == nil {
 		return fmt.Errorf("plugin not found")
+	}
+
+	// Memory plugins: ping the backend.
+	if plugin.Type == model.PluginTypeMemory && plugin.Kind == "hindsight" {
+		client, err := hindsight.New(plugin.Config)
+		if err != nil {
+			return fmt.Errorf("hindsight config error: %w", err)
+		}
+		if err := client.Ping(ctx); err != nil {
+			return fmt.Errorf("hindsight unreachable: %w", err)
+		}
+		return nil
 	}
 
 	notifier := notifiers.Get(plugin.Kind)
