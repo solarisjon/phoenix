@@ -483,12 +483,14 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 	req.WorkingDir = workingDir
 
-	// Inject Obsidian vault routing context when vaults are configured.
-	if r.obsidianVaults != nil && !task.IsCriticReview {
-		if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
-			slog.Warn("runner: obsidian vault list failed", "task_id", task.ID, "error", err)
-		} else if len(vaults) > 0 {
-			req = InjectObsidianVaults(req, vaults)
+	// Inject Obsidian vault routing context when the plugin is enabled and vaults are configured.
+	if r.obsidianVaults != nil && r.settings != nil && !task.IsCriticReview {
+		if sysSettings, err := r.settings.Get(ctx); err == nil && sysSettings.ObsidianEnabled {
+			if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
+				slog.Warn("runner: obsidian vault list failed", "task_id", task.ID, "error", err)
+			} else if len(vaults) > 0 {
+				req = InjectObsidianVaults(req, vaults)
+			}
 		}
 	}
 

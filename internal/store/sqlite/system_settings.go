@@ -37,11 +37,19 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		kv[k] = v
 	}
 
+	// Migration: treat an existing obsidian_root as implicitly enabled if the
+	// obsidian_enabled key has never been written (empty = not yet set).
+	obsidianEnabled := kv["obsidian_enabled"] == "1"
+	if kv["obsidian_enabled"] == "" && kv["obsidian_root"] != "" {
+		obsidianEnabled = true
+	}
+
 	s := &model.SystemSettings{
 		GlobalGuardrailsEnabled: kv["global_guardrails_enabled"] == "1",
 		GlobalGuardrails:        kv["global_guardrails"],
 		CorePluginsEnabled:      kv["core_plugins_enabled"] == "1",
 		CommunityPluginsEnabled: kv["community_plugins_enabled"] == "1",
+		ObsidianEnabled:         obsidianEnabled,
 		ObsidianRoot:            kv["obsidian_root"],
 		ObsidianAutoWrite:       kv["obsidian_auto_write"] == "1",
 	}
@@ -99,6 +107,14 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 		communityEnabled = "1"
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "community_plugins_enabled", communityEnabled, now); err != nil {
+		return err
+	}
+
+	obsidianEnabled := "0"
+	if s.ObsidianEnabled {
+		obsidianEnabled = "1"
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "obsidian_enabled", obsidianEnabled, now); err != nil {
 		return err
 	}
 

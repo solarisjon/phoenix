@@ -246,6 +246,10 @@ func (s *Server) writeTaskToObsidian(w http.ResponseWriter, r *http.Request) {
 		respondInternalErr(w, err)
 		return
 	}
+	if !settings.ObsidianEnabled {
+		respondErr(w, http.StatusServiceUnavailable, "Obsidian integration is disabled — enable it in Settings → Obsidian")
+		return
+	}
 	if settings.ObsidianRoot == "" {
 		respondErr(w, http.StatusBadRequest, "Obsidian root directory not configured")
 		return

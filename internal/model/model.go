@@ -196,7 +196,8 @@ type SystemSettings struct {
 	GlobalGuardrails         string `json:"global_guardrails"`
 	CorePluginsEnabled       bool   `json:"core_plugins_enabled"`
 	CommunityPluginsEnabled  bool   `json:"community_plugins_enabled"`
-	ObsidianRoot             string `json:"obsidian_root"`      // filesystem path of vaults directory
+	ObsidianEnabled          bool   `json:"obsidian_enabled"`    // master on/off switch for the Obsidian plugin
+	ObsidianRoot             string `json:"obsidian_root"`       // filesystem path of vaults directory
 	ObsidianAutoWrite        bool   `json:"obsidian_auto_write"` // auto-write MD to vault after task completion
 }
 

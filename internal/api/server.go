@@ -240,14 +240,17 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/plugins/{id}/rules/{rid}", s.updatePluginRule)
 		r.Delete("/plugins/{id}/rules/{rid}", s.deletePluginRule)
 
-		// Obsidian vault integration
-		r.Get("/obsidian/vaults", s.listObsidianVaults)
-		r.Post("/obsidian/vaults", s.createObsidianVault)
-		r.Get("/obsidian/discover", s.discoverObsidianVaults)
-		r.Post("/obsidian/generate-context", s.generateObsidianVaultContext)
-		r.Get("/obsidian/vaults/{id}", s.getObsidianVault)
-		r.Put("/obsidian/vaults/{id}", s.updateObsidianVault)
-		r.Delete("/obsidian/vaults/{id}", s.deleteObsidianVault)
+		// Obsidian vault integration — all routes require the plugin to be enabled.
+		r.Route("/obsidian", func(r chi.Router) {
+			r.Use(s.requireObsidianEnabled)
+			r.Get("/vaults", s.listObsidianVaults)
+			r.Post("/vaults", s.createObsidianVault)
+			r.Get("/discover", s.discoverObsidianVaults)
+			r.Post("/generate-context", s.generateObsidianVaultContext)
+			r.Get("/vaults/{id}", s.getObsidianVault)
+			r.Put("/vaults/{id}", s.updateObsidianVault)
+			r.Delete("/vaults/{id}", s.deleteObsidianVault)
+		})
 
 		// Themes
 		r.Get("/themes", s.listThemes)
@@ -273,6 +276,23 @@ func (s *Server) buildRouter() http.Handler {
 	})
 
 	return r
+}
+
+// requireObsidianEnabled is middleware that rejects requests with 503 when the
+// Obsidian plugin is disabled in system settings.
+func (s *Server) requireObsidianEnabled(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		settings, err := s.systemSettings.Get(r.Context())
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if !settings.ObsidianEnabled {
+			respondErr(w, http.StatusServiceUnavailable, "Obsidian integration is disabled — enable it in Settings → Obsidian")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // corsMiddleware adds CORS headers for localhost origins (development) and

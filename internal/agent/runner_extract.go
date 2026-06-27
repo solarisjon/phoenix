@@ -273,10 +273,11 @@ func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, outpu
 			title = art.Path
 		}
 
-		// For obsidian artifacts, ensure the parent directory exists.
-		// The agent is expected to have already written the file content, but
-		// we also ensure the directory is present so future writes succeed.
+		// Skip obsidian-type artifacts when the plugin is disabled.
 		if art.ArtType == "obsidian" {
+			if sysSettings, err := r.settings.Get(r.bgCtx); err != nil || !sysSettings.ObsidianEnabled {
+				continue
+			}
 			if err := os.MkdirAll(strings.TrimSuffix(art.Path, "/"+strings.TrimPrefix(strings.TrimPrefix(art.Path, strings.TrimRight(art.Path, "/")), "/")), 0755); err != nil {
 				slog.Warn("runner: obsidian mkdirAll failed", "path", art.Path, "error", err)
 			}
@@ -326,7 +327,7 @@ func (r *Runner) maybeAutoWriteObsidian(task *model.Task, a *model.Agent, output
 		return
 	}
 	settings, err := r.settings.Get(r.bgCtx)
-	if err != nil || !settings.ObsidianAutoWrite || settings.ObsidianRoot == "" {
+	if err != nil || !settings.ObsidianEnabled || !settings.ObsidianAutoWrite || settings.ObsidianRoot == "" {
 		return
 	}
 	vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx)

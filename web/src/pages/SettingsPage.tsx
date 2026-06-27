@@ -70,7 +70,7 @@ function SystemInfoSection() {
 }
 
 function GlobalGuardrailsSection() {
-  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_root: '', obsidian_auto_write: false })
+  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -515,7 +515,7 @@ function ObsidianTab() {
   const [settings, setSettings] = useState<SystemSettings>({
     global_guardrails_enabled: false, global_guardrails: '',
     core_plugins_enabled: false, community_plugins_enabled: false,
-    obsidian_root: '', obsidian_auto_write: false,
+    obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false,
   })
   const [vaults, setVaults] = useState<ObsidianVault[]>([])
   const [discovered, setDiscovered] = useState<ObsidianDiscoveredVault[]>([])
@@ -617,13 +617,38 @@ function ObsidianTab() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-white mb-1">Obsidian Integration</h2>
-        <p className="text-slate-400 text-sm">
-          Connect Phoenix to your Obsidian vaults. Agents will write briefings and task outputs
-          into the appropriate vault based on content type.
-        </p>
+      {/* Master enable toggle */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Obsidian Integration</h2>
+          <p className="text-slate-400 text-sm mt-0.5">
+            Connect Phoenix to your Obsidian vaults. When enabled, agents can write briefings
+            and task outputs into the appropriate vault based on content type.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={settings.obsidian_enabled}
+          onClick={() => saveSettings({ obsidian_enabled: !settings.obsidian_enabled })}
+          className={`relative mt-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+            settings.obsidian_enabled ? 'bg-violet-600' : 'bg-slate-700'
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              settings.obsidian_enabled ? 'translate-x-5' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
       </div>
+
+      {!settings.obsidian_enabled && (
+        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-800/50 border border-slate-700/40 rounded-lg px-3 py-2">
+          <span>○</span>
+          <span>Obsidian integration is <strong>disabled</strong>. Toggle the switch above to enable vault routing and auto-write.</span>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-900/20 border border-red-700/50 rounded-lg px-4 py-3 text-sm text-red-400">
@@ -631,6 +656,7 @@ function ObsidianTab() {
         </div>
       )}
 
+      {settings.obsidian_enabled && <>
       {/* Root directory */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
         <h3 className="text-sm font-semibold text-slate-300">Vault Root Directory</h3>
@@ -726,6 +752,7 @@ function ObsidianTab() {
           <p className="text-slate-600 text-xs mt-1">Set a root directory above and click Discover Vaults to get started.</p>
         </div>
       )}
+      </>}
     </div>
   )
 }

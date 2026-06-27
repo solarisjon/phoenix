@@ -145,6 +145,7 @@ export interface SystemSettings {
   global_guardrails: string
   core_plugins_enabled: boolean
   community_plugins_enabled: boolean
+  obsidian_enabled: boolean
   obsidian_root: string
   obsidian_auto_write: boolean
 }
