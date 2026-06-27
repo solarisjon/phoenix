@@ -4,6 +4,9 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +26,7 @@ func init() {
 type Config struct {
 	URL            string `json:"url"`
 	AuthHeader     string `json:"auth_header"`
+	Secret         string `json:"secret"`          // HMAC-SHA256 signing secret
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 
@@ -90,6 +94,15 @@ func (n *Notifier) Send(ctx context.Context, cfg json.RawMessage, msg notifiers.
 		}
 	}
 
+	// Sign the payload with HMAC-SHA256 when a secret is configured.
+	// Recipients can verify using the X-Phoenix-Signature header: sha256=<hex>.
+	if c.Secret != "" {
+		secret := provider.ExpandEnv(c.Secret)
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(body)
+		req.Header.Set("X-Phoenix-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+	}
+
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -132,6 +145,12 @@ func (n *Notifier) ConfigSchema() notifiers.JSONSchema {
 				Type:        "string",
 				Title:       "Auth Header",
 				Description: "Optional HTTP header for authentication (e.g. 'Authorization: Bearer ${TOKEN}'). Supports ${ENV_VAR} syntax.",
+				Secret:      true,
+			},
+			"secret": {
+				Type:        "string",
+				Title:       "Signing Secret",
+				Description: "Optional shared secret for HMAC-SHA256 request signing. Phoenix sends X-Phoenix-Signature: sha256=<hex> so receivers can verify authenticity. Supports ${ENV_VAR} syntax.",
 				Secret:      true,
 			},
 			"timeout_seconds": {

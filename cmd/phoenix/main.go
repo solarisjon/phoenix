@@ -151,6 +151,25 @@ func main() {
 		})
 	})
 
+	// Wire /status handler so Telegram users can query active tasks.
+	pluginManager.SetStatusHandler(func(ctx context.Context) (string, error) {
+		active, err := taskRepo.ListByStatuses(ctx, []model.TaskStatus{
+			model.TaskStatusRunning, model.TaskStatusQueued, model.TaskStatusPending,
+		})
+		if err != nil {
+			return "", fmt.Errorf("query tasks: %w", err)
+		}
+		if len(active) == 0 {
+			return "✅ No tasks currently active.", nil
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("*%d active task(s):*\n", len(active)))
+		for _, t := range active {
+			sb.WriteString(fmt.Sprintf("• `%s` — %s\n", t.Status, t.Title))
+		}
+		return sb.String(), nil
+	})
+
 	// Wire inbound Telegram → task creation handler.
 	pluginManager.SetInboundHandler(func(ctx context.Context, projectID, agentID, title, source string) (string, error) {
 		assigned, err := projectRepo.IsAgentAssigned(ctx, projectID, agentID)

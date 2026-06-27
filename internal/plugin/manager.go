@@ -52,6 +52,7 @@ type Manager struct {
 	pollerParentCtx context.Context
 	pollers         map[string]context.CancelFunc // pluginID → cancel
 	inboundHandler  InboundTaskFunc
+	statusHandler   func(ctx context.Context) (string, error)
 }
 
 // NewManager creates a plugin manager. Call SeedCorePlugins and LoadAll after construction.
@@ -354,6 +355,14 @@ func (m *Manager) SetInboundHandler(fn InboundTaskFunc) {
 	m.mu.Unlock()
 }
 
+// SetStatusHandler registers the callback used to answer /status queries from Telegram.
+// Must be called before StartPollers.
+func (m *Manager) SetStatusHandler(fn func(ctx context.Context) (string, error)) {
+	m.mu.Lock()
+	m.statusHandler = fn
+	m.mu.Unlock()
+}
+
 // StartPollers launches long-polling goroutines for all enabled Telegram plugins
 // that have inbound_enabled=true. The provided ctx controls their lifetime;
 // cancel it (or call StopPollers) to shut everything down.
@@ -470,9 +479,13 @@ func (m *Manager) startPoller(p *model.Plugin) {
 		return fmt.Sprintf("✅ Task queued: *%s*", escapeMarkdown(title)), nil
 	}
 
+	m.mu.RLock()
+	statusFn := m.statusHandler
+	m.mu.RUnlock()
+
 	go func() {
 		slog.Info("plugin: telegram poller starting", "plugin_id", pluginID)
-		telegram.StartPoller(pollerCtx, cfg, handler)
+		telegram.StartPoller(pollerCtx, cfg, handler, statusFn)
 		slog.Info("plugin: telegram poller stopped", "plugin_id", pluginID)
 	}()
 }

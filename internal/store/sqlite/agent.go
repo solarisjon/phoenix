@@ -87,6 +87,21 @@ func (r *AgentRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *AgentRepo) Search(ctx context.Context, query string) ([]*model.Agent, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
+		       provider_id, model_override, can_spawn_agents, can_hire_agents,
+		       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
+		FROM agents
+		WHERE rowid IN (SELECT rowid FROM agents_fts WHERE agents_fts MATCH ?)
+		ORDER BY created_at DESC LIMIT 50`, query)
+	if err != nil {
+		return nil, fmt.Errorf("search agents: %w", err)
+	}
+	defer rows.Close()
+	return scanAgents(rows)
+}
+
 func scanAgent(row *sql.Row) (*model.Agent, error) {
 	var a model.Agent
 	var status string

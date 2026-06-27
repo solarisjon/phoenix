@@ -187,6 +187,19 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 	return scanAgents(rows)
 }
 
+func (r *ProjectRepo) Search(ctx context.Context, query string) ([]*model.Project, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+projectSelectCols+` FROM projects
+         WHERE rowid IN (SELECT rowid FROM projects_fts WHERE projects_fts MATCH ?)
+         AND status != 'archived'
+         ORDER BY created_at DESC LIMIT 50`, query)
+	if err != nil {
+		return nil, fmt.Errorf("search projects: %w", err)
+	}
+	defer rows.Close()
+	return scanProjects(rows)
+}
+
 // ---- scan helpers ----
 
 func scanProject(row *sql.Row) (*model.Project, error) {

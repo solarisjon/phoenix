@@ -15,6 +15,50 @@ import (
 	"github.com/solarisjon/phoenix/internal/model"
 )
 
+// search returns a unified search result across tasks, agents, and projects.
+func (s *Server) search(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		respond(w, http.StatusOK, map[string]interface{}{
+			"tasks":    []*model.Task{},
+			"agents":   []*model.Agent{},
+			"projects": []*model.Project{},
+		})
+		return
+	}
+	safe := fts5Quote(q)
+
+	tasks, err := s.tasks.Search(r.Context(), safe)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	agents, err := s.agents.Search(r.Context(), safe)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	projects, err := s.projects.Search(r.Context(), safe)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if tasks == nil {
+		tasks = []*model.Task{}
+	}
+	if agents == nil {
+		agents = []*model.Agent{}
+	}
+	if projects == nil {
+		projects = []*model.Project{}
+	}
+	respond(w, http.StatusOK, map[string]interface{}{
+		"tasks":    tasks,
+		"agents":   agents,
+		"projects": projects,
+	})
+}
+
 func (s *Server) searchTasks(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	if q == "" {

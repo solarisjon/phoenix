@@ -82,6 +82,9 @@ func (r *memAgentRepo) Delete(_ context.Context, id string) error {
 	delete(r.agents, id)
 	return nil
 }
+func (r *memAgentRepo) Search(_ context.Context, _ string) ([]*model.Agent, error) {
+	return nil, nil
+}
 
 type memTaskRepo struct {
 	tasks map[string]*model.Task
@@ -317,6 +320,9 @@ func (r *mockProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, err
 func (r *mockProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) { return true, nil }
 func (r *mockProjectRepo) RemoveAgent(_ context.Context, _, _ string) error  { return nil }
 func (r *mockProjectRepo) ListAgents(_ context.Context, _ string) ([]*model.Agent, error) {
+	return nil, nil
+}
+func (r *mockProjectRepo) Search(_ context.Context, _ string) ([]*model.Project, error) {
 	return nil, nil
 }
 

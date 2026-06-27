@@ -22,6 +22,7 @@ func (r *fakeAgentRepo) Get(_ context.Context, _ string) (*model.Agent, error)  
 func (r *fakeAgentRepo) Create(_ context.Context, _ *model.Agent) error              { return nil }
 func (r *fakeAgentRepo) Update(_ context.Context, _ *model.Agent) error              { return nil }
 func (r *fakeAgentRepo) Delete(_ context.Context, _ string) error                    { return nil }
+func (r *fakeAgentRepo) Search(_ context.Context, _ string) ([]*model.Agent, error)  { return nil, nil }
 
 type fakeProjectRepo struct {
 	mu       sync.Mutex
@@ -93,6 +94,9 @@ func (r *fakeProjectRepo) ListAgents(_ context.Context, projectID string) ([]*mo
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]*model.Agent(nil), r.agents[projectID]...), nil
+}
+func (r *fakeProjectRepo) Search(_ context.Context, _ string) ([]*model.Project, error) {
+	return nil, nil
 }
 
 type fakeTaskRepo struct {

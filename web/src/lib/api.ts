@@ -486,6 +486,9 @@ export const api = {
     cancel: (id: string) => request<void>(`/tasks/${id}/cancel`, { method: 'POST', body: '{}' }),
     forceReset: (id: string) => request<Task>(`/tasks/${id}/force-reset`, { method: 'POST', body: '{}' }),
   },
+  search: {
+    all: (q: string) => request<{ tasks: Task[]; agents: Agent[]; projects: Project[] }>(`/search?q=${encodeURIComponent(q)}`),
+  },
   inbox: {
     list: () => request<Task[]>('/inbox'),
     // All tasks needing attention: failed + awaiting_approval, across all projects

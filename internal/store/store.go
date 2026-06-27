@@ -33,6 +33,7 @@ type AgentRepo interface {
 	Create(ctx context.Context, a *model.Agent) error
 	Update(ctx context.Context, a *model.Agent) error
 	Delete(ctx context.Context, id string) error
+	Search(ctx context.Context, query string) ([]*model.Agent, error)
 }
 
 // ProjectRepo manages projects and project-agent assignments.
@@ -48,6 +49,7 @@ type ProjectRepo interface {
 	Delete(ctx context.Context, id string) error
 	// DeleteWithTasks hard-deletes a project and all its tasks.
 	DeleteWithTasks(ctx context.Context, id string) error
+	Search(ctx context.Context, query string) ([]*model.Project, error)
 
 	AssignAgent(ctx context.Context, projectID, agentID string) (bool, error)
 	IsAgentAssigned(ctx context.Context, projectID, agentID string) (bool, error)

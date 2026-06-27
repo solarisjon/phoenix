@@ -36,6 +36,10 @@ type Config struct {
 // The returned string (if non-empty) is sent back as a confirmation reply.
 type InboundHandler func(ctx context.Context, text string) (reply string, err error)
 
+// StatusHandler is called when a /status command arrives.
+// Returns a Markdown-formatted summary to send back to the chat.
+type StatusHandler func(ctx context.Context) (string, error)
+
 // Notifier sends messages to a Telegram chat via the Bot API.
 type Notifier struct{}
 
@@ -229,7 +233,8 @@ func (n *Notifier) TestMessage() notifiers.NotifyMessage {
 // (messages sent before the poller started) so they are not replayed as tasks.
 // For each new text message from the configured chat_id, handler is called and
 // the returned reply (if non-empty) is sent back to the chat.
-func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
+// statusFn, if non-nil, is called when the user sends /status.
+func StartPoller(ctx context.Context, cfg Config, handler InboundHandler, statusFn StatusHandler) {
 	token := strings.TrimSpace(provider.ExpandEnv(cfg.BotToken))
 	if token == "" || strings.HasPrefix(token, "${") {
 		slog.Warn("telegram poller: bot_token is empty or unresolved — not starting")
@@ -319,10 +324,25 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 			}
 
 			text = parseCommand(text)
-			if text == "" {
+			switch text {
+			case "":
 				// Unrecognised slash command — send a help hint.
 				sendMessage(ctx, client, token, upd.Message.Chat.ID,
-					"Send any text (or /task <description>) to create a Phoenix task.", "Markdown")
+					"Send any text (or /task <description>) to create a Phoenix task. Use /status to see active tasks.", "Markdown")
+				continue
+			case "\x00status":
+				if statusFn != nil {
+					msg, err := statusFn(ctx)
+					if err != nil {
+						sendMessage(ctx, client, token, upd.Message.Chat.ID,
+							fmt.Sprintf("❌ Status error: %s", err.Error()), "Markdown")
+					} else {
+						sendMessage(ctx, client, token, upd.Message.Chat.ID, msg, "Markdown")
+					}
+				} else {
+					sendMessage(ctx, client, token, upd.Message.Chat.ID,
+						"Status not available.", "Markdown")
+				}
 				continue
 			}
 
@@ -341,10 +361,12 @@ func StartPoller(ctx context.Context, cfg Config, handler InboundHandler) {
 }
 
 // parseCommand normalises the incoming message text.
-// Returns the task description, or "" if the message should be ignored
-// (e.g. an unrecognised slash command).
+// Returns the task description, "\x00status" for /status, or "" to ignore.
 func parseCommand(text string) string {
 	lower := strings.ToLower(text)
+	if lower == "/status" {
+		return "\x00status"
+	}
 	for _, prefix := range []string{"/task ", "/run "} {
 		if strings.HasPrefix(lower, prefix) {
 			return strings.TrimSpace(text[len(prefix):])

@@ -113,7 +113,7 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
 
 export function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
-  const [searchResults, setSearchResults] = useState<Task[] | null>(null)
+  const [searchResults, setSearchResults] = useState<{ tasks: Task[]; agents: Agent[]; projects: Project[] } | null>(null)
   const [agents, setAgents] = useState<Agent[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -148,12 +148,12 @@ export function TasksPage() {
     }
   }, [load])
 
-  // Debounced server-side search
+  // Debounced server-side unified search
   useEffect(() => {
     if (!search.trim()) return
     const timer = setTimeout(async () => {
       try {
-        const results = await api.tasks.search(search.trim())
+        const results = await api.search.all(search.trim())
         setSearchResults(results)
       } finally {
         setSearching(false)
@@ -162,11 +162,14 @@ export function TasksPage() {
     return () => clearTimeout(timer)
   }, [search])
 
-  const baseList = searchResults ?? tasks
+  const baseList = searchResults ? searchResults.tasks : tasks
   const filtered = baseList.filter(t => {
     if (filter !== 'all' && t.status !== filter) return false
     return true
   })
+  const agentHits = searchResults?.agents ?? []
+  const projectHits = searchResults?.projects ?? []
+  const totalHits = (searchResults?.tasks.length ?? 0) + agentHits.length + projectHits.length
 
   // Count per status for filter badges (always from full task list)
   const counts: Record<string, number> = {}
@@ -227,10 +230,44 @@ export function TasksPage() {
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">searching…</span>
           )}
           {searchResults && !searching && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{totalHits} result{totalHits !== 1 ? 's' : ''}</span>
           )}
         </div>
       </div>
+
+      {/* Agent and project hits from unified search */}
+      {searchResults && (agentHits.length > 0 || projectHits.length > 0) && (
+        <div className="space-y-3">
+          {agentHits.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-2">Agents</p>
+              <div className="space-y-1">
+                {agentHits.map(a => (
+                  <Link key={a.id} to={`/agents/${a.id}`} className="flex items-center gap-3 px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors">
+                    <span className="text-slate-400">⬡</span>
+                    <span className="text-white text-sm font-medium">{a.name}</span>
+                    <span className="text-slate-500 text-xs">{a.behaviour.slice(0, 80)}{a.behaviour.length > 80 ? '…' : ''}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          {projectHits.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-2">Projects & Monitors</p>
+              <div className="space-y-1">
+                {projectHits.map(p => (
+                  <Link key={p.id} to={p.kind === 'monitor' ? `/monitors/${p.id}` : `/projects/${p.id}`} className="flex items-center gap-3 px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors">
+                    <span className="text-slate-400">{p.kind === 'monitor' ? '⟳' : '◈'}</span>
+                    <span className="text-white text-sm font-medium">{p.name}</span>
+                    <span className="text-slate-500 text-xs">{p.description.slice(0, 80)}{p.description.length > 80 ? '…' : ''}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Task list */}
       {loading ? (

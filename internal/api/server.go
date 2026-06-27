@@ -186,6 +186,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/tasks", s.listTasks)
 		r.Post("/tasks", s.createTask)
 		r.Post("/tasks/quick", s.quickTask)
+		r.Get("/search", s.search)
 		r.Get("/tasks/search", s.searchTasks)
 		r.Post("/tasks/estimate", s.estimateTask)
 		r.Post("/tasks/generate-description", s.generateTaskDescription)
