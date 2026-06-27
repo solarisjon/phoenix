@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-06-22 (v0.4)  
+**Last updated:** 2026-06-26 (v0.5)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -59,9 +59,13 @@ internal/
       011_project_kind.sql             # projects.kind ('project' | 'monitor')
       033_plugins.sql                  # plugins + notification_rules tables, master switch settings
       034_project_objective.sql        # projects.objective TEXT DEFAULT ''
+      036_plugin_memory_type.sql         # rebuild plugins table to allow type='memory'
+      037_obsidian_vaults.sql            # obsidian_vaults table + obsidian_root/auto_write settings
+      038_memo_artifact_path.sql         # memos.artifact_path for .md inline viewing
     agent.go, task.go, project.go, team.go, agent_draft.go, stats.go, admin.go, sqlite.go
-    system_settings.go                 # SystemSettingsRepo: Get/Save global guardrails
+    system_settings.go                 # SystemSettingsRepo: Get/Save global guardrails + Obsidian settings
     plugin.go, notification_rule.go    # PluginRepo + NotificationRuleRepo
+    obsidian.go                        # ObsidianVaultRepo: CRUD for vault configurations
   api/
     server.go                          # router — ALL routes registered here
     agent.go                           # CRUD + generate + spawnTask (source field added)
@@ -69,12 +73,16 @@ internal/
     task.go                            # CRUD + retry + dismiss + followup + quick + listRunning + listAttention
     inbox.go                           # approve + reject + revise + dismissAll
     settings.go                        # GET/PUT /admin/settings + generate-guardrails
+    memo.go                            # CRUD + getMemoFileContent (serves .md artifacts inline)
+    obsidian.go                        # vault CRUD + POST /api/obsidian/write/:task_id manual write
     provider.go, project.go, team.go, stats.go, admin.go
     plugin.go                          # CRUD + enable/disable + chats (Telegram) + /api/themes
     hub.go / ws.go / events.go         # WebSocket
   agent/
-    runner.go                          # goroutine lifecycle, task execution, PID tracking, timeout
-    prompt.go                          # system prompt assembly; global guardrails injection; hiring instructions
+    runner.go                          # goroutine lifecycle, task execution, PID tracking, timeout, Obsidian auto-write
+    prompt.go                          # system prompt assembly; guardrails; hiring; InjectObsidianVaults()
+    artifacts.go                       # ParseArtifactBlocks: file|url|jira|confluence|html|obsidian types
+    runner_extract.go                  # extractAndSaveMemos, extractAndSaveArtifacts, maybeAutoWriteObsidian
   scheduler/
     scheduler.go                       # scans every 60s; interval monitors use per-monitor tickers; daily monitors evaluated centrally against wall clock (catch-up + dedup)
   provider/
@@ -102,7 +110,9 @@ web/src/
     ui/theme-picker.tsx                # theme switcher; fetches /api/themes, injects community theme CSS
   pages/
     DashboardPage.tsx, InboxPage.tsx, TasksPage.tsx
-    PluginsPage.tsx                    # plugin management: notifiers (Telegram/Webhook), custom themes
+    BriefingPage.tsx                   # memos list; MdFileViewer renders .md artifact_path inline
+    PluginsPage.tsx                    # plugin management: notifiers (Telegram/Webhook), custom themes, memory plugins
+    ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task view | task detail/compose
     ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task view | task detail/compose
                                        # replaces old ProjectsPage.tsx + ProjectDetailPage.tsx
                                        # includes: ProjectListItem, MiddlePane (status-grouped sections,
@@ -111,13 +121,13 @@ web/src/
     MonitorsPage.tsx                   # lists kind=monitor; flat dark cards with health-signal dots
     MonitorDetailPage.tsx              # run log, countdown, run-now; RunCard with left-border status color
     AgentsPage.tsx, ProvidersPage.tsx
-    SettingsPage.tsx                   # System tab: Global Guardrails section + DB backup
+    SettingsPage.tsx                   # System tab: Global Guardrails + DB backup; Obsidian tab: vault manager + auto-write toggle
     TeamsPage.tsx, TeamDetailPage.tsx
 ```
 
 ---
 
-## Data Model — Current State (migrations 001–024)
+## Data Model — Current State (migrations 001–038)
 
 ### agents
 ```sql
@@ -178,10 +188,10 @@ owner, status, created_at,
 tags TEXT NOT NULL DEFAULT '[]'      -- migration 023: JSON array of tag strings
 ```
 
-### plugins (migration 033)
+### plugins (migrations 033, 036)
 ```sql
-id, name, type TEXT,   -- 'notifier' | 'theme'
-kind TEXT,             -- 'telegram' | 'webhook' | 'custom' (themes)
+id, name, type TEXT,   -- 'notifier' | 'theme' | 'memory'
+kind TEXT,             -- 'telegram' | 'webhook' | 'custom' (themes) | 'hindsight' (memory)
 config TEXT,           -- JSON blob (provider-specific)
 enabled INTEGER DEFAULT 1,
 created_at
@@ -194,12 +204,21 @@ enabled INTEGER DEFAULT 1,
 created_at
 ```
 
-### memos (migration 022)
+### memos (migration 022, 038)
 ```sql
 id, project_id, project_name, task_id, agent_id, agent_name,
 title, body,
+artifact_path TEXT DEFAULT '',  -- migration 038: absolute path to a .md file artifact, if any
 priority TEXT DEFAULT 'normal' CHECK(priority IN ('normal','high')),
 status TEXT DEFAULT 'unread' CHECK(status IN ('unread','read','flagged','archived')),
+created_at
+```
+
+### obsidian_vaults (migration 037)
+```sql
+id, name, path, context TEXT DEFAULT '',
+enabled INTEGER DEFAULT 1,
+sort_order INTEGER DEFAULT 0,
 created_at
 ```
 
@@ -207,7 +226,8 @@ created_at
 ```sql
 key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME
 -- rows: global_guardrails_enabled ('0'/'1'), global_guardrails (text),
---       core_plugins_enabled ('0'/'1'), community_plugins_enabled ('0'/'1')
+--       core_plugins_enabled ('0'/'1'), community_plugins_enabled ('0'/'1'),
+--       obsidian_root (path string), obsidian_auto_write ('0'/'1')  -- migration 037
 ```
 
 ### teams + team_agents + project_agents (from migration 005)
@@ -271,8 +291,14 @@ POST               /api/import/team
 GET                /api/memos                    # ?status=unread|read|flagged|archived (default: all non-archived)
 POST               /api/memos                    # create memo manually
 GET                /api/memos/count              # {count} of unread+flagged (sidebar badge)
+GET                /api/memos/file-content       # ?path=<abs_path> — serve .md artifact inline (migration 038)
 PUT                /api/memos/:id/status         # {status: unread|read|flagged|archived}
 DELETE             /api/memos/:id
+
+GET/POST           /api/obsidian/vaults          # vault CRUD
+GET/PUT/DELETE     /api/obsidian/vaults/:id
+POST               /api/obsidian/vaults/discover # scan obsidian_root for vault directories
+POST               /api/obsidian/write/:taskId   # manually trigger AI note write for a completed task
 
 GET/POST           /api/plugins                  # plugin CRUD (v0.4)
 GET/PUT/DELETE     /api/plugins/:id
@@ -368,7 +394,7 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–034
+- Migrations applied: 001–038
 
 ---
 
@@ -406,6 +432,10 @@ Recently completed (2026-06-22 — v0.4):
 - ✓ Full project history — GET /api/projects/:id/history returns completed tasks regardless of dismissed state; dismiss only affects Inbox, not project
 - ✓ AI next-action suggestion — POST /api/projects/:id/suggest; inline suggestion card with one-click Run
 
+Recently completed (2026-06-26 — v0.5):
+- ✓ Obsidian vault integration — vault CRUD, auto-write post-task, vault routing in system prompts, Settings → Obsidian tab, TaskThreadCard "Save to Obsidian" button (#70)
+- ✓ Briefing: clickable link to view .md artifact files inline — MdFileViewer in BriefingPage, artifact_path on memos, GET /api/memos/file-content endpoint (#71)
+
 Open backlog — https://github.com/solarisjon/phoenix/issues:
 1. **#13** Mobile-friendly layout (sidebar collapses to bottom nav)
 2. **#19** Keyboard shortcuts (R=retry, D=dismiss, J/K navigate)
@@ -417,7 +447,7 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 
 ## Gotchas
 
-- **Route ordering in chi:** static routes BEFORE parameterised routes or chi matches wrong handler. `/inbox/dismiss-all` must be before `/inbox/:taskId`.
+- **Route ordering in chi:** static routes BEFORE parameterised routes or chi matches wrong handler. `/inbox/dismiss-all` must be before `/inbox/:taskId`. `/memos/count` and `/memos/file-content` must be before `/memos/:id`.
 - **Migration location:** `internal/store/sqlite/migrations/` ONLY (not repo root `migrations/`)
 - **Registry caching:** `registry.Get()` caches; `GetWithOverride()` bypasses; call `registry.Invalidate(id)` after provider update
 - **Server restart:** NOT hot-reloaded. Kill + rebuild + restart after any Go change
@@ -440,3 +470,7 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 - **File content route ordering:** `GET /api/projects/:id/files` must be registered BEFORE `GET /api/projects/:id/files/*` in chi to avoid wildcard eating the bare list call.
 - **Artifact MIME detection:** `project.go` `getProjectFileContent` infers `content_type` from extension. Unknown extensions → `text/plain`. Binary files (images, etc.) are not guarded — callers should check `content_type` before rendering.
 - **summaries endpoint:** `GET /api/projects/summaries` is a static route and MUST be registered before `GET /api/projects/:id` in chi. It aggregates task counts per project into a `map[string]ProjectSummary` used for health-signal dots.
+- **Obsidian auto-write:** `maybeAutoWriteObsidian()` fires in a goroutine after every non-critic task completion when `obsidian_auto_write=1` and at least one enabled vault exists. Uses the task's provider to generate the note. Errors logged but never surface to the user.
+- **Obsidian artifact type:** agents use `Type: obsidian` in ARTIFACT blocks (not `Type: file`) to declare a vault write. `ParsedArtifact.Vault` carries the vault name. `extractAndSaveArtifacts()` in `runner_extract.go` handles directory creation for obsidian type.
+- **artifact_path on memos:** only set for `Type: file` artifacts whose path ends in `.md`. Other file types and all non-file artifact types leave `artifact_path` empty. The `GET /api/memos/file-content` endpoint only serves absolute paths with `.md` extension — rejects all others with 400.
+- **plugins.type 'memory':** migration 036 rebuilds the plugins table to allow the 'memory' type (SQLite cannot ALTER CHECK constraints). Safe to run on existing DB — data is copied.
