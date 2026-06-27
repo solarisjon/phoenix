@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useNavigate } from 'react-router-dom'
 import { AgentsPage } from './AgentsPage'
@@ -243,6 +243,145 @@ function GlobalGuardrailsSection() {
   )
 }
 
+const CONFIRM_WORD = 'RESET'
+
+function DangerZoneSection() {
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'resetting' | 'done'>('idle')
+  const [typed, setTyped] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const openConfirm = () => {
+    setTyped('')
+    setError(null)
+    setPhase('confirm')
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  const cancel = () => {
+    setPhase('idle')
+    setTyped('')
+    setError(null)
+  }
+
+  const execute = async () => {
+    if (typed !== CONFIRM_WORD) return
+    setPhase('resetting')
+    setError(null)
+    try {
+      await api.admin.reset()
+      setPhase('done')
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, 'Reset failed'))
+      setPhase('confirm')
+    }
+  }
+
+  if (phase === 'done') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-red-400">Danger Zone</h2>
+        </div>
+        <div className="bg-emerald-950/30 border border-emerald-700/40 rounded-xl p-5 text-center space-y-2">
+          <p className="text-emerald-400 font-medium">Reset complete</p>
+          <p className="text-slate-400 text-sm">All configuration has been deleted. Reload the page to start fresh.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+          >
+            Reload now
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-red-400">Danger Zone</h2>
+        <p className="text-slate-400 text-sm mt-0.5">
+          Destructive, irreversible actions. There is no undo.
+        </p>
+      </div>
+
+      <div className="border border-red-900/50 rounded-xl overflow-hidden">
+        <div className="bg-red-950/20 px-5 py-4 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-red-300">Factory reset</p>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Permanently deletes <span className="text-white font-medium">all providers, agents, projects, tasks, teams, memos, and plugins</span>.
+              System settings are also cleared. Your user account is preserved.
+              This cannot be undone — take a database backup first if you want to be able to recover.
+            </p>
+          </div>
+          <button
+            onClick={openConfirm}
+            disabled={phase === 'resetting'}
+            className="shrink-0 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Reset…
+          </button>
+        </div>
+
+        {phase === 'confirm' && (
+          <div className="bg-slate-950 border-t border-red-900/40 px-5 py-4 space-y-3">
+            <div className="flex items-start gap-2 text-xs text-amber-300 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-2.5">
+              <span className="text-base leading-none mt-0.5">⚠</span>
+              <span>
+                <strong>This will permanently erase all data.</strong> There is no backup, no undo, and no recovery path.
+                Make sure you have downloaded a database backup before continuing.
+              </span>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1.5">
+                Type <span className="font-mono font-bold text-red-300">{CONFIRM_WORD}</span> to confirm:
+              </label>
+              <input
+                ref={inputRef}
+                type="text"
+                value={typed}
+                onChange={e => setTyped(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && typed === CONFIRM_WORD) execute() }}
+                placeholder={CONFIRM_WORD}
+                className="w-full bg-slate-900 border border-red-800/60 rounded-lg px-3 py-2 text-sm text-white font-mono placeholder-slate-700 focus:outline-none focus:ring-2 focus:ring-red-600"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </div>
+            {error && (
+              <p className="text-xs text-red-400">{error}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={cancel}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={execute}
+                disabled={typed !== CONFIRM_WORD}
+                className="bg-red-700 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2 rounded-lg transition-colors"
+              >
+                Erase everything
+              </button>
+            </div>
+          </div>
+        )}
+
+        {phase === 'resetting' && (
+          <div className="bg-slate-950 border-t border-red-900/40 px-5 py-4 flex items-center gap-3">
+            <span className="animate-spin inline-block w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full" />
+            <span className="text-sm text-slate-400">Erasing all data…</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function SystemTab() {
   const [downloading, setDownloading] = useState(false)
   const [lastBackup, setLastBackup] = useState<string | null>(null)
@@ -372,6 +511,11 @@ function SystemTab() {
           )}
         </div>
       </div>
+
+      <hr className="border-slate-800" />
+
+      {/* Danger zone */}
+      <DangerZoneSection />
     </div>
   )
 }

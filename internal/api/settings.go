@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -99,4 +100,26 @@ Output only the guardrail rules, one per line, starting each with a bullet (•)
 
 	output := strings.TrimSpace(resp.Output)
 	respond(w, http.StatusOK, map[string]string{"guardrails": output})
+}
+
+// resetAll permanently deletes all user-configured data (providers, agents,
+// projects, tasks, teams, memos, plugins, system settings) and returns the
+// instance to a clean factory state. Irreversible — no backup is taken here.
+func (s *Server) resetAll(w http.ResponseWriter, r *http.Request) {
+	// Require explicit confirmation header to prevent accidental calls.
+	if r.Header.Get("X-Confirm-Reset") != "RESET" {
+		respondErr(w, http.StatusBadRequest, "missing or incorrect confirmation header")
+		return
+	}
+
+	slog.Warn("admin: factory reset initiated", "remote_addr", r.RemoteAddr)
+
+	if err := s.admin.Reset(r.Context()); err != nil {
+		slog.Error("admin: factory reset failed", "err", err)
+		respondInternalErr(w, err)
+		return
+	}
+
+	slog.Warn("admin: factory reset complete — all user data deleted")
+	respond(w, http.StatusOK, map[string]string{"status": "reset"})
 }

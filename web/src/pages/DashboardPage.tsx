@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type Project, type Task, type CostsResponse, type Agent, type Team } from '@/lib/api'
+import { api, type Project, type Task, type CostsResponse, type Agent, type Team, type Provider } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
 import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -586,9 +586,89 @@ function CostSection({ costs }: { costs: CostsResponse }) {
   )
 }
 
+function GettingStartedCard({ providers, agents, projects }: {
+  providers: Provider[]
+  agents: Agent[]
+  projects: Project[]
+}) {
+  const hasProvider = providers.length > 0
+  const hasAgent = agents.length > 0
+  const hasProject = projects.filter(p => p.status === 'active').length > 0
+
+  if (hasProvider && hasAgent && hasProject) return null
+
+  const steps = [
+    {
+      done: hasProvider,
+      label: 'Add a provider',
+      description: 'Connect an LLM endpoint, Ollama, or coding agent',
+      href: '/settings?tab=providers',
+      enabled: true,
+    },
+    {
+      done: hasAgent,
+      label: 'Create an agent',
+      description: 'Define behaviour and assign a provider',
+      href: '/settings?tab=agents',
+      enabled: hasProvider,
+    },
+    {
+      done: hasProject,
+      label: 'Create a project',
+      description: 'Give your agent something to work on',
+      href: '/projects',
+      enabled: hasAgent,
+    },
+  ]
+
+  return (
+    <Card className="border-violet-900/50 bg-violet-950/10">
+      <CardBody>
+        <p className="text-xs font-medium text-violet-400 uppercase tracking-wide mb-3">Get started</p>
+        <div className="space-y-1">
+          {steps.map((step, i) => {
+            const row = (
+              <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                step.done
+                  ? 'opacity-50'
+                  : step.enabled
+                  ? 'hover:bg-slate-800/60 cursor-pointer'
+                  : 'opacity-30 cursor-not-allowed'
+              }`}>
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
+                  step.done
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : step.enabled
+                    ? 'bg-violet-500/20 text-violet-400'
+                    : 'bg-slate-700 text-slate-500'
+                }`}>
+                  {step.done ? '✓' : i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${step.done ? 'line-through text-slate-500' : 'text-white'}`}>
+                    {step.label}
+                  </p>
+                  <p className="text-xs text-slate-500">{step.description}</p>
+                </div>
+                {!step.done && step.enabled && (
+                  <span className="text-slate-500 text-xs">→</span>
+                )}
+              </div>
+            )
+            return step.enabled && !step.done
+              ? <Link key={i} to={step.href}>{row}</Link>
+              : <div key={i}>{row}</div>
+          })}
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
 export function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
   const [teams, setTeams] = useState<Team[]>([])
   const [recentTasks, setRecentTasks] = useState<Task[]>([])
   const [runningTasks, setRunningTasks] = useState<Task[]>([])
@@ -604,10 +684,11 @@ export function DashboardPage() {
 
   const load = useCallback(async () => {
     try {
-      const [projs, agts, tms] = await Promise.all([api.projects.list(), api.agents.list(), api.teams.list()])
+      const [projs, agts, tms, provs] = await Promise.all([api.projects.list(), api.agents.list(), api.teams.list(), api.providers.list()])
       setProjects(projs)
       setAgents(agts)
       setTeams(tms)
+      setProviders(provs)
 
       const [taskLists, running, attention, c] = await Promise.all([
         Promise.all(projs.map(p => api.tasks.list(p.id).catch(() => [] as Task[]))),
@@ -681,6 +762,9 @@ export function DashboardPage() {
           sub={costs && costs.total_tasks > 0 ? `across ${costs.total_tasks} tasks` : undefined}
         />
       </div>
+
+      {/* Getting started checklist — hidden once all steps are complete */}
+      {!loading && <GettingStartedCard providers={providers} agents={agents} projects={projects} />}
 
       {/* Running & queued tasks — always visible when active */}
       {runningTasks.length > 0 && (

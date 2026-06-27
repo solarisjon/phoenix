@@ -270,6 +270,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/admin/settings", s.getSystemSettings)
 		r.Put("/admin/settings", s.updateSystemSettings)
 		r.Post("/admin/settings/generate-guardrails", s.generateGlobalGuardrails)
+		r.Post("/admin/reset", s.resetAll)
 
 		// WebSocket
 		r.Get("/ws", s.handleWS)

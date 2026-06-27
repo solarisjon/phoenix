@@ -25,6 +25,48 @@ func (r *AdminRepo) VacuumInto(ctx context.Context, destPath string) error {
 	return nil
 }
 
+// Reset deletes all user-configured data — providers, agents, projects, tasks,
+// teams, memos, plugins, and system settings — in FK-safe order inside a
+// single transaction. The users table and schema migrations are preserved.
+// This is irreversible; callers should take a backup first.
+func (r *AdminRepo) Reset(ctx context.Context) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin reset transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Delete every user-data table explicitly in FK-safe order — leaf tables
+	// first, parents last. We do NOT rely on CASCADE because some FKs in this
+	// schema omit ON DELETE CASCADE (e.g. agent_drafts → tasks), and relying on
+	// it silently skips child rows when the cascade doesn't fire.
+	tables := []string{
+		"notification_rules",          // child of plugins
+		"agent_drafts",                // child of agents + tasks (no CASCADE)
+		"todo_items",                  // child of projects + agents
+		"broadcasts",                  // child of projects + agents
+		"broadcast_subscriptions",     // child of projects + agents
+		"tasks",                       // child of projects + agents
+		"project_agents",              // child of projects + agents
+		"team_agents",                 // child of teams + agents
+		"memos",
+		"plugins",
+		"obsidian_vaults",
+		"projects",
+		"teams",
+		"agents",
+		"providers",
+		"system_settings",
+	}
+	for _, t := range tables {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
+			return fmt.Errorf("reset: clear %s: %w", t, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 // StageRestore copies srcPath to {dbPath}.restore-pending. On the next server
 // start, Open() will atomically apply it before opening the database.
 func (r *AdminRepo) StageRestore(srcPath string) error {

@@ -566,6 +566,10 @@ export const api = {
         body: JSON.stringify({ description, provider_id: providerId ?? '' }),
       }),
     sysinfo: () => request<SysInfo>('/admin/sysinfo'),
+    reset: () => request<{ status: string }>('/admin/reset', {
+      method: 'POST',
+      headers: { 'X-Confirm-Reset': 'RESET' },
+    }),
   },
   obsidian: {
     listVaults: () => request<ObsidianVault[]>('/obsidian/vaults'),
