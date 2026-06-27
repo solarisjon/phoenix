@@ -53,19 +53,19 @@ function relativeTime(dateStr: string | null): string {
 
 function statusBadge(status: Task['status']) {
   const styles: Record<string, string> = {
-    completed: 'bg-green-50 border border-green-200 text-green-700',
-    running: 'bg-violet-50 border border-violet-200 text-violet-700',
-    queued: 'bg-indigo-50 border border-indigo-200 text-indigo-700',
-    failed: 'bg-red-50 border border-red-200 text-red-700',
-    awaiting_approval: 'bg-amber-50 border border-amber-200 text-amber-700',
-    pending: 'bg-stone-50 border border-stone-200 text-stone-600',
+    completed:         'ph-badge-success',
+    running:           'ph-badge-info',
+    queued:            'ph-badge-queued',
+    failed:            'ph-badge-danger',
+    awaiting_approval: 'ph-badge-warning',
+    pending:           'ph-badge-muted',
   }
   const labels: Record<string, string> = {
     completed: 'Done', running: 'Running', queued: 'Queued',
     failed: 'Failed', awaiting_approval: 'Awaiting Approval', pending: 'Pending',
   }
   return (
-    <span className={`text-xs rounded-md px-2 py-0.5 font-medium ${styles[status] ?? ''}`}>
+    <span className={`text-xs rounded-md px-2 py-0.5 font-medium ${styles[status] ?? 'ph-badge-muted'}`}>
       {labels[status] ?? status}
     </span>
   )
@@ -171,7 +171,7 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
           <div className="flex items-center gap-2 flex-wrap">
             <div className="font-semibold text-stone-900 text-sm leading-snug">{task.title}</div>
             {task.is_critic_review && (
-              <span className="text-xs rounded-md px-2 py-0.5 font-medium bg-amber-50 border border-amber-200 text-amber-700">
+              <span className="text-xs rounded-md px-2 py-0.5 font-medium ph-badge-warning">
                 🎯 Critic Review
               </span>
             )}
@@ -211,14 +211,14 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
               <MarkdownOutput content={stream} compact />
             </div>
           ) : task.description ? (
-            <div className="flex gap-2 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse mt-1 flex-shrink-0" />
-              <p className="text-xs text-violet-700 leading-relaxed">{task.description}</p>
+            <div className="flex gap-2 ph-panel-info rounded-lg px-3 py-2">
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse mt-1 flex-shrink-0" style={{backgroundColor: 'var(--ph-info)'}} />
+              <p className="text-xs leading-relaxed">{task.description}</p>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              <span className="text-xs text-violet-500">Waiting for first response…</span>
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{backgroundColor: 'var(--ph-info)'}} />
+              <span className="text-xs" style={{color: 'var(--ph-info)'}}>Waiting for first response…</span>
             </div>
           )}
         </div>
@@ -228,12 +228,12 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
       {isQueued && (
         <div className="mx-4 mb-3">
           {task.description ? (
-            <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
-              <p className="text-xs text-indigo-500 mb-1 font-medium">Queued — waiting for agent</p>
-              <p className="text-xs text-indigo-700 leading-relaxed">{task.description}</p>
+            <div className="ph-panel-queued rounded-lg px-3 py-2">
+              <p className="text-xs mb-1 font-medium opacity-75">Queued — waiting for agent</p>
+              <p className="text-xs leading-relaxed">{task.description}</p>
             </div>
           ) : (
-            <p className="text-xs text-stone-400 italic">Queued — waiting for agent…</p>
+            <p className="text-xs italic" style={{color: 'var(--ph-queued)'}}>Queued — waiting for agent…</p>
           )}
         </div>
       )}
@@ -265,7 +265,7 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
                 <p className="text-xs text-stone-600 italic mb-1">"{fu.description}"</p>
                 {/* Agent response */}
                 {fu.status === 'running' || fu.status === 'queued' ? (
-                  <div className="bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 text-xs text-violet-700">
+                  <div className={`${fu.status === 'running' ? 'ph-panel-info' : 'ph-panel-queued'} rounded-lg px-3 py-2 text-xs`}>
                     ● {fu.status === 'running' ? 'Running follow-up...' : 'Queued...'} — {fuAgent}
                   </div>
                 ) : fuText ? (
@@ -280,7 +280,7 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
                     </div>
                   </div>
                 ) : fu.status === 'failed' ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-600">
+                  <div className="ph-panel-danger rounded-lg px-3 py-2 text-xs">
                     Follow-up failed
                   </div>
                 ) : null}
@@ -292,22 +292,22 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
 
       {/* Critic review thread */}
       {criticReviews.length > 0 && (
-        <div className="mx-4 mb-3 border-l-2 border-amber-200 pl-3 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Critic Reviews</p>
+        <div className="mx-4 mb-3 border-l-2 pl-3 space-y-2" style={{borderColor: 'var(--ph-warning)'}}>
+          <p className="text-[11px] font-semibold uppercase tracking-wide" style={{color: 'var(--ph-warning)'}}>Critic Reviews</p>
           {criticReviews.map(review => {
             const reviewText = parseOutputText(review.output)
             const reviewAgent = agents.find(a => a.id === review.agent_id)?.name ?? 'Unknown'
             return (
-              <div key={review.id} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <div key={review.id} className="ph-panel-warning rounded-lg px-3 py-2">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="text-xs font-medium text-amber-800">🎯 {reviewAgent}</span>
+                  <span className="text-xs font-medium">🎯 {reviewAgent}</span>
                   {statusBadge(review.status)}
-                  <span className="text-xs text-amber-700/70">{relativeTime(review.completed_at ?? review.created_at)}</span>
+                  <span className="text-xs opacity-70">{relativeTime(review.completed_at ?? review.created_at)}</span>
                 </div>
                 {review.status === 'running' || review.status === 'queued' ? (
-                  <p className="text-xs text-amber-700">{review.status === 'running' ? 'Review in progress…' : 'Review queued…'}</p>
+                  <p className="text-xs">{review.status === 'running' ? 'Review in progress…' : 'Review queued…'}</p>
                 ) : reviewText ? (
-                  <div className="text-xs text-amber-900 leading-relaxed">
+                  <div className="text-xs leading-relaxed">
                     <MarkdownOutput content={reviewText} compact />
                   </div>
                 ) : null}

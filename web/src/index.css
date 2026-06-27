@@ -25,6 +25,16 @@
   --ph-accent-text:  #e2d9fc;
   --ph-border:       #44475a;
   --ph-border-mid:   #6272a4;
+  --ph-success:      #50fa7b;
+  --ph-success-bg:   rgba(80,250,123,0.15);
+  --ph-info:         #bd93f9;
+  --ph-info-bg:      rgba(189,147,249,0.18);
+  --ph-queued:       #8be9fd;
+  --ph-queued-bg:    rgba(139,233,253,0.15);
+  --ph-danger:       #ff5555;
+  --ph-danger-bg:    rgba(255,85,85,0.18);
+  --ph-warning:      #ffb86c;
+  --ph-warning-bg:   rgba(255,184,108,0.15);
 }
 
 [data-theme="monokai"] {
@@ -44,6 +54,16 @@
   --ph-accent-text:  #d4ccf8;
   --ph-border:       #5b5a5e;
   --ph-border-mid:   #727072;
+  --ph-success:      #a9dc76;
+  --ph-success-bg:   rgba(169,220,118,0.15);
+  --ph-info:         #ab9df2;
+  --ph-info-bg:      rgba(171,157,242,0.18);
+  --ph-queued:       #78dce8;
+  --ph-queued-bg:    rgba(120,220,232,0.15);
+  --ph-danger:       #ff6188;
+  --ph-danger-bg:    rgba(255,97,136,0.18);
+  --ph-warning:      #ffd866;
+  --ph-warning-bg:   rgba(255,216,102,0.15);
 }
 
 [data-theme="solarized"] {
@@ -63,6 +83,16 @@
   --ph-accent-text:  #8ec8f0;
   --ph-border:       #0d4555;
   --ph-border-mid:   #255566;
+  --ph-success:      #859900;
+  --ph-success-bg:   rgba(133,153,0,0.18);
+  --ph-info:         #268bd2;
+  --ph-info-bg:      rgba(38,139,210,0.18);
+  --ph-queued:       #2aa198;
+  --ph-queued-bg:    rgba(42,161,152,0.15);
+  --ph-danger:       #dc322f;
+  --ph-danger-bg:    rgba(220,50,47,0.18);
+  --ph-warning:      #b58900;
+  --ph-warning-bg:   rgba(181,137,0,0.15);
 }
 
 [data-theme="mirage"] {
@@ -82,6 +112,16 @@
   --ph-accent-text:  #a8dcf5;
   --ph-border:       #343f4c;
   --ph-border-mid:   #3d4c5e;
+  --ph-success:      #bae67e;
+  --ph-success-bg:   rgba(186,230,126,0.15);
+  --ph-info:         #d4bfff;
+  --ph-info-bg:      rgba(212,191,255,0.15);
+  --ph-queued:       #6dcbfa;
+  --ph-queued-bg:    rgba(109,203,250,0.15);
+  --ph-danger:       #ff3333;
+  --ph-danger-bg:    rgba(255,51,51,0.18);
+  --ph-warning:      #ffd580;
+  --ph-warning-bg:   rgba(255,213,128,0.15);
 }
 
 [data-theme="afterglow"] {
@@ -101,6 +141,16 @@
   --ph-accent-text:  #a8c8de;
   --ph-border:       #303030;
   --ph-border-mid:   #404040;
+  --ph-success:      #8faf77;
+  --ph-success-bg:   rgba(143,175,119,0.18);
+  --ph-info:         #aa759f;
+  --ph-info-bg:      rgba(170,117,159,0.18);
+  --ph-queued:       #75b5aa;
+  --ph-queued-bg:    rgba(117,181,170,0.18);
+  --ph-danger:       #ac4142;
+  --ph-danger-bg:    rgba(172,65,66,0.20);
+  --ph-warning:      #d28445;
+  --ph-warning-bg:   rgba(210,132,69,0.15);
 }
 
 [data-theme="tomorrow-night"] {
@@ -120,6 +170,16 @@
   --ph-accent-text:  #b5cfe0;
   --ph-border:       #363a41;
   --ph-border-mid:   #454a52;
+  --ph-success:      #b5bd68;
+  --ph-success-bg:   rgba(181,189,104,0.18);
+  --ph-info:         #b294bb;
+  --ph-info-bg:      rgba(178,148,187,0.18);
+  --ph-queued:       #8abeb7;
+  --ph-queued-bg:    rgba(138,190,183,0.18);
+  --ph-danger:       #cc6666;
+  --ph-danger-bg:    rgba(204,102,102,0.20);
+  --ph-warning:      #f0c674;
+  --ph-warning-bg:   rgba(240,198,116,0.15);
 }
 
 /* ---- Light themes (6) ---- */
@@ -141,6 +201,16 @@
   --ph-accent-text:  #1c6c9c;
   --ph-border:       #d4cebd;
   --ph-border-mid:   #c6c0ac;
+  --ph-success:      #657b00;
+  --ph-success-bg:   rgba(101,123,0,0.10);
+  --ph-info:         #1e72b8;
+  --ph-info-bg:      rgba(30,114,184,0.10);
+  --ph-queued:       #1a8f87;
+  --ph-queued-bg:    rgba(26,143,135,0.10);
+  --ph-danger:       #bc2222;
+  --ph-danger-bg:    rgba(188,34,34,0.10);
+  --ph-warning:      #8a6800;
+  --ph-warning-bg:   rgba(138,104,0,0.10);
 }
 
 [data-theme="ayu-light"] {
@@ -160,6 +230,16 @@
   --ph-accent-text:  #2c8ab8;
   --ph-border:       #e7e8ea;
   --ph-border-mid:   #d0d3d7;
+  --ph-success:      #5a7d00;
+  --ph-success-bg:   rgba(90,125,0,0.10);
+  --ph-info:         #7a46aa;
+  --ph-info-bg:      rgba(122,70,170,0.10);
+  --ph-queued:       #2a8fb0;
+  --ph-queued-bg:    rgba(42,143,176,0.10);
+  --ph-danger:       #c03333;
+  --ph-danger-bg:    rgba(192,51,51,0.10);
+  --ph-warning:      #c25a00;
+  --ph-warning-bg:   rgba(194,90,0,0.10);
 }
 
 [data-theme="atom-light"] {
@@ -179,6 +259,16 @@
   --ph-accent-text:  #1e48d9;
   --ph-border:       #e4e4e4;
   --ph-border-mid:   #d5d5d5;
+  --ph-success:      #3a7f3a;
+  --ph-success-bg:   rgba(58,127,58,0.10);
+  --ph-info:         #2f5af3;
+  --ph-info-bg:      rgba(47,90,243,0.10);
+  --ph-queued:       #006a99;
+  --ph-queued-bg:    rgba(0,106,153,0.10);
+  --ph-danger:       #b52222;
+  --ph-danger-bg:    rgba(181,34,34,0.10);
+  --ph-warning:      #954000;
+  --ph-warning-bg:   rgba(149,64,0,0.10);
 }
 
 [data-theme="tomorrow"] {
@@ -198,6 +288,16 @@
   --ph-accent-text:  #2d5b94;
   --ph-border:       #e0e0e0;
   --ph-border-mid:   #d0d0d0;
+  --ph-success:      #4d6800;
+  --ph-success-bg:   rgba(77,104,0,0.10);
+  --ph-info:         #2e5090;
+  --ph-info-bg:      rgba(46,80,144,0.10);
+  --ph-queued:       #1e7070;
+  --ph-queued-bg:    rgba(30,112,112,0.10);
+  --ph-danger:       #a02222;
+  --ph-danger-bg:    rgba(160,34,34,0.10);
+  --ph-warning:      #8a6200;
+  --ph-warning-bg:   rgba(138,98,0,0.10);
 }
 
 [data-theme="paper"] {
@@ -217,6 +317,16 @@
   --ph-accent-text:  #005f87;
   --ph-border:       #d0d0d0;
   --ph-border-mid:   #bcbcbc;
+  --ph-success:      #3a7a00;
+  --ph-success-bg:   rgba(58,122,0,0.10);
+  --ph-info:         #0065a0;
+  --ph-info-bg:      rgba(0,101,160,0.10);
+  --ph-queued:       #007878;
+  --ph-queued-bg:    rgba(0,120,120,0.10);
+  --ph-danger:       #8f0000;
+  --ph-danger-bg:    rgba(143,0,0,0.10);
+  --ph-warning:      #785800;
+  --ph-warning-bg:   rgba(120,88,0,0.10);
 }
 
 [data-theme="nord-light"] {
@@ -236,7 +346,32 @@
   --ph-accent-text:  #4c6fa0;
   --ph-border:       #d8dee9;
   --ph-border-mid:   #c8d0de;
+  --ph-success:      #588a5a;
+  --ph-success-bg:   rgba(88,138,90,0.10);
+  --ph-info:         #4c6f9e;
+  --ph-info-bg:      rgba(76,111,158,0.10);
+  --ph-queued:       #3d7880;
+  --ph-queued-bg:    rgba(61,120,128,0.10);
+  --ph-danger:       #8f3d44;
+  --ph-danger-bg:    rgba(143,61,68,0.10);
+  --ph-warning:      #7a5818;
+  --ph-warning-bg:   rgba(122,88,24,0.10);
 }
+
+/* ---- Status badge classes (theme-aware) ---- */
+.ph-badge-success { background-color: var(--ph-success-bg); color: var(--ph-success); border: 1px solid color-mix(in srgb, var(--ph-success) 35%, transparent); }
+.ph-badge-info    { background-color: var(--ph-info-bg);    color: var(--ph-info);    border: 1px solid color-mix(in srgb, var(--ph-info)    35%, transparent); }
+.ph-badge-queued  { background-color: var(--ph-queued-bg);  color: var(--ph-queued);  border: 1px solid color-mix(in srgb, var(--ph-queued)  35%, transparent); }
+.ph-badge-danger  { background-color: var(--ph-danger-bg);  color: var(--ph-danger);  border: 1px solid color-mix(in srgb, var(--ph-danger)  35%, transparent); }
+.ph-badge-warning { background-color: var(--ph-warning-bg); color: var(--ph-warning); border: 1px solid color-mix(in srgb, var(--ph-warning) 35%, transparent); }
+.ph-badge-default { background-color: var(--ph-input); color: var(--ph-text-muted); border: 1px solid var(--ph-border); }
+.ph-badge-muted   { background-color: var(--ph-input); color: var(--ph-text-faint); }
+
+/* ---- Status panel classes (theme-aware, for larger content panels) ---- */
+.ph-panel-info    { background-color: var(--ph-info-bg);    color: var(--ph-info);    border: 1px solid color-mix(in srgb, var(--ph-info)    25%, transparent); }
+.ph-panel-queued  { background-color: var(--ph-queued-bg);  color: var(--ph-queued);  border: 1px solid color-mix(in srgb, var(--ph-queued)  25%, transparent); }
+.ph-panel-danger  { background-color: var(--ph-danger-bg);  color: var(--ph-danger);  border: 1px solid color-mix(in srgb, var(--ph-danger)  25%, transparent); }
+.ph-panel-warning { background-color: var(--ph-warning-bg); color: var(--ph-warning); border: 1px solid color-mix(in srgb, var(--ph-warning) 25%, transparent); }
 
 /* ---- Apply theme tokens to the UI ---- */
 /* We layer these on top of the Tailwind hardcoded classes so existing      */

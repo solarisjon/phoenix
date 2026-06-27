@@ -1,14 +1,15 @@
 import { cn } from '@/lib/utils'
 
-type Variant = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'muted'
+type Variant = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'queued' | 'muted'
 
 const variants: Record<Variant, string> = {
-  default: 'bg-slate-700 text-slate-200',
-  success: 'bg-emerald-900/60 text-emerald-400 border border-emerald-800',
-  warning: 'bg-amber-900/60 text-amber-400 border border-amber-800',
-  danger: 'bg-red-900/60 text-red-400 border border-red-800',
-  info: 'bg-violet-900/60 text-violet-400 border border-violet-800',
-  muted: 'bg-slate-800 text-slate-500',
+  default: 'ph-badge-default',
+  success: 'ph-badge-success',
+  warning: 'ph-badge-warning',
+  danger:  'ph-badge-danger',
+  info:    'ph-badge-info',
+  queued:  'ph-badge-queued',
+  muted:   'ph-badge-muted',
 }
 
 export function Badge({ children, variant = 'default', className }: {

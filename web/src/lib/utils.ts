@@ -10,7 +10,7 @@ export function taskStatusVariant(status: Task['status']) {
   switch (status) {
     case 'completed': return 'success'
     case 'running': return 'info'
-    case 'queued': return 'info'
+    case 'queued': return 'queued'
     case 'failed': return 'danger'
     case 'awaiting_approval': return 'warning'
     default: return 'muted'
