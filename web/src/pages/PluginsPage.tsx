@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat } from '@/lib/api'
+import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat, ObsidianVault, ObsidianDiscoveredVault } from '@/lib/api'
 import { injectCommunityThemes, getTheme, setTheme } from '@/lib/theme'
 import { getErrorMessage } from '@/lib/errors'
 
 export function PluginsPage() {
-  const [tab, setTab] = useState<'notifiers' | 'themes' | 'memory'>('notifiers')
+  const [tab, setTab] = useState<'notifiers' | 'themes' | 'memory' | 'obsidian'>('notifiers')
   const [plugins, setPlugins] = useState<PluginRecord[]>([])
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -50,14 +50,14 @@ export function PluginsPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-[var(--ph-border)]">
-        {(['notifiers', 'themes', 'memory'] as const).map(t => (
+        {(['notifiers', 'themes', 'memory', 'obsidian'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t
                 ? 'border-[var(--ph-accent)] text-[var(--ph-accent)]'
                 : 'border-transparent text-[var(--ph-text-muted)] hover:text-[var(--ph-text)]'
             }`}>
-            {t === 'notifiers' ? 'Notifiers' : t === 'themes' ? 'Themes' : 'Memory'}
+            {t === 'notifiers' ? 'Notifiers' : t === 'themes' ? 'Themes' : t === 'memory' ? 'Memory' : 'Obsidian'}
           </button>
         ))}
       </div>
@@ -65,6 +65,7 @@ export function PluginsPage() {
       {tab === 'notifiers' && <NotifiersTab plugins={notifiers} coreEnabled={settings?.core_plugins_enabled ?? false} onRefresh={load} />}
       {tab === 'themes' && <ThemesTab plugins={themes} communityEnabled={settings?.community_plugins_enabled ?? false} onRefresh={load} />}
       {tab === 'memory' && <MemoryTab plugins={memoryPlugins} coreEnabled={settings?.core_plugins_enabled ?? false} onRefresh={load} />}
+      {tab === 'obsidian' && <ObsidianTab />}
     </div>
   )
 }
@@ -979,6 +980,279 @@ function ThemesTab({ plugins, communityEnabled, onRefresh }: {
       {plugins.length === 0 && !creating && (
         <div className="text-sm text-[var(--ph-text-muted)]">No custom themes yet. Create one above.</div>
       )}
+    </div>
+  )
+}
+
+// ---- Obsidian Tab ----
+
+function ObsidianTab() {
+  const [settings, setSettings] = useState<SystemSettings>({
+    global_guardrails_enabled: false, global_guardrails: '',
+    core_plugins_enabled: false, community_plugins_enabled: false,
+    obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false,
+  })
+  const [vaults, setVaults] = useState<ObsidianVault[]>([])
+  const [discovered, setDiscovered] = useState<ObsidianDiscoveredVault[]>([])
+  const [loading, setLoading] = useState(true)
+  const [discovering, setDiscovering] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [generatingFor, setGeneratingFor] = useState<string | null>(null)
+  const [addingVaultId, setAddingVaultId] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([api.admin.getSettings(), api.obsidian.listVaults().catch(() => [])])
+      .then(([s, v]) => { setSettings(s); setVaults(v) })
+      .catch(e => setError(getErrorMessage(e)))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const saveSettings = async (patch: Partial<SystemSettings>) => {
+    const updated = { ...settings, ...patch }
+    setSettings(updated)
+    setSaving(true)
+    try {
+      await api.admin.saveSettings(updated)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const discover = async () => {
+    setDiscovering(true)
+    setError(null)
+    try {
+      const result = await api.obsidian.discover(settings.obsidian_root || undefined)
+      setDiscovered(result)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const addVault = async (d: ObsidianDiscoveredVault) => {
+    setAddingVaultId(d.path)
+    try {
+      const v = await api.obsidian.createVault({ name: d.name, path: d.path, context: '', enabled: true })
+      setVaults(prev => [...prev, v])
+      setDiscovered(prev => prev.map(x => x.path === d.path ? { ...x, configured: true } : x))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setAddingVaultId(null)
+    }
+  }
+
+  const updateVaultContext = async (vault: ObsidianVault, context: string) => {
+    try {
+      const updated = await api.obsidian.updateVault(vault.id, { ...vault, context })
+      setVaults(prev => prev.map(v => v.id === vault.id ? updated : v))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  const toggleVault = async (vault: ObsidianVault) => {
+    try {
+      const updated = await api.obsidian.updateVault(vault.id, { ...vault, enabled: !vault.enabled })
+      setVaults(prev => prev.map(v => v.id === vault.id ? updated : v))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  const deleteVault = async (vault: ObsidianVault) => {
+    if (!confirm(`Remove vault "${vault.name}" from Phoenix? (No files will be deleted.)`)) return
+    try {
+      await api.obsidian.deleteVault(vault.id)
+      setVaults(prev => prev.filter(v => v.id !== vault.id))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  const generateContext = async (vault: ObsidianVault) => {
+    setGeneratingFor(vault.id)
+    try {
+      const { context } = await api.obsidian.generateContext(vault.name)
+      const updated = await api.obsidian.updateVault(vault.id, { ...vault, context })
+      setVaults(prev => prev.map(v => v.id === vault.id ? updated : v))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setGeneratingFor(null)
+    }
+  }
+
+  if (loading) return <div className="text-[var(--ph-text-muted)] text-sm">Loading…</div>
+
+  return (
+    <div className="space-y-6">
+      {/* Master enable toggle */}
+      <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4">
+        <Toggle
+          label="Enable Obsidian Integration"
+          description="When enabled, agents can route output into your Obsidian vaults and briefings are written automatically after task completion."
+          checked={settings.obsidian_enabled}
+          onChange={() => saveSettings({ obsidian_enabled: !settings.obsidian_enabled })}
+        />
+      </div>
+
+      {error && (
+        <div className="bg-red-900/20 border border-red-700/50 rounded-lg px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
+      {settings.obsidian_enabled && (
+        <>
+          {/* Root directory */}
+          <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--ph-text)]">Vault Root Directory</h3>
+              <p className="text-xs text-[var(--ph-text-muted)] mt-0.5">The folder that contains all your Obsidian vaults, e.g. /Users/jon/vaults</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={settings.obsidian_root}
+                onChange={e => setSettings(s => ({ ...s, obsidian_root: e.target.value }))}
+                onBlur={() => saveSettings({ obsidian_root: settings.obsidian_root })}
+                placeholder="/Users/you/vaults"
+                className="flex-1 bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
+              />
+              <button
+                onClick={discover}
+                disabled={discovering || !settings.obsidian_root}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--ph-accent)] hover:opacity-90 disabled:opacity-50 text-[var(--ph-accent-text)] transition-colors"
+              >
+                {discovering ? 'Scanning…' : 'Discover Vaults'}
+              </button>
+            </div>
+          </div>
+
+          {/* Auto-write toggle */}
+          <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4">
+            <Toggle
+              label="Auto-write after task completion"
+              description="Phoenix generates and saves an Obsidian note automatically after every completed task."
+              checked={settings.obsidian_auto_write}
+              onChange={() => saveSettings({ obsidian_auto_write: !settings.obsidian_auto_write })}
+            />
+          </div>
+
+          {/* Discovered vaults not yet configured */}
+          {discovered.filter(d => !d.configured).length > 0 && (
+            <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-[var(--ph-text)]">Discovered Vaults</h3>
+              <div className="space-y-2">
+                {discovered.filter(d => !d.configured).map(d => (
+                  <div key={d.path} className="flex items-center justify-between py-2 px-3 bg-[var(--ph-surface)] rounded-lg">
+                    <div>
+                      <p className="text-sm text-[var(--ph-text)] font-medium">{d.name}</p>
+                      <p className="text-xs text-[var(--ph-text-muted)] font-mono">{d.path}</p>
+                    </div>
+                    <button
+                      onClick={() => addVault(d)}
+                      disabled={addingVaultId === d.path}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--ph-accent-bg)] text-[var(--ph-accent)] border border-[var(--ph-accent-bg)] hover:opacity-80 disabled:opacity-50 transition-colors"
+                    >
+                      {addingVaultId === d.path ? 'Adding…' : '+ Add'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Configured vaults */}
+          {vaults.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-[var(--ph-text)]">Configured Vaults</h3>
+              {vaults.map(vault => (
+                <VaultCard
+                  key={vault.id}
+                  vault={vault}
+                  generatingContext={generatingFor === vault.id}
+                  onContextChange={ctx => updateVaultContext(vault, ctx)}
+                  onGenerateContext={() => generateContext(vault)}
+                  onToggle={() => toggleVault(vault)}
+                  onDelete={() => deleteVault(vault)}
+                />
+              ))}
+            </div>
+          )}
+
+          {vaults.length === 0 && discovered.length === 0 && (
+            <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-8 text-center">
+              <p className="text-[var(--ph-text-muted)] text-sm">No vaults configured yet.</p>
+              <p className="text-[var(--ph-text-faint)] text-xs mt-1">Set a root directory above and click Discover Vaults to get started.</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+interface VaultCardProps {
+  vault: ObsidianVault
+  generatingContext: boolean
+  onContextChange: (ctx: string) => void
+  onGenerateContext: () => void
+  onToggle: () => void
+  onDelete: () => void
+}
+
+function VaultCard({ vault, generatingContext, onContextChange, onGenerateContext, onToggle, onDelete }: VaultCardProps) {
+  const [localContext, setLocalContext] = useState(vault.context)
+  useEffect(() => { setLocalContext(vault.context) }, [vault.context])
+
+  return (
+    <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3 transition-opacity ${vault.enabled ? '' : 'opacity-60'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-[var(--ph-text)]">{vault.name}</p>
+          <p className="text-xs text-[var(--ph-text-muted)] font-mono truncate">{vault.path}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onToggle}
+            className={`text-xs px-2 py-1 rounded border transition-colors ${
+              vault.enabled
+                ? 'border-emerald-600/40 text-emerald-400 hover:bg-emerald-600/10'
+                : 'border-[var(--ph-border)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]'
+            }`}
+          >
+            {vault.enabled ? 'Enabled' : 'Disabled'}
+          </button>
+          <button onClick={onDelete} className="text-xs text-[var(--ph-text-faint)] hover:text-red-400 transition-colors px-1">✕</button>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-[var(--ph-text-muted)]">Context description</label>
+          <button
+            onClick={onGenerateContext}
+            disabled={generatingContext}
+            className="text-xs text-[var(--ph-accent)] hover:opacity-80 disabled:opacity-50 transition-colors"
+          >
+            {generatingContext ? 'Generating…' : '✨ Generate with AI'}
+          </button>
+        </div>
+        <textarea
+          rows={2}
+          value={localContext}
+          onChange={e => setLocalContext(e.target.value)}
+          onBlur={() => onContextChange(localContext)}
+          placeholder="Describe what this vault is for, e.g. On-call incidents, customer escalations, SEV tickets…"
+          className="w-full bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] resize-none focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
+        />
+      </div>
     </div>
   )
 }
