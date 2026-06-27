@@ -31,17 +31,18 @@ type MemoHandler func(memo *model.Memo)
 // Runner manages agent task execution. Each task runs in its own goroutine.
 // All active goroutines are tracked so they can be cancelled on shutdown.
 type Runner struct {
-	agents       store.AgentRepo
-	tasks        store.TaskRepo
-	projects     store.ProjectRepo
-	settings     store.SystemSettingsRepo
-	memos        store.MemoRepo
-	registry     *registry.Registry
-	onEvent      EventHandler
-	onMemo       MemoHandler
-	memoryClient memory.MemoryClient // nil = disabled
-	bgCtx        context.Context     // long-lived background context for task goroutines
-	bgCancel     context.CancelFunc  // cancelled on Shutdown
+	agents         store.AgentRepo
+	tasks          store.TaskRepo
+	projects       store.ProjectRepo
+	settings       store.SystemSettingsRepo
+	memos          store.MemoRepo
+	obsidianVaults store.ObsidianVaultRepo // nil = disabled
+	registry       *registry.Registry
+	onEvent        EventHandler
+	onMemo         MemoHandler
+	memoryClient   memory.MemoryClient // nil = disabled
+	bgCtx          context.Context     // long-lived background context for task goroutines
+	bgCancel       context.CancelFunc  // cancelled on Shutdown
 
 	taskTimeout  time.Duration
 	mu           sync.Mutex
@@ -93,6 +94,14 @@ func (r *Runner) SetEventHandler(h EventHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.onEvent = h
+}
+
+// SetObsidianVaultRepo wires in the Obsidian vault store so the runner can
+// inject vault context into prompts and write notes on task completion.
+func (r *Runner) SetObsidianVaultRepo(repo store.ObsidianVaultRepo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.obsidianVaults = repo
 }
 
 // SetMemoryClient sets the memory backend used for recall/retain.
@@ -474,6 +483,15 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 	req.WorkingDir = workingDir
 
+	// Inject Obsidian vault routing context when vaults are configured.
+	if r.obsidianVaults != nil && !task.IsCriticReview {
+		if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
+			slog.Warn("runner: obsidian vault list failed", "task_id", task.ID, "error", err)
+		} else if len(vaults) > 0 {
+			req = InjectObsidianVaults(req, vaults)
+		}
+	}
+
 	// Recall relevant memories for this task and inject them into the prompt.
 	// Errors are logged but never propagate — memory failure must not block execution.
 	r.mu.Lock()
@@ -757,6 +775,7 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	// Critic reviews are never themselves reviewed (avoids infinite loops).
 	if !task.IsCriticReview {
 		r.maybeLaunchCritic(task, agent)
+		r.maybeAutoWriteObsidian(task, agent, fullOutput)
 	}
 
 	r.emit(StreamEvent{

@@ -42,6 +42,8 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		GlobalGuardrails:        kv["global_guardrails"],
 		CorePluginsEnabled:      kv["core_plugins_enabled"] == "1",
 		CommunityPluginsEnabled: kv["community_plugins_enabled"] == "1",
+		ObsidianRoot:            kv["obsidian_root"],
+		ObsidianAutoWrite:       kv["obsidian_auto_write"] == "1",
 	}
 	return s, nil
 }
@@ -97,6 +99,18 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 		communityEnabled = "1"
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "community_plugins_enabled", communityEnabled, now); err != nil {
+		return err
+	}
+
+	if _, err := r.db.ExecContext(ctx, upsert, "obsidian_root", s.ObsidianRoot, now); err != nil {
+		return err
+	}
+
+	obsidianAutoWrite := "0"
+	if s.ObsidianAutoWrite {
+		obsidianAutoWrite = "1"
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "obsidian_auto_write", obsidianAutoWrite, now); err != nil {
 		return err
 	}
 

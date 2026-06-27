@@ -77,6 +77,7 @@ func main() {
 	memoRepo := sqlite.NewMemoRepo(db)
 	pluginRepo := sqlite.NewPluginRepo(db)
 	notificationRuleRepo := sqlite.NewNotificationRuleRepo(db)
+	obsidianVaultRepo := sqlite.NewObsidianVaultRepo(db)
 
 	// Wire up plugin manager.
 	pluginManager := plugin.NewManager(pluginRepo, notificationRuleRepo, systemSettingsRepo, plugin.ManagerOpts{
@@ -120,11 +121,14 @@ func main() {
 		taskRepo, statsRepo, userRepo, teamRepo,
 		agentDraftRepo, systemSettingsRepo,
 		memoRepo,
-		pluginRepo, notificationRuleRepo, pluginManager,
+		pluginRepo, notificationRuleRepo, obsidianVaultRepo, pluginManager,
 		runner, reg, pricingReg,
 		adminRepo,
 		cfg.HTTPTimeout,
 	)
+
+	// Wire Obsidian vault repo into runner for prompt injection and auto-write.
+	runner.SetObsidianVaultRepo(obsidianVaultRepo)
 
 	// Wire memory client into runner (nil if plugin is disabled).
 	runner.SetMemoryClient(pluginManager.MemoryClient())

@@ -5,9 +5,10 @@ import "strings"
 // ParsedArtifact holds a single parsed ARTIFACT_START…ARTIFACT_END block from
 // agent output. Fields are exported so both the runner and API packages can use them.
 type ParsedArtifact struct {
-	ArtType string // "file" | "url" | "jira" | "confluence" | "html"
+	ArtType string // "file" | "url" | "jira" | "confluence" | "html" | "obsidian"
 	Path    string // file path or URL
 	Title   string
+	Vault   string // only set when ArtType == "obsidian"
 }
 
 // ParseArtifactBlocks extracts all ARTIFACT_START … ARTIFACT_END sections from text.
@@ -15,9 +16,10 @@ type ParsedArtifact struct {
 // Expected format in agent output:
 //
 //	ARTIFACT_START
-//	Type: file          (or "url", "jira", "confluence", "html")
+//	Type: file          (or "url", "jira", "confluence", "html", "obsidian")
 //	Path: /abs/path     (use URL: for non-file types)
 //	Title: My Document
+//	Vault: VaultName    (only for obsidian type)
 //	ARTIFACT_END
 func ParseArtifactBlocks(output string) []ParsedArtifact {
 	var results []ParsedArtifact
@@ -45,6 +47,8 @@ func ParseArtifactBlocks(output string) []ParsedArtifact {
 				a.Path = strings.TrimSpace(strings.TrimPrefix(line, "URL:"))
 			case strings.HasPrefix(line, "Title:"):
 				a.Title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
+			case strings.HasPrefix(line, "Vault:"):
+				a.Vault = strings.TrimSpace(strings.TrimPrefix(line, "Vault:"))
 			}
 			i++
 		}

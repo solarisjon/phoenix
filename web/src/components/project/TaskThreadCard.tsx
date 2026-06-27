@@ -80,6 +80,8 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
   const [sending, setSending] = useState(false)
   const [pinned, setPinned] = useState(false)
   const [pinning, setPinning] = useState(false)
+  const [writingObsidian, setWritingObsidian] = useState(false)
+  const [obsidianResult, setObsidianResult] = useState<string | null>(null)
 
   useEffect(() => {
     if (task.status !== 'running') return
@@ -143,6 +145,21 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
       console.error('Pin failed:', e)
     } finally {
       setPinning(false)
+    }
+  }
+
+  async function writeToObsidian() {
+    if (writingObsidian) return
+    setWritingObsidian(true)
+    setObsidianResult(null)
+    try {
+      const result = await api.obsidian.writeTask(task.id)
+      setObsidianResult(result.filename)
+    } catch (e) {
+      console.error('Obsidian write failed:', e)
+      setObsidianResult('error')
+    } finally {
+      setWritingObsidian(false)
     }
   }
 
@@ -322,7 +339,21 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
             </button>
           </div>
           {task.status === 'completed' && (
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-3">
+              {obsidianResult && obsidianResult !== 'error' ? (
+                <span className="text-xs text-emerald-600">✓ Saved to Obsidian</span>
+              ) : obsidianResult === 'error' ? (
+                <span className="text-xs text-red-500">Obsidian write failed</span>
+              ) : (
+                <button
+                  onClick={writeToObsidian}
+                  disabled={writingObsidian}
+                  className="text-xs text-stone-400 hover:text-violet-600 disabled:opacity-40 transition-colors"
+                  title="Generate and save a note to Obsidian"
+                >
+                  {writingObsidian ? 'Writing…' : '🗒 Write to Obsidian'}
+                </button>
+              )}
               {pinned ? (
                 <button
                   onClick={() => navigate('/briefing')}

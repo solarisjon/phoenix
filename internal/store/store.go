@@ -229,6 +229,16 @@ type NotificationRuleRepo interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// ObsidianVaultRepo manages Obsidian vault configuration records.
+type ObsidianVaultRepo interface {
+	List(ctx context.Context) ([]*model.ObsidianVault, error)
+	ListEnabled(ctx context.Context) ([]*model.ObsidianVault, error)
+	Get(ctx context.Context, id string) (*model.ObsidianVault, error)
+	Create(ctx context.Context, v *model.ObsidianVault) error
+	Update(ctx context.Context, v *model.ObsidianVault) error
+	Delete(ctx context.Context, id string) error
+}
+
 // InsightRow holds aggregated cost data for a single agent, provider, or project.
 type InsightRow struct {
 	ID           string  `json:"id"`

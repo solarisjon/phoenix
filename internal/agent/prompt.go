@@ -316,6 +316,51 @@ func InjectFollowUpChainContext(req provider.TaskRequest, chain []*model.Task, s
 	return req
 }
 
+// InjectObsidianVaults appends an ## Obsidian Vaults section to the system prompt
+// when enabled vaults with context are available. Agents use this to route their
+// output into the correct vault via ARTIFACT blocks with Type: obsidian.
+func InjectObsidianVaults(req provider.TaskRequest, vaults []*model.ObsidianVault) provider.TaskRequest {
+	// Only inject if at least one vault has a context description.
+	var active []*model.ObsidianVault
+	for _, v := range vaults {
+		if v.Enabled && strings.TrimSpace(v.Context) != "" {
+			active = append(active, v)
+		}
+	}
+	if len(active) == 0 {
+		return req
+	}
+
+	var b strings.Builder
+	b.WriteString(req.SystemPrompt)
+	b.WriteString(`
+
+## Obsidian Vaults
+
+You have access to the following Obsidian vaults. When your task produces content that should be preserved as a permanent note, write it as a Markdown file into the appropriate vault.
+
+Vault routing guide:
+`)
+	for _, v := range active {
+		b.WriteString(fmt.Sprintf("- %s  — %s\n", v.Path, v.Context))
+	}
+	b.WriteString(`
+To write to a vault, use an ARTIFACT block with Type: obsidian:
+
+ARTIFACT_START
+Type: obsidian
+Path: <absolute path including filename, e.g. ` + active[0].Path + `/2026-06-26-example-note.md>
+Title: <short human-readable title>
+Vault: <vault name>
+ARTIFACT_END
+
+File naming convention: YYYY-MM-DD-kebab-case-title.md
+Front matter: always include date, tags, and source ("phoenix-task").
+Only write to Obsidian when the content is genuinely worth preserving as a permanent note — not for routine confirmations or status updates.`)
+	req.SystemPrompt = b.String()
+	return req
+}
+
 // InjectMemories appends a ## Persistent Memory section to the system prompt
 // when recalled memories are non-empty. The section is informational context
 // and is placed after all other prompt sections, including global guardrails.

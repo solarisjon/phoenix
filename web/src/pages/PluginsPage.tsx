@@ -5,7 +5,7 @@ import { injectCommunityThemes, getTheme, setTheme } from '@/lib/theme'
 import { getErrorMessage } from '@/lib/errors'
 
 export function PluginsPage() {
-  const [tab, setTab] = useState<'notifiers' | 'themes'>('notifiers')
+  const [tab, setTab] = useState<'notifiers' | 'themes' | 'memory'>('notifiers')
   const [plugins, setPlugins] = useState<PluginRecord[]>([])
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -31,6 +31,7 @@ export function PluginsPage() {
 
   const notifiers = plugins.filter(p => p.type === 'notifier')
   const themes = plugins.filter(p => p.type === 'theme')
+  const memoryPlugins = plugins.filter(p => p.type === 'memory')
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -49,20 +50,21 @@ export function PluginsPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-[var(--ph-border)]">
-        {(['notifiers', 'themes'] as const).map(t => (
+        {(['notifiers', 'themes', 'memory'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t
                 ? 'border-[var(--ph-accent)] text-[var(--ph-accent)]'
                 : 'border-transparent text-[var(--ph-text-muted)] hover:text-[var(--ph-text)]'
             }`}>
-            {t === 'notifiers' ? 'Notifiers' : 'Themes'}
+            {t === 'notifiers' ? 'Notifiers' : t === 'themes' ? 'Themes' : 'Memory'}
           </button>
         ))}
       </div>
 
       {tab === 'notifiers' && <NotifiersTab plugins={notifiers} coreEnabled={settings?.core_plugins_enabled ?? false} onRefresh={load} />}
       {tab === 'themes' && <ThemesTab plugins={themes} communityEnabled={settings?.community_plugins_enabled ?? false} onRefresh={load} />}
+      {tab === 'memory' && <MemoryTab plugins={memoryPlugins} coreEnabled={settings?.core_plugins_enabled ?? false} onRefresh={load} />}
     </div>
   )
 }
@@ -662,6 +664,158 @@ function ThemeColorForm({ name, setName, kind, setKind, vars, setVars, onSave, o
 }
 
 // ---- Themes Tab ----
+// ---- Memory Tab ----
+function MemoryTab({ plugins, coreEnabled, onRefresh }: {
+  plugins: PluginRecord[]; coreEnabled: boolean; onRefresh: () => void
+}) {
+  return (
+    <div className="space-y-4">
+      {!coreEnabled && (
+        <div className="text-sm text-[var(--ph-text-muted)] bg-[var(--ph-surface)] rounded-lg p-3">
+          Core plugins are disabled. Enable them above to configure memory backends.
+        </div>
+      )}
+      {plugins.map(p => (
+        <MemoryCard key={`${p.id}:${p.config}`} plugin={p} dimmed={!coreEnabled} onRefresh={onRefresh} />
+      ))}
+      {plugins.length === 0 && (
+        <div className="text-sm text-[var(--ph-text-muted)]">No memory plugins found.</div>
+      )}
+    </div>
+  )
+}
+
+function MemoryCard({ plugin, dimmed, onRefresh }: {
+  plugin: PluginRecord; dimmed: boolean; onRefresh: () => void
+}) {
+  const [configOpen, setConfigOpen] = useState(false)
+  const [configValues, setConfigValues] = useState<Record<string, unknown>>(() => {
+    try { return JSON.parse(plugin.config) as Record<string, unknown> } catch { return {} }
+  })
+  const [schema, setSchema] = useState<PluginConfigSchema | null>(null)
+  const [schemaLoading, setSchemaLoading] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const loadSchema = async () => {
+    if (schema) return
+    setSchemaLoading(true)
+    try {
+      const s = await api.plugins.schema(plugin.id)
+      setSchema(s)
+    } catch { /* no schema — fall back to raw JSON */ }
+    finally { setSchemaLoading(false) }
+  }
+
+  const openConfig = () => {
+    if (!configOpen) void loadSchema()
+    setConfigOpen(!configOpen)
+  }
+
+  const toggleEnabled = async () => {
+    try {
+      if (plugin.enabled) {
+        await api.plugins.disable(plugin.id)
+      } else {
+        await api.plugins.enable(plugin.id)
+      }
+      onRefresh()
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
+  }
+
+  const saveConfig = async () => {
+    setSaving(true)
+    try {
+      await api.plugins.update(plugin.id, { ...plugin, config: JSON.stringify(configValues) })
+      setConfigOpen(false)
+      onRefresh()
+    } catch (e: unknown) { alert(getErrorMessage(e)) }
+    finally { setSaving(false) }
+  }
+
+  const testPlugin = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const r = await api.plugins.test(plugin.id)
+      setTestResult(r.status === 'ok' ? 'Connected successfully' : (r.message ?? 'Test failed'))
+    } catch (e: unknown) { setTestResult(getErrorMessage(e)) }
+    finally { setTesting(false) }
+  }
+
+  return (
+    <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3 ${dimmed ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-medium text-[var(--ph-text)]">{plugin.name}</div>
+          <div className="text-xs text-[var(--ph-text-muted)]">{plugin.kind}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={toggleEnabled}
+            className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
+              plugin.enabled
+                ? 'bg-[var(--ph-accent)] text-white'
+                : 'bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]'
+            }`}>
+            {plugin.enabled ? 'Enabled' : 'Disabled'}
+          </button>
+          <button onClick={openConfig}
+            className="text-xs px-3 py-1 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)] transition-colors">
+            Configure
+          </button>
+        </div>
+      </div>
+
+      {configOpen && (
+        <div className="border-t border-[var(--ph-border)] pt-3 space-y-3">
+          {schemaLoading && <div className="text-xs text-[var(--ph-text-muted)]">Loading schema…</div>}
+          {schema ? (
+            Object.entries(schema.properties ?? {}).map(([key, f]) => (
+              <div key={key} className="space-y-1">
+                <label className="text-xs font-medium text-[var(--ph-text)]">
+                  {f.title ?? key}{(schema.required ?? []).includes(key) && <span className="text-red-400 ml-1">*</span>}
+                </label>
+                {f.description && <div className="text-xs text-[var(--ph-text-muted)]">{f.description}</div>}
+                <SecretField
+                  value={String(configValues[key] ?? '')}
+                  onChange={v => setConfigValues(prev => ({ ...prev, [key]: v }))}
+                  isSecret={f.secret ?? false}
+                />
+              </div>
+            ))
+          ) : (
+            !schemaLoading && (
+              <textarea
+                className="w-full bg-[var(--ph-input)] text-[var(--ph-text)] text-xs rounded px-3 py-2 border border-[var(--ph-border)] font-mono h-24"
+                value={JSON.stringify(configValues, null, 2)}
+                onChange={e => {
+                  try { setConfigValues(JSON.parse(e.target.value) as Record<string, unknown>) } catch { /* ignore parse errors */ }
+                }}
+              />
+            )
+          )}
+          <div className="flex items-center gap-2">
+            <button onClick={saveConfig} disabled={saving}
+              className="text-xs px-3 py-1 rounded bg-[var(--ph-accent)] text-white hover:opacity-90 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={testPlugin} disabled={testing}
+              className="text-xs px-3 py-1 rounded bg-[var(--ph-surface)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)] disabled:opacity-50">
+              {testing ? 'Testing…' : 'Test connection'}
+            </button>
+            {testResult && (
+              <span className={`text-xs ${testResult.includes('success') || testResult.includes('Connected') ? 'text-green-400' : 'text-red-400'}`}>
+                {testResult}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ThemesTab({ plugins, communityEnabled, onRefresh }: {
   plugins: PluginRecord[]; communityEnabled: boolean; onRefresh: () => void
 }) {
