@@ -9,6 +9,8 @@ build: build-web build-go
 
 ## build-web: compile the React frontend
 build-web:
+	@echo "→ Installing frontend dependencies..."
+	cd $(WEB_DIR) && npm install
 	@echo "→ Building frontend..."
 	cd $(WEB_DIR) && npm run build
 	@echo "→ Copying dist to embed path..."
