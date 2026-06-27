@@ -148,6 +148,7 @@ export interface SystemSettings {
   obsidian_enabled: boolean
   obsidian_root: string
   obsidian_auto_write: boolean
+  theme: string
 }
 
 export interface ObsidianVault {

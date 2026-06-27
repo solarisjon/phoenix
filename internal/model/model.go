@@ -199,6 +199,7 @@ type SystemSettings struct {
 	ObsidianEnabled          bool   `json:"obsidian_enabled"`    // master on/off switch for the Obsidian plugin
 	ObsidianRoot             string `json:"obsidian_root"`       // filesystem path of vaults directory
 	ObsidianAutoWrite        bool   `json:"obsidian_auto_write"` // auto-write MD to vault after task completion
+	Theme                    string `json:"theme"`               // active UI theme id, e.g. "dracula"
 }
 
 // ObsidianVault represents a single Obsidian vault directory with user-provided context

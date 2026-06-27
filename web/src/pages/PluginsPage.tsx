@@ -990,7 +990,7 @@ function ObsidianTab() {
   const [settings, setSettings] = useState<SystemSettings>({
     global_guardrails_enabled: false, global_guardrails: '',
     core_plugins_enabled: false, community_plugins_enabled: false,
-    obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false,
+    obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '',
   })
   const [vaults, setVaults] = useState<ObsidianVault[]>([])
   const [discovered, setDiscovered] = useState<ObsidianDiscoveredVault[]>([])

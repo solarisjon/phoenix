@@ -79,6 +79,10 @@ export function ThemePicker() {
     setTheme(id)
     setCurrent(id)
     setOpen(false)
+    // Persist to server so the preference survives cache clears and syncs across browsers
+    api.admin.getSettings()
+      .then(s => api.admin.saveSettings({ ...s, theme: id }))
+      .catch(() => { /* non-critical — localStorage copy is the source of truth */ })
   }
 
   const currentTheme = allThemes.find(t => t.id === current) || allThemes[0]

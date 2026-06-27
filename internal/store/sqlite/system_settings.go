@@ -52,6 +52,7 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		ObsidianEnabled:         obsidianEnabled,
 		ObsidianRoot:            kv["obsidian_root"],
 		ObsidianAutoWrite:       kv["obsidian_auto_write"] == "1",
+		Theme:                   kv["theme"],
 	}
 	return s, nil
 }
@@ -127,6 +128,10 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 		obsidianAutoWrite = "1"
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "obsidian_auto_write", obsidianAutoWrite, now); err != nil {
+		return err
+	}
+
+	if _, err := r.db.ExecContext(ctx, upsert, "theme", s.Theme, now); err != nil {
 		return err
 	}
 

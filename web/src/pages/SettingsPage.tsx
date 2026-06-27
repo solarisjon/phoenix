@@ -4,9 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { AgentsPage } from './AgentsPage'
 import { ProvidersPage } from './ProvidersPage'
 import { api } from '../lib/api'
-import type { SystemSettings, SysInfo, Project } from '../lib/api'
+import type { SystemSettings, SysInfo, Project, ThemeResponse } from '../lib/api'
 import { timeAgo } from '../lib/utils'
 import { getErrorMessage } from '../lib/errors'
+import { THEMES, getTheme, setTheme, injectCommunityThemes } from '../lib/theme'
+import type { ThemeEntry, ThemeKind } from '../lib/theme'
 
 function SystemInfoSection() {
   const [info, setInfo] = useState<SysInfo | null>(null)
@@ -70,7 +72,7 @@ function SystemInfoSection() {
 }
 
 function GlobalGuardrailsSection() {
-  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false })
+  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '' })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -657,10 +659,125 @@ function ArchivedProjectsTab() {
 
 
 
+function ThemeCard({ theme, current, onApply }: { theme: ThemeEntry; current: string; onApply: (id: string) => void }) {
+  const active = theme.id === current
+  return (
+    <button
+      onClick={() => onApply(theme.id)}
+      className={`relative flex flex-col gap-2 p-3 rounded-xl border text-left transition-all ${
+        active
+          ? 'border-violet-500 bg-violet-600/10 ring-1 ring-violet-500/40'
+          : 'border-slate-800 hover:border-slate-600 hover:bg-slate-800/50'
+      }`}
+    >
+      {active && (
+        <span className="absolute top-2 right-2 text-violet-400 text-xs font-semibold">✓</span>
+      )}
+      <span className="flex gap-1">
+        {theme.preview.map((c, i) => (
+          <span key={i} className="w-5 h-5 rounded-md border border-white/10 flex-shrink-0"
+            style={{ backgroundColor: c }} />
+        ))}
+      </span>
+      <span>
+        <span className="block text-sm font-medium text-slate-200 leading-none mb-0.5">
+          {theme.label}
+          {theme.isCustom && (
+            <span className="ml-1.5 text-[9px] font-semibold px-1 py-px rounded bg-violet-600/20 text-violet-400 align-middle">CUSTOM</span>
+          )}
+        </span>
+        <span className="block text-xs text-slate-500">{theme.description}</span>
+      </span>
+    </button>
+  )
+}
+
+function AppearanceTab() {
+  const [current, setCurrent] = useState<string>(getTheme)
+  const [allThemes, setAllThemes] = useState<ThemeEntry[]>([...THEMES])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    api.themes.list().then((community: ThemeResponse[]) => {
+      if (community.length === 0) return
+      const toInject = community
+        .filter(t => t.vars && Object.keys(t.vars).length > 0)
+        .map(t => ({ id: t.id, vars: t.vars! }))
+      injectCommunityThemes(toInject)
+      const customEntries: ThemeEntry[] = community.map(t => ({
+        id: t.id,
+        kind: (t.kind || 'dark') as ThemeKind,
+        label: t.label,
+        description: 'Custom theme',
+        preview: t.preview || [],
+        isCustom: true,
+        vars: t.vars,
+      }))
+      setAllThemes([...THEMES, ...customEntries])
+    }).catch(() => {})
+  }, [])
+
+  const apply = async (id: string) => {
+    setTheme(id)
+    setCurrent(id)
+    setSaving(true)
+    try {
+      const s = await api.admin.getSettings()
+      await api.admin.saveSettings({ ...s, theme: id })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch { /* non-critical */ } finally {
+      setSaving(false)
+    }
+  }
+
+  const darkThemes = allThemes.filter(t => t.kind === 'dark' && !t.isCustom)
+  const lightThemes = allThemes.filter(t => t.kind === 'light' && !t.isCustom)
+  const customThemes = allThemes.filter(t => t.isCustom)
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Appearance</h2>
+          <p className="text-slate-400 text-sm mt-0.5">Choose a colour theme for the Phoenix UI. Your selection is saved to this browser and synced to the server.</p>
+        </div>
+        {saving && <span className="text-xs text-slate-500">Saving…</span>}
+        {saved && !saving && <span className="text-xs text-violet-400">Saved</span>}
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Dark</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {darkThemes.map(t => <ThemeCard key={t.id} theme={t} current={current} onApply={apply} />)}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Light</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {lightThemes.map(t => <ThemeCard key={t.id} theme={t} current={current} onApply={apply} />)}
+        </div>
+      </div>
+
+      {customThemes.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Custom</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {customThemes.map(t => <ThemeCard key={t.id} theme={t} current={current} onApply={apply} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const TABS = [
   { id: 'agents', label: 'Agents' },
   { id: 'providers', label: 'Providers' },
   { id: 'system', label: 'System' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'archived', label: 'Archived' },
 ]
 
@@ -701,6 +818,7 @@ export function SettingsPage() {
         {tab === 'agents' && <AgentsPage />}
         {tab === 'providers' && <ProvidersPage />}
         {tab === 'system' && <SystemTab />}
+        {tab === 'appearance' && <AppearanceTab />}
         {tab === 'archived' && <ArchivedProjectsTab />}
       </div>
     </div>
