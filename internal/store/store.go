@@ -98,6 +98,10 @@ type TaskRepo interface {
 	// the named period: "day" (calendar day), "week" (rolling 7 days),
 	// "month" (calendar month), or "total" (all time).
 	ProjectSpendForPeriod(ctx context.Context, projectID, period string) (float64, error)
+	// HasActiveTaskForProject returns true when at least one running or queued
+	// task exists for the given project. Used by the scheduler to skip firing
+	// a new monitor run when one is already in flight.
+	HasActiveTaskForProject(ctx context.Context, projectID string) (bool, error)
 	// ListTimedOut returns all tasks that are still in running/queued status but
 	// whose timeout_at timestamp has already passed. Used by the watchdog to
 	// reap tasks whose goroutine exited without updating the DB.

@@ -80,6 +80,17 @@ func (r *TaskRepo) ListByStatuses(ctx context.Context, statuses []model.TaskStat
 	return scanTasks(rows)
 }
 
+func (r *TaskRepo) HasActiveTaskForProject(ctx context.Context, projectID string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM tasks WHERE project_id = ? AND status IN ('running','queued'))`,
+		projectID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("has active task for project: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *TaskRepo) ListByAgent(ctx context.Context, agentID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? ORDER BY created_at DESC`, agentID)

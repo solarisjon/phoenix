@@ -13,9 +13,11 @@ import (
 // AssembleRequest builds a provider.TaskRequest from an agent and task.
 // The system prompt combines persona, instructions, and guardrails.
 // Prior conversation turns from the task input are included as context.
-func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails string) provider.TaskRequest {
+// serverURL is the Phoenix API base URL injected into spawn/hire prompts;
+// an empty string falls back to %s.
+func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails, serverURL string) provider.TaskRequest {
 	return provider.TaskRequest{
-		SystemPrompt: assembleSystemPrompt(a, t, globalGuardrails),
+		SystemPrompt: assembleSystemPrompt(a, t, globalGuardrails, serverURL),
 		Prompt:       assembleUserPrompt(t),
 		Context:      nil, // Phase 1: single-turn. Multi-turn added in later phases.
 	}
@@ -23,7 +25,10 @@ func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails string) pro
 
 // assembleSystemPrompt combines behaviour (or legacy persona+instructions),
 // soft guardrails, hard guardrails, and optional spawn/hire instructions into a single system prompt.
-func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string) string {
+func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serverURL string) string {
+	if serverURL == "" {
+		serverURL = "%s"
+	}
 	var b strings.Builder
 
 	if a.Behaviour != "" {
@@ -62,7 +67,7 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 	if a.CanSpawnAgents {
 		b.WriteString("## Delegating to Existing Agents\n")
 		b.WriteString(fmt.Sprintf(`You are permitted to delegate work to other agents by calling the Phoenix API.`+"\n"+
-			`To spawn a task for another agent, make an HTTP POST to http://localhost:8080/api/agents/spawn with JSON body:`+"\n\n"+
+			`To spawn a task for another agent, make an HTTP POST to %s/api/agents/spawn with JSON body:`+"\n\n"+
 			"```json\n"+
 			"{\n"+
 			`  "source_agent_id": "%s",`+"\n"+
@@ -73,7 +78,7 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 			"}\n"+
 			"```\n"+
 			`The API returns the created task. Only spawn tasks when explicitly needed to complete your work.`,
-			a.ID, t.ProjectID))
+			serverURL, a.ID, t.ProjectID))
 		b.WriteString("\n\n")
 	}
 
@@ -82,10 +87,10 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 		b.WriteString(fmt.Sprintf(
 			`You are permitted to recruit and create new agents by calling the Phoenix API.`+"\n\n"+
 			`**Step 1 — Check existing agents first:**`+"\n"+
-			`Before proposing a hire, call GET http://localhost:8080/api/agents to list all existing agents.`+"\n"+
+			`Before proposing a hire, call GET %s/api/agents to list all existing agents.`+"\n"+
 			`Review their names and personas. Only propose a new hire if no existing agent can fulfill the required role.`+"\n\n"+
 			`**Step 2 — Submit a hire proposal:**`+"\n"+
-			`If no suitable agent exists, make an HTTP POST to http://localhost:8080/api/agent-drafts with this JSON body:`+"\n\n"+
+			`If no suitable agent exists, make an HTTP POST to %s/api/agent-drafts with this JSON body:`+"\n\n"+
 			"```json\n"+
 			"{\n"+
 			`  "created_by_agent_id": "%s",`+"\n"+
@@ -99,7 +104,7 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails string
 			`The draft will be sent to a human for review and approval before the agent is activated.`+"\n"+
 			`You do not need to assign a provider or project — the human handles that at approval time.`+"\n"+
 			`Only propose a hire when explicitly asked to recruit, or when your task requires a capability that no existing agent can fulfill.`,
-			a.ID, t.ID))
+			serverURL, serverURL, a.ID, t.ID))
 		b.WriteString("\n")
 	}
 

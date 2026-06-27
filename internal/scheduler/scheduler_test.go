@@ -269,6 +269,17 @@ func (r *fakeTaskRepo) ListProjectHistory(_ context.Context, projectID string) (
 	return out, nil
 }
 
+func (r *fakeTaskRepo) HasActiveTaskForProject(_ context.Context, projectID string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && (t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *fakeTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*time.Time, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -16,19 +16,22 @@ export interface ThemeEntry {
 
 export const THEMES: readonly ThemeEntry[] = [
   // ── Dark ──────────────────────────────────────────────────────────────────
-  { id: 'dracula',         kind: 'dark',  label: 'Dracula',         description: 'Classic dark & purple',    preview: ['#1e1f28', '#bd93f9', '#282a36'] },
-  { id: 'monokai',         kind: 'dark',  label: 'Monokai',         description: 'Warm charcoal & lavender', preview: ['#2d2a2e', '#ab9df2', '#403e41'] },
-  { id: 'solarized',       kind: 'dark',  label: 'Solarized Dark',  description: 'Precision dark teal',      preview: ['#002b36', '#268bd2', '#073642'] },
-  { id: 'mirage',          kind: 'dark',  label: 'Mirage',          description: 'Ayu dark blue-gray',       preview: ['#1a1f29', '#6dcbfa', '#212733'] },
-  { id: 'afterglow',       kind: 'dark',  label: 'Afterglow',       description: 'Subtle neutral & slate',   preview: ['#181818', '#6c99ba', '#202020'] },
-  { id: 'tomorrow-night',  kind: 'dark',  label: 'Tomorrow Night',  description: 'Clean dark & steel blue',  preview: ['#1d1f21', '#80a1bd', '#282a2e'] },
+  { id: 'dracula',            kind: 'dark',  label: 'Dracula',            description: 'Classic dark & purple',    preview: ['#1e1f28', '#bd93f9', '#282a36'] },
+  { id: 'monokai',            kind: 'dark',  label: 'Monokai',            description: 'Warm charcoal & lavender', preview: ['#2d2a2e', '#ab9df2', '#403e41'] },
+  { id: 'solarized',          kind: 'dark',  label: 'Solarized Dark',     description: 'Precision dark teal',      preview: ['#002b36', '#268bd2', '#073642'] },
+  { id: 'nord',               kind: 'dark',  label: 'Nord',               description: 'Arctic Polar Night',       preview: ['#2e3440', '#5e81ac', '#3b4252'] },
+  { id: 'catppuccin-mocha',   kind: 'dark',  label: 'Catppuccin Mocha',   description: 'Pastel dark & lavender',   preview: ['#1e1e2e', '#89b4fa', '#313244'] },
+  { id: 'mirage',             kind: 'dark',  label: 'Mirage',             description: 'Ayu dark blue-gray',       preview: ['#1a1f29', '#6dcbfa', '#212733'] },
+  { id: 'afterglow',          kind: 'dark',  label: 'Afterglow',          description: 'Subtle neutral & slate',   preview: ['#181818', '#6c99ba', '#202020'] },
+  { id: 'tomorrow-night',     kind: 'dark',  label: 'Tomorrow Night',     description: 'Clean dark & steel blue',  preview: ['#1d1f21', '#80a1bd', '#282a2e'] },
   // ── Light ─────────────────────────────────────────────────────────────────
-  { id: 'solarized-light', kind: 'light', label: 'Solarized Light', description: 'Warm cream & blue',        preview: ['#fdf6e3', '#268bd2', '#eee8d5'] },
-  { id: 'ayu-light',       kind: 'light', label: 'Ayu Light',       description: 'Clean minimal & teal',     preview: ['#fafafa', '#41a6d9', '#ffffff'] },
-  { id: 'atom-light',      kind: 'light', label: 'Atom One Light',  description: 'Fresh white & blue',       preview: ['#f8f8f8', '#2f5af3', '#ffffff'] },
-  { id: 'tomorrow',        kind: 'light', label: 'Tomorrow',        description: 'Pure white classic',       preview: ['#ffffff', '#4170ae', '#fafafa'] },
-  { id: 'paper',           kind: 'light', label: 'Paper',           description: 'Soft gray & teal',         preview: ['#eeeeee', '#0087af', '#ffffff'] },
-  { id: 'nord-light',      kind: 'light', label: 'Nord Light',      description: 'Arctic frost & blue',      preview: ['#eceff4', '#5e81ac', '#e5e9f0'] },
+  { id: 'solarized-light',    kind: 'light', label: 'Solarized Light',    description: 'Warm cream & blue',        preview: ['#fdf6e3', '#268bd2', '#eee8d5'] },
+  { id: 'catppuccin-latte',   kind: 'light', label: 'Catppuccin Latte',   description: 'Pastel light & blue',      preview: ['#eff1f5', '#1e66f5', '#e6e9ef'] },
+  { id: 'ayu-light',          kind: 'light', label: 'Ayu Light',          description: 'Clean minimal & teal',     preview: ['#fafafa', '#41a6d9', '#ffffff'] },
+  { id: 'atom-light',         kind: 'light', label: 'Atom One Light',     description: 'Fresh white & blue',       preview: ['#f8f8f8', '#2f5af3', '#ffffff'] },
+  { id: 'tomorrow',           kind: 'light', label: 'Tomorrow',           description: 'Pure white classic',       preview: ['#ffffff', '#4170ae', '#fafafa'] },
+  { id: 'paper',              kind: 'light', label: 'Paper',              description: 'Soft gray & teal',         preview: ['#eeeeee', '#0087af', '#ffffff'] },
+  { id: 'nord-light',         kind: 'light', label: 'Nord Light',         description: 'Arctic frost & blue',      preview: ['#eceff4', '#5e81ac', '#e5e9f0'] },
 ] as const
 
 const STORAGE_KEY = 'phoenix-theme'

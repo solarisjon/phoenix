@@ -170,6 +170,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Delete("/projects/{id}", s.deleteProject)
 		r.Post("/projects/{id}/archive", s.archiveProject)
 		r.Post("/projects/{id}/restore", s.restoreProject)
+		r.Post("/projects/{id}/pause", s.pauseProject)
 		r.Post("/projects/{id}/agents", s.assignAgent)
 		r.Delete("/projects/{id}/agents/{agentId}", s.removeAgent)
 		r.Get("/projects/{id}/agents", s.listProjectAgents)

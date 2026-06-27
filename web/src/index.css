@@ -182,7 +182,94 @@
   --ph-warning-bg:   rgba(240,198,116,0.15);
 }
 
-/* ---- Light themes (6) ---- */
+[data-theme="nord"] {
+  /* Nord — by Arctic Ice Studio · nordtheme.com */
+  --ph-bg:           #2e3440;
+  --ph-surface:      #3b4252;
+  --ph-card:         #3b4252;
+  --ph-card-border:  #434c5e;
+  --ph-input:        #434c5e;
+  --ph-hover:        #4c566a;
+  --ph-text:         #eceff4;
+  --ph-text-muted:   #d8dee9;
+  --ph-text-faint:   #4c566a;
+  --ph-accent:       #5e81ac;   /* frost blue */
+  --ph-accent-light: #81a1c1;
+  --ph-accent-bg:    rgba(94,129,172,0.15);
+  --ph-accent-text:  #88c0d0;
+  --ph-border:       #434c5e;
+  --ph-border-mid:   #4c566a;
+  --ph-success:      #a3be8c;
+  --ph-success-bg:   rgba(163,190,140,0.15);
+  --ph-info:         #81a1c1;
+  --ph-info-bg:      rgba(129,161,193,0.15);
+  --ph-queued:       #88c0d0;
+  --ph-queued-bg:    rgba(136,192,208,0.15);
+  --ph-danger:       #bf616a;
+  --ph-danger-bg:    rgba(191,97,106,0.18);
+  --ph-warning:      #ebcb8b;
+  --ph-warning-bg:   rgba(235,203,139,0.15);
+}
+
+[data-theme="catppuccin-mocha"] {
+  /* Catppuccin Mocha — by catppuccin.com */
+  --ph-bg:           #1e1e2e;
+  --ph-surface:      #181825;
+  --ph-card:         #313244;
+  --ph-card-border:  #45475a;
+  --ph-input:        #45475a;
+  --ph-hover:        #585b70;
+  --ph-text:         #cdd6f4;
+  --ph-text-muted:   #bac2de;
+  --ph-text-faint:   #6c7086;
+  --ph-accent:       #89b4fa;   /* blue */
+  --ph-accent-light: #b4befe;   /* lavender */
+  --ph-accent-bg:    rgba(137,180,250,0.12);
+  --ph-accent-text:  #cdd6f4;
+  --ph-border:       #45475a;
+  --ph-border-mid:   #585b70;
+  --ph-success:      #a6e3a1;
+  --ph-success-bg:   rgba(166,227,161,0.12);
+  --ph-info:         #b4befe;
+  --ph-info-bg:      rgba(180,190,254,0.12);
+  --ph-queued:       #74c7ec;
+  --ph-queued-bg:    rgba(116,199,236,0.12);
+  --ph-danger:       #f38ba8;
+  --ph-danger-bg:    rgba(243,139,168,0.15);
+  --ph-warning:      #f9e2af;
+  --ph-warning-bg:   rgba(249,226,175,0.12);
+}
+
+/* ---- Light themes (8) ---- */
+
+[data-theme="catppuccin-latte"] {
+  /* Catppuccin Latte — by catppuccin.com */
+  --ph-bg:           #eff1f5;
+  --ph-surface:      #e6e9ef;
+  --ph-card:         #ffffff;
+  --ph-card-border:  #ccd0da;
+  --ph-input:        #e6e9ef;
+  --ph-hover:        #ccd0da;
+  --ph-text:         #4c4f69;
+  --ph-text-muted:   #6c6f85;
+  --ph-text-faint:   #9ca0b0;
+  --ph-accent:       #1e66f5;   /* blue */
+  --ph-accent-light: #7287fd;   /* lavender */
+  --ph-accent-bg:    rgba(30,102,245,0.08);
+  --ph-accent-text:  #1550cc;
+  --ph-border:       #ccd0da;
+  --ph-border-mid:   #bcc0cc;
+  --ph-success:      #3a8a1e;
+  --ph-success-bg:   rgba(58,138,30,0.10);
+  --ph-info:         #1e66f5;
+  --ph-info-bg:      rgba(30,102,245,0.10);
+  --ph-queued:       #179299;
+  --ph-queued-bg:    rgba(23,146,153,0.10);
+  --ph-danger:       #c01033;
+  --ph-danger-bg:    rgba(192,16,51,0.10);
+  --ph-warning:      #b87000;
+  --ph-warning-bg:   rgba(184,112,0,0.10);
+}
 
 [data-theme="solarized-light"] {
   /* Solarized Light — by Ethan Schoonover */

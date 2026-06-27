@@ -286,6 +286,15 @@ func (r *memTaskRepo) SaveSummaryCache(_ context.Context, taskID, summary string
 	return nil
 }
 
+func (r *memTaskRepo) HasActiveTaskForProject(_ context.Context, projectID string) (bool, error) {
+	for _, t := range r.tasks {
+		if t.ProjectID == projectID && (t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}

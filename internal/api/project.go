@@ -45,8 +45,9 @@ func (r createProjectRequest) validate() string {
 	}
 	if r.Status != "" &&
 		r.Status != string(model.ProjectStatusActive) &&
-		r.Status != string(model.ProjectStatusArchived) {
-		return "status must be 'active' or 'archived'"
+		r.Status != string(model.ProjectStatusArchived) &&
+		r.Status != string(model.ProjectStatusPaused) {
+		return "status must be 'active', 'archived', or 'paused'"
 	}
 	if r.ScheduleKind != "" &&
 		r.ScheduleKind != model.ScheduleKindInterval &&
@@ -98,14 +99,27 @@ type assignAgentRequest struct {
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")     // optional: "project" | "monitor"
-	status := r.URL.Query().Get("status") // optional: "active" | "archived" — defaults to "active"
+	status := r.URL.Query().Get("status") // optional: "active" | "archived" | "paused" — defaults to all non-archived
+	var list []*model.Project
 	if status == "" {
-		status = string(model.ProjectStatusActive)
-	}
-	list, err := s.projects.ListByStatus(r.Context(), kind, status)
-	if err != nil {
-		respondInternalErr(w, err)
-		return
+		// Default: return all non-archived (active + paused) so paused monitors remain visible.
+		all, err := s.projects.ListByStatus(r.Context(), kind, "")
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		for _, p := range all {
+			if p.Status != model.ProjectStatusArchived {
+				list = append(list, p)
+			}
+		}
+	} else {
+		var err error
+		list, err = s.projects.ListByStatus(r.Context(), kind, status)
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
 	}
 	if list == nil {
 		list = []*model.Project{}
@@ -334,6 +348,30 @@ func (s *Server) restoreProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.Status = model.ProjectStatusActive
+	if err := s.projects.Update(r.Context(), p); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, p)
+}
+
+// pauseProject suspends a monitor's schedule without archiving it.
+func (s *Server) pauseProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.projects.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+	if p.Status == model.ProjectStatusPaused {
+		respond(w, http.StatusOK, p) // idempotent
+		return
+	}
+	p.Status = model.ProjectStatusPaused
 	if err := s.projects.Update(r.Context(), p); err != nil {
 		respondInternalErr(w, err)
 		return

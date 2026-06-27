@@ -153,6 +153,13 @@ func main() {
 
 	// Wire inbound Telegram → task creation handler.
 	pluginManager.SetInboundHandler(func(ctx context.Context, projectID, agentID, title, source string) (string, error) {
+		assigned, err := projectRepo.IsAgentAssigned(ctx, projectID, agentID)
+		if err != nil {
+			return "", fmt.Errorf("check agent assignment: %w", err)
+		}
+		if !assigned {
+			return "", fmt.Errorf("agent %s is not assigned to project %s", agentID, projectID)
+		}
 		t := &model.Task{
 			ID:          uuid.New().String(),
 			ProjectID:   projectID,

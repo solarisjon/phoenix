@@ -14,7 +14,7 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 		Guardrails:   "Never fabricate data.",
 	}
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
-	prompt := assembleSystemPrompt(a, task, "")
+	prompt := assembleSystemPrompt(a, task, "", "")
 
 	for _, want := range []string{"## Persona", "You are an expert.", "## Instructions", "Always be concise.", "## Soft Guardrails", "Never fabricate data."} {
 		if !strings.Contains(prompt, want) {
@@ -26,7 +26,7 @@ func TestAssembleSystemPrompt_AllSections(t *testing.T) {
 func TestAssembleSystemPrompt_EmptyFields(t *testing.T) {
 	a := &model.Agent{Persona: "Only persona"}
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
-	prompt := assembleSystemPrompt(a, task, "")
+	prompt := assembleSystemPrompt(a, task, "", "")
 	if strings.Contains(prompt, "## Instructions") {
 		t.Error("should not include Instructions section when empty")
 	}
@@ -41,7 +41,7 @@ func TestAssembleSystemPrompt_HardGuardrails(t *testing.T) {
 		HardGuardrails: "Never delete data.",
 	}
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
-	prompt := assembleSystemPrompt(a, task, "")
+	prompt := assembleSystemPrompt(a, task, "", "")
 	if !strings.Contains(prompt, "## Hard Guardrails") {
 		t.Error("missing hard guardrails section")
 	}
@@ -83,7 +83,7 @@ func TestAssembleSystemPrompt_GlobalGuardrails(t *testing.T) {
 	a := &model.Agent{Persona: "Expert", Guardrails: "No hallucinations."}
 	task := &model.Task{ID: "t1", ProjectID: "p1"}
 	global := "• Never touch Jira\n• No git commits without approval"
-	prompt := assembleSystemPrompt(a, task, global)
+	prompt := assembleSystemPrompt(a, task, global, "")
 
 	if !strings.Contains(prompt, "Platform-Wide Guardrails") {
 		t.Error("global guardrails section header missing")
@@ -110,7 +110,7 @@ func TestAssembleRequest(t *testing.T) {
 		Description: "Do the thing.",
 		Input:       "{}",
 	}
-	req := AssembleRequest(a, task, "")
+	req := AssembleRequest(a, task, "", "")
 	if req.SystemPrompt == "" {
 		t.Error("SystemPrompt should not be empty")
 	}

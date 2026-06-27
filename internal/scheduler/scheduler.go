@@ -258,20 +258,13 @@ func (s *Scheduler) scheduleLoop(ctx context.Context, spec scheduleSpec) {
 
 // fire creates and enqueues a scheduled task if the monitor has no active task.
 func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
-	// Check only currently-active tasks (running or queued). Using ListByStatuses
-	// instead of List keeps the query bounded by concurrency rather than by all
-	// historical tasks for the project.
-	activeTasks, err := s.tasks.ListByStatuses(ctx, []model.TaskStatus{
-		model.TaskStatusRunning, model.TaskStatusQueued,
-	})
+	active, err := s.tasks.HasActiveTaskForProject(ctx, spec.monitor.ID)
 	if err != nil {
-		return fmt.Errorf("list active tasks: %w", err)
+		return fmt.Errorf("check active task: %w", err)
 	}
-	for _, t := range activeTasks {
-		if t.ProjectID == spec.monitor.ID {
-			slog.Debug("scheduler: skipping monitor — task already active", "monitor", spec.monitor.Name)
-			return nil
-		}
+	if active {
+		slog.Debug("scheduler: skipping monitor — task already active", "monitor", spec.monitor.Name)
+		return nil
 	}
 
 	now := time.Now()

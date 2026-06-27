@@ -381,36 +381,301 @@ func (r *Runner) drainQueue(agentID string) {
 	}
 }
 
+// serverURL returns the Phoenix API base URL from PHOENIX_BASE_URL env var,
+// falling back to http://localhost:8080 when the variable is unset.
+func (r *Runner) serverURL() string {
+	if u := os.Getenv("PHOENIX_BASE_URL"); u != "" {
+		return u
+	}
+	return "http://localhost:8080"
+}
+
 // ---- Internal execution ----
 
-func (r *Runner) execute(ctx context.Context, task *model.Task) {
-	// Load agent.
+// executionContext holds the resolved agent, project, and provider for a task run.
+type executionContext struct {
+	agent      *model.Agent
+	proj       *model.Project // may be nil
+	prov       provider.Provider
+	workingDir string
+}
+
+// loadExecutionContext resolves the agent, project, and provider for the given task.
+func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*executionContext, error) {
 	agent, err := r.agents.Get(ctx, task.AgentID)
 	if err != nil || agent == nil {
-		r.failTask(ctx, task, fmt.Errorf("agent %s not found: %w", task.AgentID, err))
-		return
+		return nil, fmt.Errorf("agent %s not found: %w", task.AgentID, err)
 	}
 
-	// Load project to get working directory and monitor model override.
-	var workingDir string
-	var monitorModel string
-	var proj *model.Project
+	var ec executionContext
+	ec.agent = agent
+
 	if p, err := r.projects.Get(ctx, task.ProjectID); err == nil && p != nil {
-		proj = p
-		workingDir = proj.WorkingDir
-		monitorModel = proj.MonitorModel
+		ec.proj = p
+		ec.workingDir = p.WorkingDir
 	}
 
-	// Load provider. For monitor tasks, the project-level monitor_model takes
-	// priority over the agent's model_override so cheap models can be used for
-	// signal-detection without changing the agent's default for project tasks.
 	modelOverride := agent.ModelOverride
-	if task.Source == "monitor" && monitorModel != "" {
-		modelOverride = monitorModel
+	if task.Source == "monitor" && ec.proj != nil && ec.proj.MonitorModel != "" {
+		modelOverride = ec.proj.MonitorModel
 	}
 	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, modelOverride)
 	if err != nil {
-		r.failTask(ctx, task, fmt.Errorf("provider load failed: %w", err))
+		return nil, fmt.Errorf("provider load failed: %w", err)
+	}
+	ec.prov = prov
+	return &ec, nil
+}
+
+// buildTaskRequest assembles the full provider.TaskRequest for a task, including
+// follow-up chain context, Obsidian vault routing, and memory recall injection.
+func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *executionContext, globalGuardrails string) (provider.TaskRequest, error) {
+	var req provider.TaskRequest
+	if task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil {
+		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
+		if err != nil || reviewed == nil {
+			return req, fmt.Errorf("builtin critic: reviewed task %s not found: %w", *task.ReviewedTaskID, err)
+		}
+		req = BuildBuiltinCriticRequest(reviewed)
+	} else {
+		req = AssembleRequest(ec.agent, task, globalGuardrails, r.serverURL())
+		if task.FollowUpOf != nil {
+			rootID := *task.FollowUpOf
+			chain, chainErr := r.tasks.ListFollowUpChain(ctx, rootID)
+			if chainErr != nil || len(chain) == 0 {
+				if parent, err := r.tasks.Get(ctx, rootID); err == nil && parent != nil {
+					req = InjectFollowUpContext(req, parent)
+				}
+			} else if ec.proj != nil && ec.proj.ContextSummarisation && ShouldSummariseChain(chain) {
+				root := chain[0]
+				summary := root.SummaryCache
+				if summary == "" {
+					oldTurns := chain
+					if len(chain) > contextSummarisationKeepRecent {
+						oldTurns = chain[:len(chain)-contextSummarisationKeepRecent]
+					}
+					summResp, summErr := ec.prov.Execute(ctx, BuildSummaryRequest(oldTurns))
+					if summErr != nil {
+						slog.Warn("runner: context summarisation failed (falling back to verbatim)", "task_id", task.ID, "error", summErr)
+					} else {
+						summary = summResp.Output
+						if saveErr := r.tasks.SaveSummaryCache(ctx, root.ID, summary); saveErr != nil {
+							slog.Error("runner: save summary cache", "task_id", task.ID, "error", saveErr)
+						}
+					}
+				}
+				req = InjectFollowUpChainContext(req, chain, summary)
+			} else {
+				req = InjectFollowUpChainContext(req, chain, "")
+			}
+		}
+	}
+	req.WorkingDir = ec.workingDir
+
+	if r.obsidianVaults != nil && r.settings != nil && !task.IsCriticReview {
+		if sysSettings, err := r.settings.Get(ctx); err == nil && sysSettings.ObsidianEnabled {
+			if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
+				slog.Warn("runner: obsidian vault list failed", "task_id", task.ID, "error", err)
+			} else if len(vaults) > 0 {
+				req = InjectObsidianVaults(req, vaults)
+			}
+		}
+	}
+
+	r.mu.Lock()
+	memClient := r.memoryClient
+	r.mu.Unlock()
+	if memClient != nil && !task.IsCriticReview {
+		if memories, err := memClient.Recall(ctx, ec.agent.ID, task.Title+" "+task.Description); err != nil {
+			slog.Warn("runner: memory recall failed", "task_id", task.ID, "agent_id", ec.agent.ID, "error", err)
+		} else if memories != "" {
+			req = InjectMemories(req, memories)
+		}
+	}
+
+	return req, nil
+}
+
+// streamResult holds the collected output and usage from a provider stream.
+type streamResult struct {
+	fullText  string
+	tokensIn  int
+	tokensOut int
+	costUSD   float64
+}
+
+// streamAndCollect runs the provider stream for req and collects all output.
+// It records the subprocess PID on the first chunk and emits content events.
+// Returns an error for stream failures, context cancellations, and empty output.
+func (r *Runner) streamAndCollect(ctx context.Context, req provider.TaskRequest, prov provider.Provider, task *model.Task) (*streamResult, error) {
+	ch, err := prov.StreamExecute(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("stream execute: %w", err)
+	}
+
+	var outputBuilder []string
+	var realCostUSD float64
+	var realTokensIn, realTokensOut int
+
+	for chunk := range ch {
+		if chunk.Error != nil {
+			taskErr := chunk.Error
+			if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
+				taskErr = ErrTaskCancelledByUser
+			}
+			return nil, taskErr
+		}
+		if chunk.PID != 0 && task.RunnerPID == 0 {
+			task.RunnerPID = chunk.PID
+			if updateErr := r.tasks.Update(ctx, task); updateErr != nil {
+				slog.Error("runner: persist pid", "error", updateErr)
+			}
+		}
+		if chunk.Content != "" {
+			outputBuilder = append(outputBuilder, chunk.Content)
+			r.emit(StreamEvent{
+				TaskID:  task.ID,
+				AgentID: task.AgentID,
+				Chunk:   &chunk.Content,
+			})
+		}
+		if chunk.TokensIn > 0 {
+			realTokensIn = chunk.TokensIn
+		}
+		if chunk.TokensOut > 0 {
+			realTokensOut = chunk.TokensOut
+		}
+		if chunk.CostUSD > 0 {
+			realCostUSD += chunk.CostUSD
+		}
+	}
+
+	// Fail if the context expired while draining (e.g. orphaned child processes
+	// held the stdout pipe open past the deadline).
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
+			return nil, ErrTaskCancelledByUser
+		} else if errors.Is(ctxErr, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("task timed out after %s", r.taskTimeout)
+		}
+		return nil, ctxErr
+	}
+
+	fullOutput := strings.Join(outputBuilder, "")
+	if strings.TrimSpace(fullOutput) == "" {
+		return nil, fmt.Errorf("provider returned empty output (0 tokens) — the model may have timed out, hit a token limit, or failed silently; retry to try again")
+	}
+
+	// Use real token counts; fall back to a character-based estimate (1 token ≈ 4 chars).
+	tokensIn := realTokensIn
+	if tokensIn == 0 {
+		charEstimate := len(req.SystemPrompt) + len(req.Prompt)
+		for _, m := range req.Context {
+			charEstimate += len(m.Content)
+		}
+		charEstimate += len(fullOutput)
+		tokensIn = charEstimate / 4
+	}
+	tokensOut := realTokensOut
+	if tokensOut == 0 {
+		tokensOut = len(fullOutput) / 4
+	}
+
+	totalCost := realCostUSD
+	if totalCost == 0 {
+		if estimate := prov.EstimateCost(req); estimate.EstimatedCostUSD > 0 {
+			totalCost = estimate.EstimatedCostUSD
+		}
+	}
+
+	return &streamResult{
+		fullText:  fullOutput,
+		tokensIn:  tokensIn,
+		tokensOut: tokensOut,
+		costUSD:   totalCost,
+	}, nil
+}
+
+// finaliseTask persists a successful task result, extracts memos/artifacts,
+// triggers post-run hooks (critic, memory retain, Obsidian), and emits the
+// completion event. Handles the guardrail-triggered awaiting_approval path.
+func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *streamResult, ec *executionContext) {
+	outputJSON, _ := json.Marshal(map[string]interface{}{
+		"text":       out.fullText,
+		"tokens_in":  out.tokensIn,
+		"tokens_out": out.tokensOut,
+		"run_id":     uuid.New().String(),
+	})
+	completedAt := time.Now()
+	task.Output = string(outputJSON)
+	task.CostUSD = out.costUSD
+	task.CompletedAt = &completedAt
+	task.RunnerPID = 0
+	task.TokensIn = out.tokensIn
+	task.TokensOut = out.tokensOut
+
+	if reason := extractGuardrailTrigger(out.fullText); reason != "" {
+		task.GuardrailReason = &reason
+		if err := r.setStatus(ctx, task, model.TaskStatusAwaitingApproval, nil); err != nil {
+			slog.Error("runner: set awaiting_approval status", "error", err)
+		}
+		r.emit(StreamEvent{
+			TaskID:     task.ID,
+			AgentID:    task.AgentID,
+			StatusDone: func() *model.TaskStatus { s := model.TaskStatusAwaitingApproval; return &s }(),
+		})
+		return
+	}
+
+	if task.Source == "monitor" {
+		sig := deriveHealthSignal(out.fullText)
+		task.HealthSignal = &sig
+	}
+
+	finalStatus := model.TaskStatusCompleted
+	if err := r.setStatus(r.bgCtx, task, finalStatus, nil); err != nil {
+		slog.Error("runner: set completed status", "error", err)
+		return
+	}
+
+	if r.memos != nil {
+		posted := r.extractAndSaveMemos(task, ec.agent, out.fullText)
+		r.extractAndSaveArtifacts(task, ec.agent, out.fullText)
+		if !posted && !task.IsCriticReview {
+			r.autoMemo(task, ec.agent, out.fullText)
+		}
+	}
+
+	r.mu.Lock()
+	memClient := r.memoryClient
+	r.mu.Unlock()
+	if memClient != nil && !task.IsCriticReview {
+		retainContent := task.Title + "\n\n" + out.fullText
+		go func() {
+			retainCtx, cancel := context.WithTimeout(r.bgCtx, 30*time.Second)
+			defer cancel()
+			if err := memClient.Retain(retainCtx, ec.agent.ID, retainContent); err != nil {
+				slog.Warn("runner: memory retain failed", "task_id", task.ID, "agent_id", ec.agent.ID, "error", err)
+			}
+		}()
+	}
+
+	if !task.IsCriticReview {
+		r.maybeLaunchCritic(task, ec.agent)
+		r.maybeAutoWriteObsidian(task, ec.agent, out.fullText)
+	}
+
+	r.emit(StreamEvent{
+		TaskID:     task.ID,
+		AgentID:    task.AgentID,
+		StatusDone: &finalStatus,
+	})
+}
+
+func (r *Runner) execute(ctx context.Context, task *model.Task) {
+	ec, err := r.loadExecutionContext(ctx, task)
+	if err != nil {
+		r.failTask(ctx, task, err)
 		return
 	}
 
@@ -432,117 +697,45 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		}
 	}
 
-	// Assemble prompt. Builtin-critic tasks use a specialist prompt built from
-	// the reviewed task's output; all other tasks go through the normal path.
-	var req provider.TaskRequest
-	if task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil {
-		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
-		if err != nil || reviewed == nil {
-			r.failTask(ctx, task, fmt.Errorf("builtin critic: reviewed task %s not found: %w", *task.ReviewedTaskID, err))
-			return
-		}
-		req = BuildBuiltinCriticRequest(reviewed)
-	} else {
-		req = AssembleRequest(agent, task, globalGuardrails)
-		if task.FollowUpOf != nil {
-			// Walk the full follow-up chain from root so all prior context is available.
-			rootID := *task.FollowUpOf
-			chain, chainErr := r.tasks.ListFollowUpChain(ctx, rootID)
-			if chainErr != nil || len(chain) == 0 {
-				// Fallback: single-parent injection (original behaviour).
-				if parent, err := r.tasks.Get(ctx, rootID); err == nil && parent != nil {
-					req = InjectFollowUpContext(req, parent)
-				}
-			} else if proj != nil && proj.ContextSummarisation && ShouldSummariseChain(chain) {
-				// Summarisation path: use cached summary or fire a summarise call.
-				root := chain[0]
-				summary := root.SummaryCache
-				if summary == "" {
-					// Turns to summarise = everything except the most recent contextSummarisationKeepRecent.
-					oldTurns := chain
-					if len(chain) > contextSummarisationKeepRecent {
-						oldTurns = chain[:len(chain)-contextSummarisationKeepRecent]
-					}
-					summReq := BuildSummaryRequest(oldTurns)
-					summResp, summErr := prov.Execute(ctx, summReq)
-					if summErr != nil {
-						slog.Warn("runner: context summarisation failed (falling back to verbatim)", "task_id", task.ID, "error", summErr)
-					} else {
-						summary = summResp.Output
-						if saveErr := r.tasks.SaveSummaryCache(ctx, root.ID, summary); saveErr != nil {
-							slog.Error("runner: save summary cache", "task_id", task.ID, "error", saveErr)
-						}
-					}
-				}
-				req = InjectFollowUpChainContext(req, chain, summary)
-			} else {
-				// Verbatim path (no summarisation): include all prior turns.
-				req = InjectFollowUpChainContext(req, chain, "")
-			}
-		}
-	}
-	req.WorkingDir = workingDir
-
-	// Inject Obsidian vault routing context when the plugin is enabled and vaults are configured.
-	if r.obsidianVaults != nil && r.settings != nil && !task.IsCriticReview {
-		if sysSettings, err := r.settings.Get(ctx); err == nil && sysSettings.ObsidianEnabled {
-			if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
-				slog.Warn("runner: obsidian vault list failed", "task_id", task.ID, "error", err)
-			} else if len(vaults) > 0 {
-				req = InjectObsidianVaults(req, vaults)
-			}
-		}
+	req, err := r.buildTaskRequest(ctx, task, ec, globalGuardrails)
+	if err != nil {
+		r.failTask(ctx, task, err)
+		return
 	}
 
-	// Recall relevant memories for this task and inject them into the prompt.
-	// Errors are logged but never propagate — memory failure must not block execution.
-	r.mu.Lock()
-	memClient := r.memoryClient
-	r.mu.Unlock()
-	if memClient != nil && !task.IsCriticReview {
-		if memories, err := memClient.Recall(ctx, agent.ID, task.Title+" "+task.Description); err != nil {
-			slog.Warn("runner: memory recall failed", "task_id", task.ID, "agent_id", agent.ID, "error", err)
-		} else if memories != "" {
-			req = InjectMemories(req, memories)
-		}
-	}
+	prov := ec.prov
 
-	// Cost budget guardrail: if the agent has a max_cost_per_run ceiling and
-	// the provider can estimate cost, check the assembled prompt against the
-	// budget. Context turns are dropped from the oldest end until it fits.
-	// If it still exceeds the budget after clearing all context:
-	//   - If a fallback_model is configured, switch to it and continue.
-	//   - Otherwise fail with a clear error.
-	// Providers that return 0 from EstimateCost (CLI adapters, local models)
-	// are skipped — there's no cost to guard against.
-	if agent.MaxCostPerRun > 0 {
+	// Cost budget guardrail: drop oldest context turns until within budget;
+	// switch to fallback model if it still exceeds the limit after clearing all context.
+	// Providers that return 0 from EstimateCost (CLI adapters, local models) are skipped.
+	if ec.agent.MaxCostPerRun > 0 {
 		if est := prov.EstimateCost(req); est.EstimatedCostUSD > 0 {
-			for prov.EstimateCost(req).EstimatedCostUSD > agent.MaxCostPerRun && len(req.Context) > 0 {
-				req.Context = req.Context[1:] // drop oldest context turn
+			for prov.EstimateCost(req).EstimatedCostUSD > ec.agent.MaxCostPerRun && len(req.Context) > 0 {
+				req.Context = req.Context[1:]
 			}
-			if prov.EstimateCost(req).EstimatedCostUSD > agent.MaxCostPerRun {
-				if agent.FallbackModel != "" {
+			if prov.EstimateCost(req).EstimatedCostUSD > ec.agent.MaxCostPerRun {
+				if ec.agent.FallbackModel != "" {
 					slog.Warn("runner: estimated cost exceeds max_cost_per_run — switching to fallback model",
 						"task_id", task.ID,
 						"cost_usd", prov.EstimateCost(req).EstimatedCostUSD,
-						"max_cost_usd", agent.MaxCostPerRun,
-						"fallback_model", agent.FallbackModel)
-					fallbackProv, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.FallbackModel)
+						"max_cost_usd", ec.agent.MaxCostPerRun,
+						"fallback_model", ec.agent.FallbackModel)
+					fallbackProv, err := r.registry.GetWithOverride(ctx, ec.agent.ProviderID, ec.agent.FallbackModel)
 					if err != nil {
-						r.failTask(ctx, task, fmt.Errorf("cost budget exceeded and fallback model load failed (%s): %w", agent.FallbackModel, err))
+						r.failTask(ctx, task, fmt.Errorf("cost budget exceeded and fallback model load failed (%s): %w", ec.agent.FallbackModel, err))
 						return
 					}
 					prov = fallbackProv
 				} else {
 					r.failTask(ctx, task, fmt.Errorf("cost budget exceeded: estimated cost ($%.5f) exceeds max_cost_per_run ($%.5f) even after clearing all context — shorten the task, raise the limit, or set a fallback_model",
-						prov.EstimateCost(req).EstimatedCostUSD, agent.MaxCostPerRun))
+						prov.EstimateCost(req).EstimatedCostUSD, ec.agent.MaxCostPerRun))
 					return
 				}
 			}
 		}
 	}
-	// whether a previous run produced identical output. If so, skip the LLM
-	// call entirely and reuse the cached result — cost $0.
+
+	// Monitor dedup: skip the LLM call and reuse cached output when the prompt is unchanged.
 	if task.Source == "monitor" {
 		hash := promptHash(req)
 		task.PromptHash = hash
@@ -569,222 +762,36 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		}
 	}
 
-	// Budget check: if the project has a cost limit, verify we haven't exceeded it
-	// before firing the LLM. This runs after the cache check so free cached runs
-	// never count toward or trigger the budget gate.
-	if proj != nil && proj.BudgetUSD > 0 {
-		spent, err := r.tasks.ProjectSpendForPeriod(ctx, proj.ID, proj.BudgetPeriod)
+	// Project budget gate: runs after cache check so free cached runs never
+	// count toward or trigger the limit.
+	if ec.proj != nil && ec.proj.BudgetUSD > 0 {
+		spent, err := r.tasks.ProjectSpendForPeriod(ctx, ec.proj.ID, ec.proj.BudgetPeriod)
 		if err != nil {
-			slog.Error("runner: budget check failed", "project_id", proj.ID, "error", err)
-		} else if spent >= proj.BudgetUSD {
-			slog.Warn("runner: project budget exceeded", "project_id", proj.ID, "spent_usd", spent, "budget_usd", proj.BudgetUSD, "period", proj.BudgetPeriod)
+			slog.Error("runner: budget check failed", "project_id", ec.proj.ID, "error", err)
+		} else if spent >= ec.proj.BudgetUSD {
+			slog.Warn("runner: project budget exceeded", "project_id", ec.proj.ID, "spent_usd", spent, "budget_usd", ec.proj.BudgetUSD, "period", ec.proj.BudgetPeriod)
 			r.emit(StreamEvent{
 				BudgetExceeded: &BudgetInfo{
-					ProjectID: proj.ID,
+					ProjectID: ec.proj.ID,
 					SpentUSD:  spent,
-					BudgetUSD: proj.BudgetUSD,
-					Period:    proj.BudgetPeriod,
+					BudgetUSD: ec.proj.BudgetUSD,
+					Period:    ec.proj.BudgetPeriod,
 				},
 			})
 			r.failTask(ctx, task, fmt.Errorf(
 				"budget exceeded: $%.4f spent of $%.4f %s budget — update the budget or wait for the period to reset",
-				spent, proj.BudgetUSD, proj.BudgetPeriod))
+				spent, ec.proj.BudgetUSD, ec.proj.BudgetPeriod))
 			return
 		}
 	}
 
-	// Stream execution.
-	ch, err := prov.StreamExecute(ctx, req)
-	if err != nil {
-		r.failTask(ctx, task, fmt.Errorf("stream execute: %w", err))
+	out, runErr := r.streamAndCollect(ctx, req, prov, task)
+	if runErr != nil {
+		r.failTask(r.bgCtx, task, runErr)
 		return
 	}
 
-	var outputBuilder []string
-	var realCostUSD float64
-	var realTokensIn, realTokensOut int
-
-	for chunk := range ch {
-		if chunk.Error != nil {
-			// Translate context cancellation into a user-friendly message.
-			taskErr := chunk.Error
-			if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
-				taskErr = ErrTaskCancelledByUser
-			}
-			r.failTask(r.bgCtx, task, taskErr)
-			return
-		}
-		// Capture subprocess PID on the first chunk and persist it so
-		// we can kill the process if Phoenix restarts mid-task.
-		if chunk.PID != 0 && task.RunnerPID == 0 {
-			task.RunnerPID = chunk.PID
-			if updateErr := r.tasks.Update(ctx, task); updateErr != nil {
-				slog.Error("runner: persist pid", "error", updateErr)
-			}
-		}
-		if chunk.Content != "" {
-			outputBuilder = append(outputBuilder, chunk.Content)
-			r.emit(StreamEvent{
-				TaskID:  task.ID,
-				AgentID: task.AgentID,
-				Chunk:   &chunk.Content,
-			})
-		}
-		// Capture real token counts when the provider reports them (e.g. Ollama, LLM SSE,
-		// opencode all send these on the final Done chunk). Zero means not available.
-		if chunk.TokensIn > 0 {
-			realTokensIn = chunk.TokensIn
-		}
-		if chunk.TokensOut > 0 {
-			realTokensOut = chunk.TokensOut
-		}
-		// Accumulate actual cost when the provider reports it directly (e.g. opencode
-		// sums across multiple step_finish events; LLM calculates from rate config).
-		if chunk.CostUSD > 0 {
-			realCostUSD += chunk.CostUSD
-		}
-	}
-
-	// If the context was cancelled (timeout or user cancel) while the chunk loop
-	// was draining, fail the task now rather than attempting completion. This
-	// handles the case where the provider's goroutine kept running after the
-	// deadline fired (e.g. because orphaned child processes held the stdout pipe
-	// open) and the loop only exited when they eventually died — long after the
-	// context had already expired.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		taskErr := ctxErr
-		if cause := context.Cause(ctx); cause == ErrTaskCancelledByUser {
-			taskErr = ErrTaskCancelledByUser
-		} else if errors.Is(ctxErr, context.DeadlineExceeded) {
-			taskErr = fmt.Errorf("task timed out after %s", r.taskTimeout)
-		}
-		r.failTask(r.bgCtx, task, taskErr)
-		return
-	}
-
-	// Collect full output.
-	fullOutput := ""
-	for _, s := range outputBuilder {
-		fullOutput += s
-	}
-
-	// Treat empty output as a failure — the provider ran but produced nothing.
-	// This catches hung/stalled subprocess runs that exit cleanly but silently.
-	if strings.TrimSpace(fullOutput) == "" {
-		r.failTask(ctx, task, fmt.Errorf("provider returned empty output (0 tokens) — the model may have timed out, hit a token limit, or failed silently; retry to try again"))
-		return
-	}
-
-	// Use real token counts when the provider reported them; fall back to a
-	// character-based estimate (1 token ≈ 4 chars) for CLI adapters and LLM
-	// SSE streams that don't include a usage payload.
-	tokensIn := realTokensIn
-	tokensOut := realTokensOut
-	if tokensIn == 0 {
-		charEstimate := len(req.SystemPrompt) + len(req.Prompt)
-		for _, m := range req.Context {
-			charEstimate += len(m.Content)
-		}
-		charEstimate += len(fullOutput)
-		tokensIn = charEstimate / 4
-	}
-	if tokensOut == 0 {
-		tokensOut = len(fullOutput) / 4
-	}
-
-	// Prefer actual cost reported by the provider over the pre-run estimate.
-	// Fall back to the estimate only when the provider couldn't report cost.
-	totalCost := realCostUSD
-	if totalCost == 0 {
-		if estimate := prov.EstimateCost(req); estimate.EstimatedCostUSD > 0 {
-			totalCost = estimate.EstimatedCostUSD
-		}
-	}
-
-	// Build output JSON.
-	outputJSON, _ := json.Marshal(map[string]interface{}{
-		"text":       fullOutput,
-		"tokens_in":  tokensIn,
-		"tokens_out": tokensOut,
-		"run_id":     uuid.New().String(),
-	})
-
-	// Persist result.
-	completedAt := time.Now()
-	task.Output = string(outputJSON)
-	task.CostUSD = totalCost
-	task.CompletedAt = &completedAt
-	task.RunnerPID = 0 // subprocess is done
-	task.TokensIn = tokensIn
-	task.TokensOut = tokensOut
-	// PromptHash is already set for monitor tasks (set before the cache check above).
-	// For non-monitor tasks it stays empty — no diffing needed.
-
-	// Check if the agent triggered a hard guardrail.
-	// A hard guardrail trigger is signalled by the agent outputting a line that starts
-	// with "GUARDRAIL_TRIGGERED:" (case-sensitive, matched at line boundary).
-	if reason := extractGuardrailTrigger(fullOutput); reason != "" {
-		task.GuardrailReason = &reason
-		if err := r.setStatus(ctx, task, model.TaskStatusAwaitingApproval, nil); err != nil {
-			slog.Error("runner: set awaiting_approval status", "error", err)
-		}
-		r.emit(StreamEvent{
-			TaskID:     task.ID,
-			AgentID:    task.AgentID,
-			StatusDone: func() *model.TaskStatus { s := model.TaskStatusAwaitingApproval; return &s }(),
-		})
-		return
-	}
-
-	// Derive health signal for monitor tasks.
-	if task.Source == "monitor" {
-		sig := deriveHealthSignal(fullOutput)
-		task.HealthSignal = &sig
-	}
-
-	finalStatus := model.TaskStatusCompleted
-	if err := r.setStatus(r.bgCtx, task, finalStatus, nil); err != nil {
-		slog.Error("runner: set completed status", "error", err)
-		return
-	}
-
-	// Extract any MEMO blocks the agent embedded in its output and persist them.
-	// For any completed task (not critic reviews), if the agent didn't post a memo,
-	// auto-create one from the output so the Briefing always reflects task completions.
-	if r.memos != nil {
-		posted := r.extractAndSaveMemos(task, agent, fullOutput)
-		// Extract artifact declarations and create briefing entries for each.
-		r.extractAndSaveArtifacts(task, agent, fullOutput)
-		if !posted && !task.IsCriticReview {
-			r.autoMemo(task, agent, fullOutput)
-		}
-	}
-
-	// Retain the task output as a memory for this agent.
-	// Fire-and-forget: errors are logged but never affect the task result.
-	if memClient != nil && !task.IsCriticReview {
-		retainContent := task.Title + "\n\n" + fullOutput
-		go func() {
-			retainCtx, cancel := context.WithTimeout(r.bgCtx, 30*time.Second)
-			defer cancel()
-			if err := memClient.Retain(retainCtx, agent.ID, retainContent); err != nil {
-				slog.Warn("runner: memory retain failed", "task_id", task.ID, "agent_id", agent.ID, "error", err)
-			}
-		}()
-	}
-
-	// After successful completion, run a critic/devil's-advocate review if configured.
-	// Critic reviews are never themselves reviewed (avoids infinite loops).
-	if !task.IsCriticReview {
-		r.maybeLaunchCritic(task, agent)
-		r.maybeAutoWriteObsidian(task, agent, fullOutput)
-	}
-
-	r.emit(StreamEvent{
-		TaskID:     task.ID,
-		AgentID:    task.AgentID,
-		StatusDone: &finalStatus,
-	})
+	r.finaliseTask(ctx, task, out, ec)
 }
 
 // failTask marks a task as failed and emits an error event.

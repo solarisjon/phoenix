@@ -58,7 +58,7 @@ export interface Project {
   schedule_times: string[] | null   // ["07:00","12:00"] when schedule_kind === 'daily'; null/[] otherwise
   schedule_catch_up: boolean        // daily only: run a missed time later the same day
   owner: string
-  status: 'active' | 'archived'
+  status: 'active' | 'archived' | 'paused'
   critic_agent_id: string | null
   critic_mode: 'none' | 'builtin' | string  // "none" | "builtin" | "agent:<id>"
   monitor_model: string             // if set, overrides the agent's model for monitor runs
@@ -429,6 +429,7 @@ export const api = {
     delete: (id: string) => request<void>(`/projects/${id}`, { method: 'DELETE' }),
     archive: (id: string) => request<Project>(`/projects/${id}/archive`, { method: 'POST', body: '{}' }),
     restore: (id: string) => request<Project>(`/projects/${id}/restore`, { method: 'POST', body: '{}' }),
+    pause: (id: string) => request<Project>(`/projects/${id}/pause`, { method: 'POST', body: '{}' }),
     listAgents: (id: string) => request<Agent[]>(`/projects/${id}/agents`),
     assignAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents`, { method: 'POST', body: JSON.stringify({ agent_id: agentId }) }),
     removeAgent: (id: string, agentId: string) => request<void>(`/projects/${id}/agents/${agentId}`, { method: 'DELETE' }),

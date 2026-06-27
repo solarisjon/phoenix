@@ -170,12 +170,14 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
 
 // ---- Monitor card ----
 
-function MonitorCard({ monitor, summary, agents, allAgents, providers, onArchive, onDelete, onRefresh }: {
+function MonitorCard({ monitor, summary, agents, allAgents, providers, onPause, onResume, onArchive, onDelete, onRefresh }: {
   monitor: Project
   summary?: ProjectSummary
   agents: Agent[]
   allAgents: Agent[]
   providers: Provider[]
+  onPause: () => void
+  onResume: () => void
   onArchive: () => void
   onDelete: () => void
   onRefresh: () => void
@@ -223,7 +225,7 @@ function MonitorCard({ monitor, summary, agents, allAgents, providers, onArchive
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-slate-400">⟳</span>
               <h3 className="font-medium text-white">{monitor.name}</h3>
-              <Badge variant={monitor.status === 'active' ? 'success' : 'muted'}>
+              <Badge variant={monitor.status === 'active' ? 'success' : monitor.status === 'paused' ? 'warning' : 'muted'}>
                 {monitor.status}
               </Badge>
               {monitor.tags?.map(t => <TagPill key={t} tag={t} />)}
@@ -266,6 +268,10 @@ function MonitorCard({ monitor, summary, agents, allAgents, providers, onArchive
           {/* Action buttons */}
           <div className="flex gap-2 shrink-0">
             <Button variant="secondary" size="sm" onClick={() => setShowEdit(true)}>Edit</Button>
+            {monitor.status === 'paused'
+              ? <Button variant="secondary" size="sm" onClick={onResume}>Resume</Button>
+              : <Button variant="secondary" size="sm" onClick={onPause}>Pause</Button>
+            }
             <Button variant="secondary" size="sm" onClick={onArchive}>Archive</Button>
             <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
           </div>
@@ -335,6 +341,20 @@ export function MonitorsPage() {
 
   useEffect(() => { load() }, [load])
 
+  const pauseMonitor = async (id: string) => {
+    try {
+      await api.projects.pause(id)
+      load()
+    } catch (error: unknown) { alert(getErrorMessage(error)) }
+  }
+
+  const resumeMonitor = async (id: string) => {
+    try {
+      await api.projects.restore(id)
+      load()
+    } catch (error: unknown) { alert(getErrorMessage(error)) }
+  }
+
   const archiveMonitor = async (id: string, name: string) => {
     if (!confirm(`Archive "${name}"? It will disappear from this list but all run history is preserved. You can restore it from Settings → Archived.`)) return
     try {
@@ -403,6 +423,8 @@ export function MonitorsPage() {
                         <MonitorCard key={m.id} monitor={m}
                           summary={summaries[m.id]}
                           agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
+                          onPause={() => pauseMonitor(m.id)}
+                          onResume={() => resumeMonitor(m.id)}
                           onArchive={() => archiveMonitor(m.id, m.name)}
                           onDelete={() => deleteMonitor(m.id, m.name)}
                           onRefresh={load} />
@@ -417,6 +439,8 @@ export function MonitorsPage() {
                   <MonitorCard key={m.id} monitor={m}
                     summary={summaries[m.id]}
                     agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
+                    onPause={() => pauseMonitor(m.id)}
+                    onResume={() => resumeMonitor(m.id)}
                     onArchive={() => archiveMonitor(m.id, m.name)}
                     onDelete={() => deleteMonitor(m.id, m.name)}
                     onRefresh={load} />
