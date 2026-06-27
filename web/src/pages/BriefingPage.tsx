@@ -139,6 +139,60 @@ function PromptContinue({ memo }: { memo: Memo }) {
   )
 }
 
+// ---- Inline markdown file viewer for artifact memos ----
+function MdFileViewer({ path }: { path: string }) {
+  const [open, setOpen] = useState(false)
+  const [content, setContent] = useState<string | null>(null)
+  const [truncated, setTruncated] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = async () => {
+    if (content !== null) { setOpen(true); return }
+    setLoading(true)
+    setError('')
+    try {
+      const result = await api.memos.getFileContent(path)
+      setContent(result.content)
+      setTruncated(result.truncated)
+      setOpen(true)
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Could not read file'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const filename = path.split('/').pop() ?? path
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => open ? setOpen(false) : load()}
+        disabled={loading}
+        className="inline-flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors disabled:opacity-50"
+      >
+        <span>{open ? '▾' : '▸'}</span>
+        <span className="font-mono">{filename}</span>
+        {loading && <span className="text-slate-500">Loading…</span>}
+      </button>
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+      {open && content !== null && (
+        <div className="mt-2 border border-slate-700 rounded-lg bg-slate-950 overflow-auto max-h-[32rem]">
+          <div className="px-4 py-3">
+            <MarkdownOutput content={content} />
+          </div>
+          {truncated && (
+            <p className="text-xs text-slate-500 px-4 py-2 border-t border-slate-800">
+              File truncated at 512 KB — open in an editor to view the full file.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---- Single memo row ----
 function MemoRow({ memo, onAction }: {
   memo: Memo
@@ -230,6 +284,14 @@ function MemoRow({ memo, onAction }: {
           <div className="border-l-2 border-slate-700 pl-4">
             <MarkdownOutput content={memo.body} />
           </div>
+
+          {/* Inline .md artifact viewer */}
+          {memo.artifact_path && (
+            <div className="border-l-2 border-violet-800/50 pl-4 mt-3">
+              <p className="text-xs text-slate-500 mb-1">📄 Markdown file</p>
+              <MdFileViewer path={memo.artifact_path} />
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex flex-wrap gap-2 mt-4">

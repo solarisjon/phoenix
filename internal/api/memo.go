@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -144,4 +146,48 @@ func (s *Server) deleteMemo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusNoContent, nil)
+}
+
+// getMemoFileContent serves the raw text of an absolute .md file path.
+// Used by the Briefing UI to render artifact markdown files inline.
+// Only .md files are served; all other extensions are rejected.
+func (s *Server) getMemoFileContent(w http.ResponseWriter, r *http.Request) {
+	rawPath := r.URL.Query().Get("path")
+	if rawPath == "" {
+		respondErr(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	// Require an absolute path and a .md extension.
+	if !filepath.IsAbs(rawPath) {
+		respondErr(w, http.StatusBadRequest, "path must be absolute")
+		return
+	}
+	if !strings.EqualFold(filepath.Ext(rawPath), ".md") {
+		respondErr(w, http.StatusBadRequest, "only .md files may be viewed")
+		return
+	}
+
+	clean := filepath.Clean(rawPath)
+	data, err := os.ReadFile(clean)
+	if os.IsNotExist(err) {
+		respondErr(w, http.StatusNotFound, "file not found")
+		return
+	}
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	const maxBytes = 512 * 1024 // 512 KB
+	truncated := false
+	if len(data) > maxBytes {
+		data = data[:maxBytes]
+		truncated = true
+	}
+
+	respond(w, http.StatusOK, map[string]interface{}{
+		"content":   string(data),
+		"truncated": truncated,
+	})
 }

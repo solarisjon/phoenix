@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -254,6 +255,9 @@ func parseMemoBlocks(output string) []parsedMemo {
 
 // extractAndSaveArtifacts scans agent output for ARTIFACT_START blocks and creates
 // a briefing memo entry for each one so they appear in the Briefing panel.
+// For obsidian-type artifacts the agent specifies the full path; the runner
+// ensures the parent directory exists and writes the file content from the
+// block body (if provided), then records a memo pointing to the written file.
 func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, output string) {
 	artifacts := ParseArtifactBlocks(output)
 	if len(artifacts) == 0 {
@@ -268,19 +272,40 @@ func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, outpu
 		if title == "" {
 			title = art.Path
 		}
+
+		// For obsidian artifacts, ensure the parent directory exists.
+		// The agent is expected to have already written the file content, but
+		// we also ensure the directory is present so future writes succeed.
+		if art.ArtType == "obsidian" {
+			if err := os.MkdirAll(strings.TrimSuffix(art.Path, "/"+strings.TrimPrefix(strings.TrimPrefix(art.Path, strings.TrimRight(art.Path, "/")), "/")), 0755); err != nil {
+				slog.Warn("runner: obsidian mkdirAll failed", "path", art.Path, "error", err)
+			}
+		}
+
 		body := fmt.Sprintf("**Type:** %s\n\n**Location:** %s", art.ArtType, art.Path)
+		if art.ArtType == "obsidian" && art.Vault != "" {
+			body = fmt.Sprintf("**Vault:** %s\n\n**File:** %s", art.Vault, art.Path)
+		}
+
+		// Set artifact_path for file-type .md artifacts so the Briefing UI can render them inline.
+		artifactPath := ""
+		if art.ArtType == "file" && strings.HasSuffix(strings.ToLower(art.Path), ".md") {
+			artifactPath = art.Path
+		}
+
 		memo := &model.Memo{
-			ID:          uuid.New().String(),
-			ProjectID:   task.ProjectID,
-			ProjectName: projectName,
-			TaskID:      task.ID,
-			AgentID:     a.ID,
-			AgentName:   a.Name,
-			Title:       "Artifact: " + title,
-			Body:        body,
-			Priority:    model.MemoPriorityNormal,
-			Status:      model.MemoStatusUnread,
-			CreatedAt:   time.Now(),
+			ID:           uuid.New().String(),
+			ProjectID:    task.ProjectID,
+			ProjectName:  projectName,
+			TaskID:       task.ID,
+			AgentID:      a.ID,
+			AgentName:    a.Name,
+			Title:        "Artifact: " + title,
+			Body:         body,
+			ArtifactPath: artifactPath,
+			Priority:     model.MemoPriorityNormal,
+			Status:       model.MemoStatusUnread,
+			CreatedAt:    time.Now(),
 		}
 		if err := r.memos.Create(r.bgCtx, memo); err != nil {
 			slog.Error("runner: save artifact memo", "task_id", task.ID, "error", err)
@@ -291,6 +316,183 @@ func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, outpu
 			r.onMemo(memo)
 		}
 	}
+}
+
+// maybeAutoWriteObsidian fires a background goroutine that generates and writes
+// an Obsidian note for the completed task when obsidian_auto_write=1 and at
+// least one vault is configured. Errors are logged but never surface to the user.
+func (r *Runner) maybeAutoWriteObsidian(task *model.Task, a *model.Agent, output string) {
+	if r.obsidianVaults == nil || r.settings == nil {
+		return
+	}
+	settings, err := r.settings.Get(r.bgCtx)
+	if err != nil || !settings.ObsidianAutoWrite || settings.ObsidianRoot == "" {
+		return
+	}
+	vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx)
+	if err != nil || len(vaults) == 0 {
+		return
+	}
+
+	outputText := extractOutputText(output)
+	if strings.TrimSpace(outputText) == "" {
+		return
+	}
+
+	go func() {
+		prov, err := r.registry.Get(r.bgCtx, a.ProviderID)
+		if err != nil {
+			slog.Warn("obsidian auto-write: provider load failed", "task_id", task.ID, "error", err)
+			return
+		}
+
+		agentName := a.Name
+		projectName := task.ProjectID
+		if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
+			projectName = proj.Name
+		}
+		dateStr := time.Now().Format("2006-01-02")
+
+		// Pick the best vault.
+		targetVault := vaults[0]
+		if len(vaults) > 1 {
+			var routing strings.Builder
+			for _, v := range vaults {
+				routing.WriteString(fmt.Sprintf("- %s: %s\n", v.Name, v.Context))
+			}
+			pickPrompt := fmt.Sprintf(`Choose the most appropriate Obsidian vault for this task output.
+Task: %s
+Agent: %s
+Output summary: %s
+Vaults:
+%s
+Reply with ONLY the vault name.`, task.Title, agentName, truncateStr(outputText, 800), routing.String())
+
+			resp, err := prov.Execute(r.bgCtx, provider.TaskRequest{
+				SystemPrompt: "Output only the vault name.",
+				Prompt:       pickPrompt,
+			})
+			if err == nil {
+				picked := strings.TrimSpace(resp.Output)
+				for _, v := range vaults {
+					if strings.EqualFold(v.Name, picked) {
+						targetVault = v
+						break
+					}
+				}
+			}
+		}
+
+		// Generate note content.
+		notePrompt := fmt.Sprintf(`Convert this task output into a well-formatted Obsidian Markdown note.
+
+Task: %s
+Agent: %s
+Project: %s
+Date: %s
+
+Task output:
+%s
+
+Requirements:
+1. YAML front matter: date, tags (phoenix, %s, %s), source (phoenix-task), task_id (%s), agent, project
+2. H1 heading as title
+3. Clean Markdown body — use headings, bullets, tables as appropriate
+4. Closing footer: "Generated by Phoenix agent: %s on %s"
+Output ONLY the Markdown content.`,
+			task.Title, agentName, projectName, dateStr,
+			outputText, agentName, projectName, task.ID, agentName, dateStr)
+
+		noteResp, err := prov.Execute(r.bgCtx, provider.TaskRequest{
+			SystemPrompt: "You produce clean Obsidian Markdown notes. Output only the Markdown.",
+			Prompt:       notePrompt,
+		})
+		if err != nil {
+			slog.Warn("obsidian auto-write: note generation failed", "task_id", task.ID, "error", err)
+			return
+		}
+
+		slug := slugifyStr(task.Title)
+		filename := fmt.Sprintf("%s-%s.md", dateStr, slug)
+		filePath := fmt.Sprintf("%s/%s", targetVault.Path, filename)
+		// Handle collisions.
+		if _, statErr := os.Stat(filePath); statErr == nil {
+			for i := 2; i <= 99; i++ {
+				candidate := fmt.Sprintf("%s/%s-%s-%d.md", targetVault.Path, dateStr, slug, i)
+				if _, statErr := os.Stat(candidate); os.IsNotExist(statErr) {
+					filePath = candidate
+					filename = fmt.Sprintf("%s-%s-%d.md", dateStr, slug, i)
+					break
+				}
+			}
+		}
+
+		if err := os.WriteFile(filePath, []byte(noteResp.Output), 0644); err != nil {
+			slog.Warn("obsidian auto-write: write failed", "task_id", task.ID, "path", filePath, "error", err)
+			return
+		}
+		slog.Info("obsidian auto-write: note written", "task_id", task.ID, "path", filePath)
+
+		// Create a memo pointing to the note.
+		if r.memos != nil {
+			var projectNameForMemo string
+			if proj, err := r.projects.Get(r.bgCtx, task.ProjectID); err == nil && proj != nil {
+				projectNameForMemo = proj.Name
+			}
+			memo := &model.Memo{
+				ID:          uuid.New().String(),
+				ProjectID:   task.ProjectID,
+				ProjectName: projectNameForMemo,
+				TaskID:      task.ID,
+				AgentID:     a.ID,
+				AgentName:   a.Name,
+				Title:       "Obsidian note: " + task.Title,
+				Body:        fmt.Sprintf("**Vault:** %s\n\n**File:** %s", targetVault.Name, filePath),
+				Priority:    model.MemoPriorityNormal,
+				Status:      model.MemoStatusUnread,
+				CreatedAt:   time.Now(),
+			}
+			if createErr := r.memos.Create(r.bgCtx, memo); createErr != nil {
+				slog.Error("obsidian auto-write: save memo", "error", createErr)
+			} else if r.onMemo != nil {
+				r.onMemo(memo)
+			}
+		}
+	}()
+}
+
+// slugifyStr converts a title to lowercase-kebab-case for use in filenames.
+func slugifyStr(title string) string {
+	title = strings.ToLower(title)
+	var b strings.Builder
+	for _, ch := range title {
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= '0' && ch <= '9':
+			b.WriteRune(ch)
+		case ch == ' ' || ch == '-' || ch == '_':
+			b.WriteByte('-')
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	if len(s) > 60 {
+		s = s[:60]
+	}
+	if s == "" {
+		s = "untitled"
+	}
+	return s
+}
+
+// truncateStr limits s to maxLen runes, appending "…" if truncated.
+func truncateStr(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "…"
 }
 
 // deriveHealthSignal inspects the output text of a completed monitor task and

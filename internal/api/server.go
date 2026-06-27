@@ -35,6 +35,7 @@ type Server struct {
 	memos          store.MemoRepo
 	pluginRepo     store.PluginRepo
 	ruleRepo       store.NotificationRuleRepo
+	obsidianVaults store.ObsidianVaultRepo
 	pluginManager  *plugin.Manager
 	runner         *agent.Runner
 	registry       *registry.Registry
@@ -61,6 +62,7 @@ func New(
 	memos store.MemoRepo,
 	pluginRepo store.PluginRepo,
 	ruleRepo store.NotificationRuleRepo,
+	obsidianVaults store.ObsidianVaultRepo,
 	pluginManager *plugin.Manager,
 	runner *agent.Runner,
 	reg *registry.Registry,
@@ -84,6 +86,7 @@ func New(
 		memos:          memos,
 		pluginRepo:     pluginRepo,
 		ruleRepo:       ruleRepo,
+		obsidianVaults: obsidianVaults,
 		pluginManager:  pluginManager,
 		runner:         runner,
 		registry:       reg,
@@ -196,6 +199,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/tasks/{id}/dismiss", s.dismissTask)
 		r.Post("/tasks/{id}/undismiss", s.undismissTask)
 		r.Post("/tasks/{id}/followup", s.followUpTask)
+		r.Post("/tasks/{id}/obsidian-write", s.writeTaskToObsidian)
 
 		// Agent drafts (pending hire proposals)
 		r.Get("/agent-drafts", s.listAgentDrafts)
@@ -216,6 +220,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/memos", s.listMemos)
 		r.Post("/memos", s.createMemo)
 		r.Get("/memos/count", s.getMemoCount)
+		r.Get("/memos/file-content", s.getMemoFileContent)
 		r.Put("/memos/{id}/status", s.updateMemoStatus)
 		r.Delete("/memos/{id}", s.deleteMemo)
 
@@ -234,6 +239,15 @@ func (s *Server) buildRouter() http.Handler {
 		r.Post("/plugins/{id}/rules", s.createPluginRule)
 		r.Put("/plugins/{id}/rules/{rid}", s.updatePluginRule)
 		r.Delete("/plugins/{id}/rules/{rid}", s.deletePluginRule)
+
+		// Obsidian vault integration
+		r.Get("/obsidian/vaults", s.listObsidianVaults)
+		r.Post("/obsidian/vaults", s.createObsidianVault)
+		r.Get("/obsidian/discover", s.discoverObsidianVaults)
+		r.Post("/obsidian/generate-context", s.generateObsidianVaultContext)
+		r.Get("/obsidian/vaults/{id}", s.getObsidianVault)
+		r.Put("/obsidian/vaults/{id}", s.updateObsidianVault)
+		r.Delete("/obsidian/vaults/{id}", s.deleteObsidianVault)
 
 		// Themes
 		r.Get("/themes", s.listThemes)

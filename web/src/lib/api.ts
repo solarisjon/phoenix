@@ -145,6 +145,30 @@ export interface SystemSettings {
   global_guardrails: string
   core_plugins_enabled: boolean
   community_plugins_enabled: boolean
+  obsidian_root: string
+  obsidian_auto_write: boolean
+}
+
+export interface ObsidianVault {
+  id: string
+  name: string
+  path: string
+  context: string
+  enabled: boolean
+  sort_order: number
+  created_at: string
+}
+
+export interface ObsidianDiscoveredVault {
+  name: string
+  path: string
+  configured: boolean
+}
+
+export interface ObsidianWriteResult {
+  vault: string
+  path: string
+  filename: string
 }
 
 export interface PluginRecord {
@@ -224,6 +248,7 @@ export interface Memo {
   agent_name: string
   title: string
   body: string
+  artifact_path: string // absolute path to a .md artifact file, if any
   priority: 'normal' | 'high'
   status: 'unread' | 'read' | 'flagged' | 'archived'
   created_at: string
@@ -483,6 +508,8 @@ export const api = {
     updateStatus: (id: string, status: Memo['status']) =>
       request<Memo>(`/memos/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
     delete: (id: string) => request<void>(`/memos/${id}`, { method: 'DELETE' }),
+    getFileContent: (path: string) =>
+      request<{ content: string; truncated: boolean }>(`/memos/file-content?path=${encodeURIComponent(path)}`),
   },
   plugins: {
     list: (type?: string) => request<PluginRecord[]>(type ? `/plugins?type=${type}` : '/plugins'),
@@ -538,5 +565,27 @@ export const api = {
         body: JSON.stringify({ description, provider_id: providerId ?? '' }),
       }),
     sysinfo: () => request<SysInfo>('/admin/sysinfo'),
+  },
+  obsidian: {
+    listVaults: () => request<ObsidianVault[]>('/obsidian/vaults'),
+    getVault: (id: string) => request<ObsidianVault>(`/obsidian/vaults/${id}`),
+    createVault: (v: Partial<ObsidianVault>) =>
+      request<ObsidianVault>('/obsidian/vaults', { method: 'POST', body: JSON.stringify(v) }),
+    updateVault: (id: string, v: Partial<ObsidianVault>) =>
+      request<ObsidianVault>(`/obsidian/vaults/${id}`, { method: 'PUT', body: JSON.stringify(v) }),
+    deleteVault: (id: string) =>
+      request<{ status: string }>(`/obsidian/vaults/${id}`, { method: 'DELETE' }),
+    discover: (root?: string) =>
+      request<ObsidianDiscoveredVault[]>(`/obsidian/discover${root ? `?root=${encodeURIComponent(root)}` : ''}`),
+    generateContext: (vaultName: string, providerId?: string) =>
+      request<{ context: string }>('/obsidian/generate-context', {
+        method: 'POST',
+        body: JSON.stringify({ vault_name: vaultName, provider_id: providerId ?? '' }),
+      }),
+    writeTask: (taskId: string, vaultId?: string, providerId?: string) =>
+      request<ObsidianWriteResult>(`/tasks/${taskId}/obsidian-write`, {
+        method: 'POST',
+        body: JSON.stringify({ vault_id: vaultId ?? '', provider_id: providerId ?? '' }),
+      }),
   },
 }

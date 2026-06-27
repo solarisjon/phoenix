@@ -196,6 +196,20 @@ type SystemSettings struct {
 	GlobalGuardrails         string `json:"global_guardrails"`
 	CorePluginsEnabled       bool   `json:"core_plugins_enabled"`
 	CommunityPluginsEnabled  bool   `json:"community_plugins_enabled"`
+	ObsidianRoot             string `json:"obsidian_root"`      // filesystem path of vaults directory
+	ObsidianAutoWrite        bool   `json:"obsidian_auto_write"` // auto-write MD to vault after task completion
+}
+
+// ObsidianVault represents a single Obsidian vault directory with user-provided context
+// describing what the vault is for, used to route agent output to the right vault.
+type ObsidianVault struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`      // directory name
+	Path      string    `json:"path"`      // absolute path to vault root
+	Context   string    `json:"context"`   // human description of vault purpose
+	Enabled   bool      `json:"enabled"`
+	SortOrder int       `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // AgentDraftStatus represents the lifecycle of a pending agent hire.
@@ -229,17 +243,18 @@ const (
 // pinned manually by the user from a completed task. Memos surface important
 // findings without cluttering the inbox task-lifecycle view.
 type Memo struct {
-	ID          string       `json:"id"`
-	ProjectID   string       `json:"project_id"`
-	ProjectName string       `json:"project_name"` // denormalised
-	TaskID      string       `json:"task_id"`
-	AgentID     string       `json:"agent_id"`
-	AgentName   string       `json:"agent_name"` // denormalised
-	Title       string       `json:"title"`
-	Body        string       `json:"body"`     // markdown
-	Priority    MemoPriority `json:"priority"` // "normal" | "high"
-	Status      MemoStatus   `json:"status"`   // "unread" | "read" | "flagged" | "archived"
-	CreatedAt   time.Time    `json:"created_at"`
+	ID           string       `json:"id"`
+	ProjectID    string       `json:"project_id"`
+	ProjectName  string       `json:"project_name"` // denormalised
+	TaskID       string       `json:"task_id"`
+	AgentID      string       `json:"agent_id"`
+	AgentName    string       `json:"agent_name"` // denormalised
+	Title        string       `json:"title"`
+	Body         string       `json:"body"`          // markdown
+	ArtifactPath string       `json:"artifact_path"` // absolute path to a .md file artifact, if any
+	Priority     MemoPriority `json:"priority"`      // "normal" | "high"
+	Status       MemoStatus   `json:"status"`        // "unread" | "read" | "flagged" | "archived"
+	CreatedAt    time.Time    `json:"created_at"`
 }
 
 // ---- Plugin Types ----

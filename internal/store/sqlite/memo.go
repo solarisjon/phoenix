@@ -15,7 +15,7 @@ type MemoRepo struct{ db *DB }
 func NewMemoRepo(db *DB) *MemoRepo { return &MemoRepo{db} }
 
 const memoSelectCols = `id, project_id, project_name, task_id, agent_id, agent_name,
-	title, body, priority, status, created_at`
+	title, body, artifact_path, priority, status, created_at`
 
 // List returns memos. status="" returns all non-archived; otherwise filters to that status.
 func (r *MemoRepo) List(ctx context.Context, status string) ([]*model.Memo, error) {
@@ -46,10 +46,10 @@ func (r *MemoRepo) Get(ctx context.Context, id string) (*model.Memo, error) {
 func (r *MemoRepo) Create(ctx context.Context, m *model.Memo) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO memos (id, project_id, project_name, task_id, agent_id, agent_name,
-		 title, body, priority, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 title, body, artifact_path, priority, status, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.ProjectID, m.ProjectName, m.TaskID, m.AgentID, m.AgentName,
-		m.Title, m.Body, string(m.Priority), string(m.Status), m.CreatedAt)
+		m.Title, m.Body, m.ArtifactPath, string(m.Priority), string(m.Status), m.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create memo: %w", err)
 	}
@@ -90,7 +90,7 @@ func scanMemo(row *sql.Row) (*model.Memo, error) {
 	var priority, status string
 	err := row.Scan(
 		&m.ID, &m.ProjectID, &m.ProjectName, &m.TaskID, &m.AgentID, &m.AgentName,
-		&m.Title, &m.Body, &priority, &status, &m.CreatedAt,
+		&m.Title, &m.Body, &m.ArtifactPath, &priority, &status, &m.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -110,7 +110,7 @@ func scanMemos(rows *sql.Rows) ([]*model.Memo, error) {
 		var priority, status string
 		if err := rows.Scan(
 			&m.ID, &m.ProjectID, &m.ProjectName, &m.TaskID, &m.AgentID, &m.AgentName,
-			&m.Title, &m.Body, &priority, &status, &m.CreatedAt,
+			&m.Title, &m.Body, &m.ArtifactPath, &priority, &status, &m.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan memo row: %w", err)
 		}
