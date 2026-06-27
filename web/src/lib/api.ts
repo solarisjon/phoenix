@@ -150,7 +150,7 @@ export interface SystemSettings {
 export interface PluginRecord {
   id: string
   name: string
-  type: 'notifier' | 'theme'
+  type: 'notifier' | 'theme' | 'memory'
   kind: string
   is_core: boolean
   enabled: boolean

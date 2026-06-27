@@ -4,10 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -15,29 +12,28 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/provider"
 )
 
 type createProjectRequest struct {
-	Name             string   `json:"name"`
-	Description      string   `json:"description"`
-	Objective        string   `json:"objective"`
-	WorkingDir       string   `json:"working_dir"`
-	Kind             string   `json:"kind"`
-	Status           string   `json:"status"`
-	ScheduleInterval *int     `json:"schedule_interval"` // seconds; nil = no schedule (monitors only)
-	ScheduleKind     string   `json:"schedule_kind"`     // "interval" | "daily"
-	ScheduleTimes    []string `json:"schedule_times"`    // ["07:00","12:00"] when schedule_kind == "daily"
-	ScheduleCatchUp  bool     `json:"schedule_catch_up"` // daily only: catch up a missed run same calendar day
-	CriticAgentID    *string  `json:"critic_agent_id"`   // deprecated: prefer critic_mode
-	CriticMode       string   `json:"critic_mode"`       // "none" | "builtin" | "agent:<id>"
-	MonitorModel     string   `json:"monitor_model"`     // if set, overrides the agent's model for monitor tasks
-	BudgetUSD        float64  `json:"budget_usd"`        // 0 = no limit
-	BudgetPeriod     string   `json:"budget_period"`     // "day" | "week" | "month" | "total"
-	ContextSummarisation bool `json:"context_summarisation"` // opt-in: summarise long follow-up chains
-	Tags             []string `json:"tags"`
+	Name                 string   `json:"name"`
+	Description          string   `json:"description"`
+	Objective            string   `json:"objective"`
+	WorkingDir           string   `json:"working_dir"`
+	Kind                 string   `json:"kind"`
+	Status               string   `json:"status"`
+	ScheduleInterval     *int     `json:"schedule_interval"`     // seconds; nil = no schedule (monitors only)
+	ScheduleKind         string   `json:"schedule_kind"`         // "interval" | "daily"
+	ScheduleTimes        []string `json:"schedule_times"`        // ["07:00","12:00"] when schedule_kind == "daily"
+	ScheduleCatchUp      bool     `json:"schedule_catch_up"`     // daily only: catch up a missed run same calendar day
+	CriticAgentID        *string  `json:"critic_agent_id"`       // deprecated: prefer critic_mode
+	CriticMode           string   `json:"critic_mode"`           // "none" | "builtin" | "agent:<id>"
+	MonitorModel         string   `json:"monitor_model"`         // if set, overrides the agent's model for monitor tasks
+	BudgetUSD            float64  `json:"budget_usd"`            // 0 = no limit
+	BudgetPeriod         string   `json:"budget_period"`         // "day" | "week" | "month" | "total"
+	ContextSummarisation bool     `json:"context_summarisation"` // opt-in: summarise long follow-up chains
+	Tags                 []string `json:"tags"`
 }
 
 func (r createProjectRequest) validate() string {
@@ -165,26 +161,26 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := &model.Project{
-		ID:               uuid.New().String(),
-		Name:             strings.TrimSpace(req.Name),
-		Description:      req.Description,
-		Objective:        req.Objective,
-		WorkingDir:       strings.TrimSpace(req.WorkingDir),
-		Kind:             kind,
-		ScheduleInterval: req.ScheduleInterval,
-		ScheduleKind:     resolveScheduleKind(req.ScheduleKind),
-		ScheduleTimes:    normaliseScheduleTimes(req.ScheduleTimes),
-		ScheduleCatchUp:  req.ScheduleCatchUp,
-		Owner:            user.ID,
-		Status:           status,
-		CriticAgentID:    req.CriticAgentID,
-		CriticMode:       criticMode,
-		MonitorModel:     strings.TrimSpace(req.MonitorModel),
-		BudgetUSD:        req.BudgetUSD,
-		BudgetPeriod:     resolveBudgetPeriod(req.BudgetPeriod),
+		ID:                   uuid.New().String(),
+		Name:                 strings.TrimSpace(req.Name),
+		Description:          req.Description,
+		Objective:            req.Objective,
+		WorkingDir:           strings.TrimSpace(req.WorkingDir),
+		Kind:                 kind,
+		ScheduleInterval:     req.ScheduleInterval,
+		ScheduleKind:         resolveScheduleKind(req.ScheduleKind),
+		ScheduleTimes:        normaliseScheduleTimes(req.ScheduleTimes),
+		ScheduleCatchUp:      req.ScheduleCatchUp,
+		Owner:                user.ID,
+		Status:               status,
+		CriticAgentID:        req.CriticAgentID,
+		CriticMode:           criticMode,
+		MonitorModel:         strings.TrimSpace(req.MonitorModel),
+		BudgetUSD:            req.BudgetUSD,
+		BudgetPeriod:         resolveBudgetPeriod(req.BudgetPeriod),
 		ContextSummarisation: req.ContextSummarisation,
-		Tags:             normaliseTags(req.Tags),
-		CreatedAt:        time.Now(),
+		Tags:                 normaliseTags(req.Tags),
+		CreatedAt:            time.Now(),
 	}
 	if err := s.projects.Create(r.Context(), p); err != nil {
 		respondInternalErr(w, err)
@@ -562,7 +558,6 @@ Be specific and actionable. Return ONLY the description text — no JSON, no mar
 	respond(w, http.StatusOK, map[string]string{"description": description})
 }
 
-
 func (s *Server) getProjectSummary(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	project, err := s.projects.Get(r.Context(), id)
@@ -625,168 +620,6 @@ func (s *Server) listProjectSummaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, summaries)
-}
-
-// ---- File browser ----
-
-// projectFileEntry is a single entry returned by listProjectFiles.
-type projectFileEntry struct {
-	Name       string    `json:"name"`
-	RelPath    string    `json:"rel_path"` // relative to working_dir
-	SizeBytes  int64     `json:"size_bytes"`
-	ModifiedAt time.Time `json:"modified_at"`
-	Ext        string    `json:"ext"` // e.g. ".md", ".html", ".txt"
-	IsArtifact bool      `json:"is_artifact"` // true when tagged in task output
-}
-
-// listProjectFiles lists regular files under the project's working_dir.
-// Files are returned sorted by modification time (newest first).
-// Hidden files and directories are excluded. Walk depth is capped at 3.
-func (s *Server) listProjectFiles(w http.ResponseWriter, r *http.Request) {
-	proj, err := s.projects.Get(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		respondInternalErr(w, err)
-		return
-	}
-	if proj == nil {
-		respondErr(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if proj.WorkingDir == "" {
-		respond(w, http.StatusOK, []projectFileEntry{})
-		return
-	}
-
-	root := filepath.Clean(proj.WorkingDir)
-	if _, err := os.Stat(root); os.IsNotExist(err) {
-		respond(w, http.StatusOK, []projectFileEntry{})
-		return
-	}
-
-	// Collect artifact paths from task outputs so we can badge them.
-	artifactPaths := collectArtifactPaths(r.Context(), s, proj.ID)
-
-	var entries []projectFileEntry
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries
-		}
-		// Skip hidden files/dirs.
-		if strings.HasPrefix(d.Name(), ".") {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			// Limit depth to 3 levels below root.
-			rel, _ := filepath.Rel(root, path)
-			if strings.Count(rel, string(os.PathSeparator)) >= 3 {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, path)
-		_, isArtifact := artifactPaths[path]
-		entries = append(entries, projectFileEntry{
-			Name:       d.Name(),
-			RelPath:    rel,
-			SizeBytes:  info.Size(),
-			ModifiedAt: info.ModTime(),
-			Ext:        strings.ToLower(filepath.Ext(d.Name())),
-			IsArtifact: isArtifact,
-		})
-		return nil
-	})
-
-	// Sort newest-first.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].ModifiedAt.After(entries[j].ModifiedAt)
-	})
-
-	respond(w, http.StatusOK, entries)
-}
-
-// getProjectFileContent returns the text content of a file inside the project's
-// working_dir. The file path is passed as the URL wildcard segment after /files/.
-// Read is limited to 256 KB for safety.
-func (s *Server) getProjectFileContent(w http.ResponseWriter, r *http.Request) {
-	proj, err := s.projects.Get(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		respondInternalErr(w, err)
-		return
-	}
-	if proj == nil {
-		respondErr(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if proj.WorkingDir == "" {
-		respondErr(w, http.StatusBadRequest, "project has no working directory")
-		return
-	}
-
-	// Decode the relative path from the URL wildcard.
-	relPath := chi.URLParam(r, "*")
-	if relPath == "" {
-		respondErr(w, http.StatusBadRequest, "file path required")
-		return
-	}
-
-	root := filepath.Clean(proj.WorkingDir)
-	abs := filepath.Clean(filepath.Join(root, relPath))
-
-	// Guard: resolved path must be within the project root.
-	if !strings.HasPrefix(abs, root+string(os.PathSeparator)) && abs != root {
-		respondErr(w, http.StatusForbidden, "path outside project directory")
-		return
-	}
-
-	f, err := os.Open(abs)
-	if os.IsNotExist(err) {
-		respondErr(w, http.StatusNotFound, "file not found")
-		return
-	}
-	if err != nil {
-		respondInternalErr(w, err)
-		return
-	}
-	defer f.Close()
-
-	const maxRead = 256 * 1024
-	lr := io.LimitReader(f, maxRead)
-	data, err := io.ReadAll(lr)
-	if err != nil {
-		respondInternalErr(w, err)
-		return
-	}
-
-	respond(w, http.StatusOK, map[string]any{
-		"content":  string(data),
-		"ext":      strings.ToLower(filepath.Ext(abs)),
-		"truncated": int64(len(data)) == maxRead,
-	})
-}
-
-// collectArtifactPaths queries recent task outputs for the project and returns
-// a set of absolute paths that were declared as ARTIFACT_START file artifacts.
-func collectArtifactPaths(ctx context.Context, s *Server, projectID string) map[string]struct{} {
-	out := map[string]struct{}{}
-	tasks, err := s.tasks.ListByProject(ctx, projectID, "", 500)
-	if err != nil {
-		return out
-	}
-	for _, t := range tasks {
-		for _, a := range agent.ParseArtifactBlocks(t.Output) {
-			if a.ArtType == "file" && a.Path != "" {
-				out[filepath.Clean(a.Path)] = struct{}{}
-			}
-		}
-	}
-	return out
 }
 
 // listProjectHistory returns all completed tasks for a project regardless of dismissed state.

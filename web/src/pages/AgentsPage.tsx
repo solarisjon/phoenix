@@ -94,8 +94,32 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
+  const [memoryEnabled, setMemoryEnabled] = useState(false)
+  const [clearingMemory, setClearingMemory] = useState(false)
+  const [memoryCleared, setMemoryCleared] = useState(false)
 
   const selectedProvider = providers.find(p => p.id === providerID)
+
+  useEffect(() => {
+    api.plugins.list('memory').then(plugins => {
+      setMemoryEnabled(plugins.some(p => p.kind === 'hindsight' && p.enabled))
+    }).catch(() => {})
+  }, [])
+
+  const clearMemory = async () => {
+    if (!initial?.id) return
+    if (!confirm('Clear all memories for this agent? This cannot be undone.')) return
+    setClearingMemory(true)
+    try {
+      await api.agents.clearMemory(initial.id)
+      setMemoryCleared(true)
+      setTimeout(() => setMemoryCleared(false), 3000)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setClearingMemory(false)
+    }
+  }
 
   const save = async () => {
     setError('')
@@ -301,6 +325,32 @@ function AgentForm({ initial, providers, onSave, onClose }: {
             </div>
           </div>
         </div>
+
+        {/* Persistent Memory */}
+        {initial?.id && memoryEnabled && (
+          <div className="border-t border-slate-800 pt-4">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-2">Persistent Memory</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-300">This agent has persistent memory via Hindsight.</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Memories are stored after each successful task and recalled automatically before new tasks run.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 ml-4 shrink-0">
+                {memoryCleared && <span className="text-xs text-emerald-400">Cleared</span>}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={clearMemory}
+                  disabled={clearingMemory}
+                >
+                  {clearingMemory ? 'Clearing…' : 'Clear Memory'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex gap-3 justify-end pt-2">
