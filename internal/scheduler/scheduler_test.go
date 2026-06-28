@@ -300,7 +300,7 @@ func (r *fakeTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*t
 	return latest, nil
 }
 
-func (r *fakeTaskRepo) SetPriority(_ context.Context, _ string, _ int) error { return nil }
+func (r *fakeTaskRepo) BumpPriority(_ context.Context, _ string) error { return nil }
 
 // countingRunner counts RunTask calls and records the task IDs.
 type countingRunner struct {

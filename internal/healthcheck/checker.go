@@ -4,7 +4,9 @@ package healthcheck
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
@@ -77,9 +79,9 @@ func (c *Checker) probeAll(ctx context.Context) {
 
 func (c *Checker) probe(ctx context.Context, rec *model.Provider) {
 	var (
-		status string
-		ms     int64
-		errMsg string
+		status    string
+		latencyMs *int64
+		errMsg    string
 	)
 
 	if rec.Type == model.ProviderTypeCodingAgent {
@@ -90,23 +92,33 @@ func (c *Checker) probe(ctx context.Context, rec *model.Provider) {
 		} else {
 			status = "ok"
 		}
-		ms = time.Since(start).Milliseconds()
+		ms := time.Since(start).Milliseconds()
+		latencyMs = &ms
 	} else {
 		prov, err := c.registry.Get(ctx, rec.ID)
 		if err != nil {
 			status = "error"
 			errMsg = "could not build provider: " + err.Error()
+			// latencyMs stays nil — no network round-trip occurred
 		} else {
 			start := time.Now()
 			tctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			_, testErr := prov.Execute(tctx, provider.TaskRequest{
+			resp, testErr := prov.Execute(tctx, provider.TaskRequest{
 				Prompt: "Reply with exactly one word: ok",
 			})
 			cancel()
-			ms = time.Since(start).Milliseconds()
+			ms := time.Since(start).Milliseconds()
+			latencyMs = &ms
 			if testErr != nil {
+				if errors.Is(testErr, context.Canceled) {
+					return // parent context cancelled (shutdown); don't overwrite health state
+				}
 				status = "error"
 				errMsg = testErr.Error()
+				c.registry.Invalidate(rec.ID)
+			} else if !strings.EqualFold(strings.TrimSpace(resp.Output), "ok") {
+				status = "error"
+				errMsg = "unexpected response: " + resp.Output
 				c.registry.Invalidate(rec.ID)
 			} else {
 				status = "ok"
@@ -114,9 +126,9 @@ func (c *Checker) probe(ctx context.Context, rec *model.Provider) {
 		}
 	}
 
-	if err := c.providers.UpdateHealth(ctx, rec.ID, status, &ms, errMsg); err != nil {
+	if err := c.providers.UpdateHealth(ctx, rec.ID, status, latencyMs, errMsg); err != nil {
 		slog.Error("healthcheck: persist", "provider_id", rec.ID, "error", err)
 	} else {
-		slog.Debug("healthcheck: probed", "provider", rec.Name, "status", status, "latency_ms", ms)
+		slog.Debug("healthcheck: probed", "provider", rec.Name, "status", status)
 	}
 }

@@ -298,7 +298,7 @@ func (r *memTaskRepo) HasActiveTaskForProject(_ context.Context, projectID strin
 	return false, nil
 }
 
-func (r *memTaskRepo) SetPriority(_ context.Context, _ string, _ int) error { return nil }
+func (r *memTaskRepo) BumpPriority(_ context.Context, _ string) error { return nil }
 
 // ---- Mock project repo ----
 

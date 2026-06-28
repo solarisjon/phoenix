@@ -249,7 +249,7 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 			status = "ok"
 		}
 		ms := latencyMs
-		if err := s.providers.UpdateHealth(r.Context(), id, status, &ms, errMsg); err != nil {
+		if err := s.providers.UpdateHealth(context.Background(), id, status, &ms, errMsg); err != nil {
 			slog.Warn("testProvider: persist health", "provider_id", id, "error", err)
 		}
 	}
@@ -297,9 +297,9 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, result{true, fmt.Sprintf("Connected · %dms", latencyMs), latencyMs})
 }
 
-// healthProvider triggers an immediate lightweight probe of the provider and
-// returns its current health state. For LLM providers this is a 1-token
-// completion; for coding agents it checks binary availability.
+// healthProvider returns the cached health state for a provider as last written
+// by the background healthcheck.Checker. It does not fire a live probe — use
+// POST /providers/{id}/test for that.
 func (s *Server) healthProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	rec, err := s.providers.Get(r.Context(), id)
@@ -312,60 +312,21 @@ func (s *Server) healthProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var (
-		status    string
-		latencyMs int64
-		errMsg    string
-	)
-
-	if rec.Type == model.ProviderTypeCodingAgent {
-		start := time.Now()
-		if err := provider.CheckCodingAgentBinary(rec.Config); err != nil {
-			status = "error"
-			errMsg = err.Error()
-		} else {
-			status = "ok"
-		}
-		latencyMs = time.Since(start).Milliseconds()
-	} else {
-		prov, buildErr := s.registry.Get(r.Context(), id)
-		if buildErr != nil {
-			status = "error"
-			errMsg = "could not build provider: " + buildErr.Error()
-		} else {
-			start := time.Now()
-			tctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-			_, testErr := prov.Execute(tctx, provider.TaskRequest{
-				Prompt: "Reply with exactly one word: ok",
-			})
-			cancel()
-			latencyMs = time.Since(start).Milliseconds()
-			if testErr != nil {
-				status = "error"
-				errMsg = testErr.Error()
-				s.registry.Invalidate(id)
-			} else {
-				status = "ok"
-			}
-		}
-	}
-
-	ms := latencyMs
-	if err := s.providers.UpdateHealth(r.Context(), id, status, &ms, errMsg); err != nil {
-		slog.Warn("healthProvider: persist", "provider_id", id, "error", err)
-	}
-
 	type healthResult struct {
-		Status    string  `json:"status"`
-		LatencyMs int64   `json:"latency_ms"`
-		Error     string  `json:"error,omitempty"`
-		CheckedAt string  `json:"checked_at"`
+		Status    string `json:"status"`
+		LatencyMs *int64 `json:"latency_ms,omitempty"`
+		Error     string `json:"error,omitempty"`
+		CheckedAt string `json:"checked_at,omitempty"`
+	}
+	var checkedAt string
+	if rec.HealthCheckedAt != nil {
+		checkedAt = rec.HealthCheckedAt.UTC().Format(time.RFC3339)
 	}
 	respond(w, http.StatusOK, healthResult{
-		Status:    status,
-		LatencyMs: latencyMs,
-		Error:     errMsg,
-		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+		Status:    rec.HealthStatus,
+		LatencyMs: rec.HealthLatencyMs,
+		Error:     rec.HealthError,
+		CheckedAt: checkedAt,
 	})
 }
 
@@ -448,7 +409,12 @@ func (s *Server) updateProviderPricing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate provider exists.
-	if _, err := s.providers.Get(ctx, id); err != nil {
+	p, err := s.providers.Get(ctx, id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
 		respondErr(w, http.StatusNotFound, "provider not found")
 		return
 	}

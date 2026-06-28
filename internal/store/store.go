@@ -121,9 +121,9 @@ type TaskRepo interface {
 	// chain so future follow-ups can skip re-summarising the same turns.
 	SaveSummaryCache(ctx context.Context, taskID, summary string) error
 
-	// SetPriority updates the scheduling priority of a task.
+	// BumpPriority atomically increments the scheduling priority of a task by 10.
 	// Higher values run before lower ones; ties are broken by created_at ASC.
-	SetPriority(ctx context.Context, taskID string, priority int) error
+	BumpPriority(ctx context.Context, taskID string) error
 }
 
 // TeamRepo manages agent teams.

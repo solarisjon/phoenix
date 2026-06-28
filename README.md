@@ -8,7 +8,7 @@ A self-hosted **harness engineering** platform for AI agents. Define agents with
 
 ---
 
-![Phoenix Dashboard](docs/screenshots/dashboard.jpg)
+![Phoenix Dashboard](docs/screenshots/dashboard.png)
 
 ---
 

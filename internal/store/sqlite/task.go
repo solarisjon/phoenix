@@ -355,11 +355,11 @@ func (r *TaskRepo) SaveSummaryCache(ctx context.Context, taskID, summary string)
 	return nil
 }
 
-func (r *TaskRepo) SetPriority(ctx context.Context, taskID string, priority int) error {
+func (r *TaskRepo) BumpPriority(ctx context.Context, taskID string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE tasks SET priority = ? WHERE id = ?`, priority, taskID)
+		`UPDATE tasks SET priority = priority + 10 WHERE id = ?`, taskID)
 	if err != nil {
-		return fmt.Errorf("set priority: %w", err)
+		return fmt.Errorf("bump priority: %w", err)
 	}
 	return nil
 }

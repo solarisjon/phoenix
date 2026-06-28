@@ -593,12 +593,11 @@ func (s *Server) bumpTask(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, http.StatusConflict, "only queued tasks can be bumped")
 		return
 	}
-	newPriority := task.Priority + 10
-	if err := s.tasks.SetPriority(r.Context(), id, newPriority); err != nil {
+	if err := s.tasks.BumpPriority(r.Context(), id); err != nil {
 		respondInternalErr(w, err)
 		return
 	}
-	task.Priority = newPriority
+	task.Priority += 10
 	respond(w, http.StatusOK, task)
 }
 
