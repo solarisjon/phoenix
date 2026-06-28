@@ -996,7 +996,6 @@ function ObsidianTab() {
   const [discovered, setDiscovered] = useState<ObsidianDiscoveredVault[]>([])
   const [loading, setLoading] = useState(true)
   const [discovering, setDiscovering] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [generatingFor, setGeneratingFor] = useState<string | null>(null)
   const [addingVaultId, setAddingVaultId] = useState<string | null>(null)
@@ -1011,13 +1010,10 @@ function ObsidianTab() {
   const saveSettings = async (patch: Partial<SystemSettings>) => {
     const updated = { ...settings, ...patch }
     setSettings(updated)
-    setSaving(true)
     try {
       await api.admin.saveSettings(updated)
     } catch (e: unknown) {
       setError(getErrorMessage(e))
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -1210,7 +1206,12 @@ interface VaultCardProps {
 
 function VaultCard({ vault, generatingContext, onContextChange, onGenerateContext, onToggle, onDelete }: VaultCardProps) {
   const [localContext, setLocalContext] = useState(vault.context)
-  useEffect(() => { setLocalContext(vault.context) }, [vault.context])
+  const [prevVaultContext, setPrevVaultContext] = useState(vault.context)
+
+  if (vault.context !== prevVaultContext) {
+    setPrevVaultContext(vault.context)
+    setLocalContext(vault.context)
+  }
 
   return (
     <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3 transition-opacity ${vault.enabled ? '' : 'opacity-60'}`}>
