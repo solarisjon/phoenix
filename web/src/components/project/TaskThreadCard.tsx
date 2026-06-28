@@ -195,9 +195,15 @@ export function TaskThreadCard({ task, followUps, criticReviews, agents, onUpdat
           )}
           {task.cost_usd > 0 && <><span>·</span><span>${task.cost_usd.toFixed(3)}</span></>}
         </div>
-        {task.source && (
+        {task.source && task.source.startsWith('heartbeat:') ? (
+          <div className="mt-1">
+            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
+              ⟳ Spawned by monitor: {task.source.replace('heartbeat:', '')}
+            </span>
+          </div>
+        ) : task.source ? (
           <div className="text-xs text-stone-400 mt-0.5">↳ {task.source}</div>
-        )}
+        ) : null}
       </div>
 
       {/* Running: live stream or intent description */}

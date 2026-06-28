@@ -81,6 +81,17 @@ export interface Project {
   budget_period: 'day' | 'week' | 'month' | 'total'
   context_summarisation: boolean    // if true, long follow-up chains are summarised before injection
   tags: string[] | null             // free-text grouping labels (null for rows predating migration 023)
+  // heartbeat reaction (monitors)
+  heartbeat_on_attention: string    // "spawn" | "notify" | ""
+  heartbeat_on_failed: string       // "spawn" | "notify" | "escalate" | ""
+  linked_project_id: string | null  // project to receive remediation tasks
+  heartbeat_consecutive_bad: number // how many consecutive non-all_clear signals have been seen
+  heartbeat_last_signal: string     // last derived health signal ("all_clear" | "needs_attention" | "failed" | "")
+  heartbeat_escalate_after: number  // escalate after N consecutive bad signals; 0 = disabled
+  monitor_cache_ttl: number         // seconds before a cached monitor run expires; 0 = never expire
+  // ReAct loop (projects)
+  react_mode: boolean
+  max_iterations: number            // 0 = use server default (10)
   created_at: string
 }
 
@@ -107,6 +118,7 @@ export interface Task {
   critic_mode: string  // "inherit" | "none" | "builtin" | "agent:<id>"
   priority: number       // higher = runs first; default 0 = FIFO
   depends_on: string[]   // task IDs that must complete before this runs; [] = no deps
+  loop_iteration: number // ReAct iteration index; 0 for non-loop tasks
   created_at: string
   started_at: string | null
   completed_at: string | null

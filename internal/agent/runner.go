@@ -472,6 +472,14 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 	}
 	req.WorkingDir = ec.workingDir
 
+	if ec.proj != nil && ec.proj.ReactMode && !task.IsCriticReview {
+		maxIter := ec.proj.MaxIterations
+		if maxIter <= 0 {
+			maxIter = reactMaxIterationsDefault
+		}
+		req = InjectReactLoopInstructions(req, maxIter, task.LoopIteration)
+	}
+
 	if r.obsidianVaults != nil && r.settings != nil && !task.IsCriticReview {
 		if sysSettings, err := r.settings.Get(ctx); err == nil && sysSettings.ObsidianEnabled {
 			if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
@@ -630,6 +638,12 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	if task.Source == "monitor" {
 		sig := deriveHealthSignal(out.fullText)
 		task.HealthSignal = &sig
+		if ec.proj != nil {
+			consecutiveBad := r.updateHeartbeatSignal(ec.proj, sig)
+			if sig != "all_clear" {
+				r.maybeReactToHealthSignal(task, ec.proj, sig, consecutiveBad)
+			}
+		}
 	}
 
 	finalStatus := model.TaskStatusCompleted
@@ -672,6 +686,7 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	if !task.IsCriticReview {
 		r.maybeLaunchCritic(task, ec.agent)
 		r.maybeAutoWriteObsidian(task, ec.agent, out.fullText)
+		r.maybeSpawnReActIteration(task, ec.proj, out.fullText)
 	}
 
 	r.emit(StreamEvent{
@@ -745,10 +760,16 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	}
 
 	// Monitor dedup: skip the LLM call and reuse cached output when the prompt is unchanged.
+	// Bypass the cache when MonitorCacheTTL is set and the cached result is older than the TTL.
 	if task.Source == "monitor" {
 		hash := promptHash(req)
 		task.PromptHash = hash
-		if cached, err := r.tasks.FindByPromptHash(ctx, task.ProjectID, hash); err == nil && cached != nil {
+		cacheTTL := 0
+		if ec.proj != nil {
+			cacheTTL = ec.proj.MonitorCacheTTL
+		}
+		if cached, err := r.tasks.FindByPromptHash(ctx, task.ProjectID, hash); err == nil && cached != nil &&
+			(cacheTTL <= 0 || (cached.CompletedAt != nil && time.Since(*cached.CompletedAt) < time.Duration(cacheTTL)*time.Second)) {
 			slog.Info("runner: monitor task prompt unchanged, reusing cached output", "task_id", task.ID, "hash", hash[:8])
 			completedAt := time.Now()
 			task.Output = cached.Output

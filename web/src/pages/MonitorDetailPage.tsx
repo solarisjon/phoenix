@@ -221,6 +221,8 @@ export function MonitorDetailPage() {
   const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [linkedProject, setLinkedProject] = useState<Project | null>(null)
+  const [linkedTasks, setLinkedTasks] = useState<Task[]>([])
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [triggering, setTriggering] = useState(false)
@@ -267,6 +269,21 @@ export function MonitorDetailPage() {
       // Load spend separately — non-fatal if it fails
       if (proj?.budget_usd > 0) {
         api.projects.getSpend(id).then(setSpend).catch(() => {})
+      }
+      // Load linked project + its active remediation tasks
+      if (proj?.linked_project_id) {
+        const [lp, lts] = await Promise.all([
+          api.projects.get(proj.linked_project_id).catch(() => null),
+          api.tasks.list(proj.linked_project_id).catch(() => [] as Task[]),
+        ])
+        setLinkedProject(lp)
+        setLinkedTasks(lts.filter(t =>
+          t.source.startsWith('heartbeat:') &&
+          (t.status === 'running' || t.status === 'queued')
+        ))
+      } else {
+        setLinkedProject(null)
+        setLinkedTasks([])
       }
       setAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
       setRunAiProviderID(p => p || provs.find(p => p.type === 'llm')?.id || provs[0]?.id || '')
@@ -552,6 +569,87 @@ export function MonitorDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Heartbeat state */}
+        {(monitor.heartbeat_last_signal || monitor.heartbeat_consecutive_bad > 0) && (
+          <div className="ml-8 flex items-center gap-4 flex-wrap">
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">Last signal</p>
+              <span className={cn(
+                'text-xs font-medium px-2 py-0.5 rounded-full border',
+                monitor.heartbeat_last_signal === 'all_clear'
+                  ? 'bg-emerald-900/40 text-emerald-400 border-emerald-800'
+                  : monitor.heartbeat_last_signal === 'needs_attention'
+                  ? 'bg-amber-900/40 text-amber-400 border-amber-800'
+                  : 'bg-red-900/40 text-red-400 border-red-800'
+              )}>
+                {monitor.heartbeat_last_signal === 'all_clear' ? '✓ All clear'
+                  : monitor.heartbeat_last_signal === 'needs_attention' ? '⚠ Needs attention'
+                  : monitor.heartbeat_last_signal === 'failed' ? '✗ Failed'
+                  : monitor.heartbeat_last_signal}
+              </span>
+            </div>
+            {monitor.heartbeat_consecutive_bad > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 mb-0.5">Consecutive bad</p>
+                <span className={cn(
+                  'text-xs font-medium px-2 py-0.5 rounded-full border',
+                  monitor.heartbeat_escalate_after > 0 &&
+                  monitor.heartbeat_consecutive_bad >= monitor.heartbeat_escalate_after
+                    ? 'bg-red-900/40 text-red-400 border-red-800'
+                    : 'bg-amber-900/40 text-amber-400 border-amber-800'
+                )}>
+                  {monitor.heartbeat_consecutive_bad}
+                  {monitor.heartbeat_escalate_after > 0 && ` / ${monitor.heartbeat_escalate_after}`}
+                </span>
+              </div>
+            )}
+            {(monitor.heartbeat_on_attention || monitor.heartbeat_on_failed) && (
+              <div>
+                <p className="text-xs text-slate-500 mb-0.5">Reactions</p>
+                <div className="flex gap-1 flex-wrap">
+                  {monitor.heartbeat_on_attention && (
+                    <span className="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                      attention → {monitor.heartbeat_on_attention}
+                    </span>
+                  )}
+                  {monitor.heartbeat_on_failed && (
+                    <span className="text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                      failed → {monitor.heartbeat_on_failed}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Remediation bridge */}
+        {linkedProject && (
+          <div className="ml-8 rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-slate-500 text-sm shrink-0">Remediation →</span>
+              <Link
+                to={`/projects/${linkedProject.id}`}
+                className="text-violet-400 hover:text-violet-300 transition-colors text-sm font-medium truncate"
+              >
+                {linkedProject.name}
+              </Link>
+              {linkedTasks.length > 0 && (
+                <span className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-900/30 border border-amber-800 px-2 py-0.5 rounded-full shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  {linkedTasks.length === 1 ? 'Remediation in progress' : `${linkedTasks.length} remediation tasks active`}
+                </span>
+              )}
+            </div>
+            <Link
+              to={`/projects/${linkedProject.id}`}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors shrink-0"
+            >
+              View →
+            </Link>
+          </div>
+        )}
 
         {triggerError && (
           <p className="text-xs text-red-400 ml-8">{triggerError}</p>

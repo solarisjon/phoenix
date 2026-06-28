@@ -20,7 +20,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
-	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on `
+	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on, loop_iteration `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -149,10 +149,10 @@ func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on, loop_iteration)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON)
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON, t.LoopIteration)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -390,7 +390,7 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 		&runnerPID, &timeoutAt,
 		&dest.Source, &healthSignal, &guardrailReason, &lastError,
 		&dest.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
-		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn,
+		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn, &dest.LoopIteration,
 	); err != nil {
 		return err
 	}

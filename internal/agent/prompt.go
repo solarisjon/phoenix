@@ -109,10 +109,26 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serve
 	}
 
 	// Every agent gets the memo capability injected — it's always available.
-	// Monitor tasks (source=="monitor") get a stronger, mandatory instruction.
+	// Monitor tasks (source=="monitor") get a stronger, mandatory instruction
+	// plus the HEALTH_SIGNAL structured output requirement.
 	b.WriteString("\n## Briefing Memos\n")
 	if t.Source == "monitor" {
-		b.WriteString(`You MUST end your response with a briefing memo summarising what you found and any actions taken. Use this exact format:
+		b.WriteString(`You MUST end your response with a health signal declaration and a briefing memo. Use these exact formats.
+
+**Health signal** — emit this as a standalone line so the platform can parse it:
+
+HEALTH_SIGNAL: all_clear
+
+Use one of three values:
+- all_clear       — everything is nominal; no issues detected
+- needs_attention — something requires investigation or action
+- failed          — a critical failure is occurring right now
+
+Optionally follow it with a reason line:
+
+HEALTH_REASON: <one sentence explaining the signal, especially for non-clear signals>
+
+**Memo** — always include one after the health signal:
 
 MEMO_START
 Title: <concise one-line title>
@@ -120,8 +136,8 @@ Priority: high
 <markdown body — key findings, actions taken, anything requiring attention>
 MEMO_END
 
-Include findings even if the run was routine — the memo is the human's window into what you did.
-You can include multiple MEMO blocks if there are distinct topics worth separating.`)
+Include findings even if the run is routine — the memo is the human's window into what you observed.
+You can include multiple MEMO blocks for distinct topics.`)
 	} else {
 		b.WriteString(`If your task produces findings, actions, summaries, or anything the user should read, you MAY embed one or more briefing memos directly in your output using this exact format:
 
@@ -362,6 +378,36 @@ ARTIFACT_END
 File naming convention: YYYY-MM-DD-kebab-case-title.md
 Front matter: always include date, tags, and source ("phoenix-task").
 Only write to Obsidian when the content is genuinely worth preserving as a permanent note — not for routine confirmations or status updates.`)
+	req.SystemPrompt = b.String()
+	return req
+}
+
+// InjectReactLoopInstructions appends the ReAct loop contract to the system prompt
+// for projects running in react_mode. Agents use NEXT_ACTION/END_NEXT_ACTION to
+// continue the loop and TASK_COMPLETE to signal they are done.
+func InjectReactLoopInstructions(req provider.TaskRequest, maxIterations, currentIteration int) provider.TaskRequest {
+	remaining := maxIterations - currentIteration - 1
+	var b strings.Builder
+	b.WriteString(req.SystemPrompt)
+	b.WriteString(fmt.Sprintf(`
+
+## Autonomous Loop Mode
+
+You are running in autonomous loop mode (iteration %d of %d max). After completing your work, you MUST emit exactly one of the following signals so the platform knows whether to continue.
+
+**To continue to the next iteration**, end your response with:
+
+NEXT_ACTION:
+<one or two sentences describing what you will do in the next iteration and why>
+END_NEXT_ACTION
+
+**To stop the loop**, end your response with:
+
+TASK_COMPLETE: <one sentence summarising what was accomplished overall>
+
+You have %d iteration(s) remaining after this one. If you do not emit either signal, the loop stops automatically.
+Do not emit both signals — pick exactly one.`,
+		currentIteration+1, maxIterations, remaining))
 	req.SystemPrompt = b.String()
 	return req
 }

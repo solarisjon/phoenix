@@ -99,6 +99,46 @@ func TestAssembleSystemPrompt_GlobalGuardrails(t *testing.T) {
 	}
 }
 
+func TestDeriveHealthSignal_Structured(t *testing.T) {
+	cases := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{"structured all_clear", "Some output\nHEALTH_SIGNAL: all_clear\nmore text", "all_clear"},
+		{"structured needs_attention", "HEALTH_SIGNAL: needs_attention\nHEALTH_REASON: CPU spike detected", "needs_attention"},
+		{"structured failed", "HEALTH_SIGNAL: failed", "failed"},
+		{"structured case insensitive", "HEALTH_SIGNAL: All_Clear", "all_clear"},
+		{"structured invalid value falls through to keyword scan", "HEALTH_SIGNAL: unknown\nerror detected", "needs_attention"},
+		// Keyword scan fallback — previously caused false positives
+		{"no marker no keywords", "All services responded normally within SLA.", "all_clear"},
+		{"keyword scan error", "The error rate exceeded 5%.", "needs_attention"},
+		// Structured beats keyword: "no errors found" should be all_clear via marker
+		{"structured beats keyword false positive", "Checked logs: no errors found.\nHEALTH_SIGNAL: all_clear", "all_clear"},
+		{"no marker misleading text", "error rate: 0% — no errors found", "needs_attention"}, // fallback still triggers on "error"
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := deriveHealthSignal(tc.output)
+			if got != tc.want {
+				t.Errorf("deriveHealthSignal(%q) = %q, want %q", tc.output, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAssembleSystemPrompt_MonitorHealthSignalInstructions(t *testing.T) {
+	a := &model.Agent{Behaviour: "You are a monitor agent."}
+	task := &model.Task{ID: "t1", ProjectID: "p1", Source: "monitor"}
+	prompt := assembleSystemPrompt(a, task, "", "")
+
+	for _, want := range []string{"HEALTH_SIGNAL:", "all_clear", "needs_attention", "HEALTH_REASON:"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("monitor prompt missing %q", want)
+		}
+	}
+}
+
 func TestAssembleRequest(t *testing.T) {
 	a := &model.Agent{
 		Persona:      "Expert",

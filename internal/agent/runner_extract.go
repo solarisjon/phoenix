@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -278,7 +279,7 @@ func (r *Runner) extractAndSaveArtifacts(task *model.Task, a *model.Agent, outpu
 			if sysSettings, err := r.settings.Get(r.bgCtx); err != nil || !sysSettings.ObsidianEnabled {
 				continue
 			}
-			if err := os.MkdirAll(strings.TrimSuffix(art.Path, "/"+strings.TrimPrefix(strings.TrimPrefix(art.Path, strings.TrimRight(art.Path, "/")), "/")), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(art.Path), 0755); err != nil {
 				slog.Warn("runner: obsidian mkdirAll failed", "path", art.Path, "error", err)
 			}
 		}
@@ -498,10 +499,32 @@ func truncateStr(s string, maxLen int) string {
 
 // deriveHealthSignal inspects the output text of a completed monitor task and
 // returns one of three health signals:
-//   - "all_clear"       — completed successfully with no alert keywords
-//   - "needs_attention" — completed but output contains warning/issue keywords
+//   - "all_clear"       — completed successfully, no issues detected
+//   - "needs_attention" — completed but issues detected
 //   - "failed"          — task itself failed (set separately in failTask)
+//
+// Structured output is checked first: if the agent emits a line starting with
+// "HEALTH_SIGNAL:" that value is used directly. This avoids false positives from
+// keyword matching (e.g. "no errors found" or "error rate: 0%").
+// Falls back to keyword scanning when no structured marker is present.
 func deriveHealthSignal(output string) string {
+	const marker = "HEALTH_SIGNAL:"
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, marker) {
+			val := strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
+			switch strings.ToLower(val) {
+			case "all_clear":
+				return "all_clear"
+			case "needs_attention":
+				return "needs_attention"
+			case "failed":
+				return "failed"
+			}
+		}
+	}
+
+	// Fallback: keyword scan for agents that predate structured output.
 	lower := strings.ToLower(output)
 	alertKeywords := []string{
 		"error", "warning", "alert", "critical", "failure", "fail", "issue",
@@ -534,6 +557,247 @@ func extractGuardrailTrigger(output string) string {
 	}
 	return ""
 }
+
+// ---- Heartbeat reaction ----
+
+// updateHeartbeatSignal updates the consecutive-bad counter and last signal
+// on a monitor project. Returns the updated consecutive-bad count.
+func (r *Runner) updateHeartbeatSignal(proj *model.Project, signal string) int {
+	consecutive := 0
+	if signal == "all_clear" {
+		consecutive = 0
+	} else {
+		if proj.HeartbeatLastSignal != "all_clear" {
+			consecutive = proj.HeartbeatConsecutiveBad + 1
+		} else {
+			consecutive = 1
+		}
+	}
+	if err := r.projects.UpdateHeartbeatSignal(r.bgCtx, proj.ID, signal, consecutive); err != nil {
+		slog.Error("runner: update heartbeat signal", "project_id", proj.ID, "error", err)
+	}
+	return consecutive
+}
+
+// maybeReactToHealthSignal checks whether a monitor project has a configured
+// reaction for the given health signal and executes it.
+//
+//   - "spawn": creates a remediation task in the linked project, injecting the
+//     monitor output as context so the fixer agent knows what happened.
+//   - "notify": delegates to the notification plugin system (same events as
+//     task.completed/failed, but with health_signal metadata).
+//   - "escalate": promotes needs_attention to failed severity in the signal
+//     (handled upstream by the caller if consecutive threshold is reached).
+func (r *Runner) maybeReactToHealthSignal(task *model.Task, proj *model.Project, signal string, consecutiveBad int) {
+	action := proj.HeartbeatOnAttention
+	if signal == "failed" {
+		action = proj.HeartbeatOnFailed
+	}
+	if action == "" {
+		return
+	}
+
+	switch action {
+	case "spawn":
+		if proj.LinkedProjectID == nil || *proj.LinkedProjectID == "" {
+			slog.Warn("runner: heartbeat spawn requested but no linked_project_id set", "monitor_id", proj.ID)
+			return
+		}
+		r.spawnRemediationTask(task, proj, signal, consecutiveBad)
+	case "escalate":
+		// Only escalate once the consecutive-bad threshold is reached.
+		// HeartbeatEscalateAfter == 0 means escalate on first non-clear signal.
+		if proj.HeartbeatEscalateAfter > 0 && consecutiveBad < proj.HeartbeatEscalateAfter {
+			slog.Debug("runner: heartbeat escalation pending threshold",
+				"monitor", proj.Name, "consecutive_bad", consecutiveBad, "threshold", proj.HeartbeatEscalateAfter)
+			return
+		}
+		slog.Warn("runner: heartbeat escalation triggered",
+			"monitor", proj.Name, "signal", signal, "consecutive_bad", consecutiveBad)
+	case "notify":
+		// Notification plugins already fire on task.completed with the health_signal
+		// field present in the task payload. No additional work needed here.
+	}
+}
+
+// spawnRemediationTask creates a task in the linked project with the monitor
+// output injected as context, so the remediation agent knows what triggered it.
+func (r *Runner) spawnRemediationTask(task *model.Task, proj *model.Project, signal string, consecutiveBad int) {
+	linkedProj, err := r.projects.Get(r.bgCtx, *proj.LinkedProjectID)
+	if err != nil || linkedProj == nil {
+		slog.Error("runner: heartbeat spawn: linked project not found",
+			"linked_project_id", *proj.LinkedProjectID, "error", err)
+		return
+	}
+
+	agents, err := r.projects.ListAgents(r.bgCtx, linkedProj.ID)
+	if err != nil || len(agents) == 0 {
+		slog.Error("runner: heartbeat spawn: no agents on linked project",
+			"linked_project_id", linkedProj.ID, "error", err)
+		return
+	}
+	var targetAgent *model.Agent
+	for _, a := range agents {
+		if a.Status == model.AgentStatusActive {
+			targetAgent = a
+			break
+		}
+	}
+	if targetAgent == nil {
+		slog.Error("runner: heartbeat spawn: no active agents on linked project", "linked_project_id", linkedProj.ID)
+		return
+	}
+
+	monitorOutput := extractOutputText(task.Output)
+	consecutiveNote := ""
+	if consecutiveBad > 1 {
+		consecutiveNote = fmt.Sprintf(" (consecutive alert #%d)", consecutiveBad)
+	}
+
+	description := fmt.Sprintf(`## Monitor Alert Context%s
+
+**Monitor:** %s
+**Signal:** %s
+**Triggered at:** %s
+
+### Monitor Output
+
+%s
+
+---
+
+Investigate and remediate the issue described above. When done, emit:
+
+TASK_COMPLETE: <brief summary of what you fixed or determined>`,
+		consecutiveNote,
+		proj.Name,
+		signal,
+		task.CreatedAt.Format("2006-01-02 15:04:05"),
+		monitorOutput,
+	)
+
+	remTask := &model.Task{
+		ID:          uuid.New().String(),
+		ProjectID:   linkedProj.ID,
+		AgentID:     targetAgent.ID,
+		Title:       fmt.Sprintf("Remediate: %s (%s)", proj.Name, signal),
+		Description: description,
+		Status:      model.TaskStatusPending,
+		Source:      "heartbeat:" + proj.Name,
+		Input:       "{}",
+		Output:      "{}",
+		CreatedAt:   time.Now(),
+	}
+	if err := r.tasks.Create(r.bgCtx, remTask); err != nil {
+		slog.Error("runner: heartbeat spawn: create task", "error", err)
+		return
+	}
+	if err := r.RunTask(r.bgCtx, remTask.ID); err != nil {
+		slog.Error("runner: heartbeat spawn: run task", "error", err)
+	}
+	slog.Info("runner: heartbeat spawned remediation task",
+		"task_id", remTask.ID, "monitor", proj.Name, "signal", signal)
+}
+
+// ---- ReAct loop ----
+
+const reactMaxIterationsDefault = 10
+
+// parseNextAction extracts the content of a NEXT_ACTION block from agent output.
+// Returns ("", false) when no block is found.
+func parseNextAction(output string) (string, bool) {
+	const start = "NEXT_ACTION:"
+	const end = "END_NEXT_ACTION"
+	startIdx := strings.Index(output, start)
+	if startIdx < 0 {
+		return "", false
+	}
+	body := output[startIdx+len(start):]
+	endIdx := strings.Index(body, end)
+	if endIdx >= 0 {
+		body = body[:endIdx]
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", false
+	}
+	return body, true
+}
+
+// parseTaskComplete checks whether the agent signalled loop termination.
+// Looks for "TASK_COMPLETE:" anywhere in the output.
+func parseTaskComplete(output string) bool {
+	return strings.Contains(output, "TASK_COMPLETE:")
+}
+
+// maybeSpawnReActIteration checks whether the completed task belongs to a
+// react_mode project and the output contains a NEXT_ACTION directive. If so,
+// it auto-creates and enqueues the next iteration as a follow-up task.
+func (r *Runner) maybeSpawnReActIteration(task *model.Task, proj *model.Project, output string) {
+	if proj == nil || !proj.ReactMode || task.IsCriticReview {
+		return
+	}
+
+	maxIter := proj.MaxIterations
+	if maxIter <= 0 {
+		maxIter = reactMaxIterationsDefault
+	}
+
+	if task.LoopIteration+1 >= maxIter {
+		slog.Info("runner: react loop reached max iterations — stopping",
+			"task_id", task.ID, "iteration", task.LoopIteration, "max", maxIter)
+		return
+	}
+
+	if parseTaskComplete(output) {
+		slog.Info("runner: react loop TASK_COMPLETE — stopping",
+			"task_id", task.ID, "iteration", task.LoopIteration)
+		return
+	}
+
+	nextAction, ok := parseNextAction(output)
+	if !ok {
+		return
+	}
+
+	followUpID := task.ID
+	nextTask := &model.Task{
+		ID:            uuid.New().String(),
+		ProjectID:     task.ProjectID,
+		AgentID:       task.AgentID,
+		FollowUpOf:    &followUpID,
+		Title:         fmt.Sprintf("%s (iteration %d)", stripIterationSuffix(task.Title), task.LoopIteration+1),
+		Description:   nextAction,
+		Status:        model.TaskStatusPending,
+		Source:        task.Source,
+		Input:         "{}",
+		Output:        "{}",
+		LoopIteration: task.LoopIteration + 1,
+		CreatedAt:     time.Now(),
+	}
+	if err := r.tasks.Create(r.bgCtx, nextTask); err != nil {
+		slog.Error("runner: react loop: create next task", "error", err)
+		return
+	}
+	if err := r.RunTask(r.bgCtx, nextTask.ID); err != nil {
+		slog.Error("runner: react loop: run next task", "error", err)
+		return
+	}
+	slog.Info("runner: react loop spawned next iteration",
+		"task_id", nextTask.ID, "iteration", nextTask.LoopIteration)
+}
+
+// stripIterationSuffix removes a trailing " (iteration N)" from a title so
+// the next iteration doesn't accumulate duplicate suffixes.
+func stripIterationSuffix(title string) string {
+	// e.g. "Fix the bug (iteration 2)" → "Fix the bug"
+	if idx := strings.LastIndex(title, " (iteration "); idx > 0 {
+		return title[:idx]
+	}
+	return title
+}
+
+// ---- Prompt hash ----
 
 // promptHash returns a hex SHA-256 of the assembled prompt components.
 // Used by monitor diffing to detect unchanged prompts and skip the LLM call.
