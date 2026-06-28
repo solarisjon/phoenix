@@ -51,7 +51,7 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState('')
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
-  const [estimate, setEstimate] = useState<{ supported: boolean; estimated_cost_usd: number } | null>(null)
+  const [estimate, setEstimate] = useState<{ supported: boolean; estimated_cost_usd: { low: number; high: number } } | null>(null)
   const [showAI, setShowAI] = useState(false)
   const [aiHint, setAiHint] = useState('')
   const [aiProviderID, setAiProviderID] = useState('')
@@ -77,7 +77,7 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
     if (!combined) return
     const timer = setTimeout(async () => {
       try {
-        const est = await api.tasks.estimate(agentId, combined)
+        const est = await api.tasks.estimate({ agent_id: agentId, description: combined })
         setEstimate(est)
       } catch {
         setEstimate(null)
@@ -234,7 +234,7 @@ function QuickTaskModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center justify-between pt-1">
               <span className="text-xs text-slate-600">
                 {estimate?.supported
-                  ? `~${formatCost(estimate.estimated_cost_usd)} est.`
+                  ? `~${formatCost(estimate.estimated_cost_usd.low)}–${formatCost(estimate.estimated_cost_usd.high)} est.`
                   : '⌘K to toggle'}
               </span>
               <div className="flex gap-2">

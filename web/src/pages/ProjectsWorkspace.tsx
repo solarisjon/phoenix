@@ -12,7 +12,8 @@ import { api, type Project, type Task, type Agent, type ProjectSummary, type Pro
 import { Badge } from '@/components/ui/badge'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
-import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo } from '@/lib/utils'
+import { TaskDiffModal } from '@/components/task-diff-modal'
+import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo, formatCost } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { phoenixWS } from '@/lib/ws'
 
@@ -147,6 +148,7 @@ export function ProjectsWorkspace() {
         project={selectedProject}
         projectAgents={displayedProjectAgents}
         allAgents={allAgents}
+        tasks={tasks}
         onClose={() => setRightPane({ type: 'empty' })}
         onTaskCreated={async () => {
           await refreshTasks()
@@ -339,6 +341,16 @@ function MiddlePane({
     const stored = localStorage.getItem(`phoenix-sections-${project?.id}`)
     return stored ? JSON.parse(stored) : { completed: true }
   })
+
+  // Diff selection — pick exactly 2 completed tasks to compare
+  const [diffSelection, setDiffSelection] = useState<string[]>([])
+  const [diffModalOpen, setDiffModalOpen] = useState(false)
+
+  const toggleDiffSelection = (id: string) => {
+    setDiffSelection(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : prev.length < 2 ? [...prev, id] : [prev[1], id]
+    )
+  }
 
   // History (completed incl. dismissed) — loaded lazily when completed section expanded
   const [history, setHistory] = useState<Task[]>([])
@@ -678,15 +690,36 @@ function MiddlePane({
                     ) : sectionTasks.length === 0 ? (
                       <p className="text-[10px] text-slate-600 px-4 py-1.5 italic">None</p>
                     ) : (
-                      sectionTasks.map(task => (
-                        <TaskRow
-                          key={task.id}
-                          task={task}
-                          agents={projectAgents}
-                          selected={selectedTask?.id === task.id}
-                          onClick={() => onTaskClick(task)}
-                        />
-                      ))
+                      <>
+                        {section.sectionKey === 'completed' && diffSelection.length === 2 && (
+                          <div className="mx-3 my-1.5 flex items-center gap-2 rounded bg-violet-900/30 border border-violet-700/40 px-2 py-1.5">
+                            <span className="text-[10px] text-violet-300 flex-1">2 runs selected — compare outputs?</span>
+                            <button
+                              onClick={() => setDiffModalOpen(true)}
+                              className="text-[10px] px-2 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-500"
+                            >
+                              Compare
+                            </button>
+                            <button
+                              onClick={() => setDiffSelection([])}
+                              className="text-[10px] text-slate-500 hover:text-slate-300 px-1"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                        {sectionTasks.map(task => (
+                          <TaskRow
+                            key={task.id}
+                            task={task}
+                            agents={projectAgents}
+                            selected={selectedTask?.id === task.id}
+                            onClick={() => onTaskClick(task)}
+                            onDiffToggle={section.sectionKey === 'completed' ? toggleDiffSelection : undefined}
+                            isDiffSelected={diffSelection.includes(task.id)}
+                          />
+                        ))}
+                      </>
                     )
                   )}
                 </div>
@@ -718,6 +751,22 @@ function MiddlePane({
                 ))
         )}
       </div>
+
+      {/* Diff modal — shown when user hits Compare with 2 tasks selected */}
+      {diffModalOpen && diffSelection.length === 2 && (() => {
+        const allTasks = [...tasks, ...history]
+        const t0 = allTasks.find(t => t.id === diffSelection[0])
+        const t1 = allTasks.find(t => t.id === diffSelection[1])
+        if (!t0 || !t1) return null
+        const [older, newer] = t0.created_at <= t1.created_at ? [t0, t1] : [t1, t0]
+        return (
+          <TaskDiffModal
+            older={older}
+            newer={newer}
+            onClose={() => { setDiffModalOpen(false); setDiffSelection([]) }}
+          />
+        )
+      })()}
     </div>
   )
 }
@@ -727,9 +776,11 @@ interface TaskRowProps {
   agents: Agent[]
   selected: boolean
   onClick: () => void
+  onDiffToggle?: (id: string) => void
+  isDiffSelected?: boolean
 }
 
-function TaskRow({ task, agents, selected, onClick }: TaskRowProps) {
+function TaskRow({ task, agents, selected, onClick, onDiffToggle, isDiffSelected }: TaskRowProps) {
   const agent = agents.find(a => a.id === task.agent_id)
   const variant = taskStatusVariant(task.status)
 
@@ -743,30 +794,46 @@ function TaskRow({ task, agents, selected, onClick }: TaskRowProps) {
   }
 
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'w-full text-left px-3 py-2.5 hover:bg-slate-800/60 transition-colors border-b border-slate-800/60 border-l-2',
-        borderColor[variant] ?? 'border-l-slate-600',
-        selected && 'bg-slate-800/80'
+    <div className={cn(
+      'flex items-start border-b border-slate-800/60 border-l-2',
+      borderColor[variant] ?? 'border-l-slate-600',
+    )}>
+      {onDiffToggle && (
+        <button
+          onClick={e => { e.stopPropagation(); onDiffToggle(task.id) }}
+          className={cn(
+            'shrink-0 self-stretch px-2 flex items-center justify-center hover:bg-slate-800/40 transition-colors',
+            isDiffSelected ? 'text-violet-400' : 'text-slate-700 hover:text-slate-500'
+          )}
+          title={isDiffSelected ? 'Deselect for diff' : 'Select for diff'}
+        >
+          <span className="text-xs">{isDiffSelected ? '☑' : '☐'}</span>
+        </button>
       )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <span className={cn(
-          'text-xs leading-snug line-clamp-2',
-          task.status === 'awaiting_approval' ? 'font-semibold text-white' : 'text-slate-300'
-        )}>
-          {task.title || 'Untitled task'}
-        </span>
-        <Badge variant={variant} className="shrink-0 text-[10px] py-0 px-1.5">
-          {taskStatusLabel(task.status)}
-        </Badge>
-      </div>
-      <div className="flex items-center gap-2 mt-1">
-        {agent && <span className="text-[11px] text-slate-500">{agent.name}</span>}
-        <span className="text-[11px] text-slate-600">{timeAgo(task.created_at)}</span>
-      </div>
-    </button>
+      <button
+        onClick={onClick}
+        className={cn(
+          'flex-1 text-left px-3 py-2.5 hover:bg-slate-800/60 transition-colors min-w-0',
+          selected && 'bg-slate-800/80'
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <span className={cn(
+            'text-xs leading-snug line-clamp-2',
+            task.status === 'awaiting_approval' ? 'font-semibold text-white' : 'text-slate-300'
+          )}>
+            {task.title || 'Untitled task'}
+          </span>
+          <Badge variant={variant} className="shrink-0 text-[10px] py-0 px-1.5">
+            {taskStatusLabel(task.status)}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          {agent && <span className="text-[11px] text-slate-500">{agent.name}</span>}
+          <span className="text-[11px] text-slate-600">{timeAgo(task.created_at)}</span>
+        </div>
+      </button>
+    </div>
   )
 }
 
@@ -840,6 +907,7 @@ interface RightPaneAreaProps {
   project: Project | null
   projectAgents: Agent[]
   allAgents: Agent[]
+  tasks: Task[]
   onClose: () => void
   onTaskCreated: () => void
   onProjectCreated: (id: string) => void
@@ -849,7 +917,7 @@ interface RightPaneAreaProps {
 }
 
 function RightPaneArea({
-  pane, project, projectAgents, allAgents, onClose, onTaskCreated, onProjectCreated, onProjectUpdated, onProjectRemoved, onTaskUpdated,
+  pane, project, projectAgents, allAgents, tasks, onClose, onTaskCreated, onProjectCreated, onProjectUpdated, onProjectRemoved, onTaskUpdated,
 }: RightPaneAreaProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-900">
@@ -872,6 +940,7 @@ function RightPaneArea({
         <TaskComposeForm
           project={project}
           projectAgents={projectAgents}
+          tasks={tasks}
           onCreated={onTaskCreated}
           onCancel={onClose}
         />
@@ -1081,6 +1150,7 @@ function FilePreviewView({ entry, content, truncated, onClose }: FilePreviewView
 interface TaskComposeFormProps {
   project: Project
   projectAgents: Agent[]
+  tasks: Task[]
   onCreated: () => void
   onCancel: () => void
 }
@@ -1090,7 +1160,7 @@ function applyTemplateVars(text: string, vars: Record<string, string>): string {
   return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`)
 }
 
-function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskComposeFormProps) {
+function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }: TaskComposeFormProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [agentId, setAgentId] = useState(projectAgents[0]?.id ?? '')
@@ -1109,6 +1179,21 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
   const [templateScope, setTemplateScope] = useState<'global' | 'project'>('global')
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateSaved, setTemplateSaved] = useState(false)
+
+  // Cost estimate
+  type EstimateResult = {
+    supported: boolean
+    prompt_tokens: number
+    estimated_output_tokens: { low: number; high: number }
+    estimated_cost_usd: { low: number; high: number }
+    provider: { type: string; model: string }
+  }
+  const [estimating, setEstimating] = useState(false)
+  const [estimateResult, setEstimateResult] = useState<EstimateResult | null>(null)
+
+  // Task dependency chain
+  const [dependsOn, setDependsOn] = useState<string[]>([])
+  const selectableTasks = tasks.filter(t => t.status === 'completed' || t.status === 'queued')
 
   const templateVars = {
     date: new Date().toISOString().slice(0, 10),
@@ -1169,6 +1254,18 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
     }
   }
 
+  const estimateTask = async () => {
+    if (!agentId) return
+    setEstimating(true)
+    setEstimateResult(null)
+    try {
+      const res = await api.tasks.estimate({ agent_id: agentId, title: title.trim(), description: description.trim() })
+      setEstimateResult(res)
+    } catch { /* ignore */ } finally {
+      setEstimating(false)
+    }
+  }
+
   const handleSubmit = async () => {
     if (!title.trim()) { setError('Title is required'); return }
     if (!agentId) { setError('Select an agent'); return }
@@ -1181,6 +1278,7 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
         title: title.trim(),
         description: description.trim(),
         critic_mode: criticOn ? 'builtin' : 'none',
+        depends_on: dependsOn.length > 0 ? dependsOn : undefined,
       })
       onCreated()
     } catch (e: unknown) {
@@ -1349,6 +1447,74 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
               </button>
             )}
           </div>
+        </div>
+
+        {/* Depends-on picker */}
+        {selectableTasks.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">
+              Depends on <span className="text-slate-600">(optional — task starts after these complete)</span>
+            </label>
+            <select
+              multiple
+              value={dependsOn}
+              onChange={e => {
+                const selected = Array.from(e.target.selectedOptions, o => o.value)
+                setDependsOn(selected)
+              }}
+              className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-violet-500 min-h-[60px] max-h-[100px]"
+            >
+              {selectableTasks.map(t => (
+                <option key={t.id} value={t.id}>
+                  [{t.status === 'completed' ? '✓' : '…'}] {t.title || 'Untitled'}
+                </option>
+              ))}
+            </select>
+            {dependsOn.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setDependsOn([])}
+                className="mt-1 text-[10px] text-slate-500 hover:text-slate-400"
+              >
+                Clear dependencies
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Cost estimate */}
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-500">Want to estimate cost before running?</span>
+            <button
+              type="button"
+              onClick={estimateTask}
+              disabled={estimating || !agentId}
+              className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40 transition-colors"
+            >
+              {estimating ? 'Estimating…' : '≈ Estimate cost'}
+            </button>
+          </div>
+          {estimateResult && (
+            <div className="mt-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs space-y-0.5">
+              {estimateResult.supported ? (
+                <>
+                  <p className="text-slate-300">
+                    Cost: <span className="text-emerald-400 font-medium">
+                      {formatCost(estimateResult.estimated_cost_usd.low)}–{formatCost(estimateResult.estimated_cost_usd.high)}
+                    </span>
+                  </p>
+                  <p className="text-slate-500">
+                    ~{estimateResult.prompt_tokens.toLocaleString()} prompt tokens
+                    · {estimateResult.estimated_output_tokens.low.toLocaleString()}–{estimateResult.estimated_output_tokens.high.toLocaleString()} output tokens
+                    · {estimateResult.provider.model || estimateResult.provider.type}
+                  </p>
+                </>
+              ) : (
+                <p className="text-slate-500">Pricing not available for this provider/model.</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Devil's Advocate toggle */}

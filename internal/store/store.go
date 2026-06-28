@@ -124,6 +124,12 @@ type TaskRepo interface {
 	// BumpPriority atomically increments the scheduling priority of a task by 10.
 	// Higher values run before lower ones; ties are broken by created_at ASC.
 	BumpPriority(ctx context.Context, taskID string) error
+
+	// UnlockDependents finds all queued tasks whose depends_on contains completedTaskID
+	// and whose remaining dependencies are all now completed. For each such task it
+	// clears depends_on (setting it to NULL) so that NextQueuedTask can pick it up,
+	// and returns the agent IDs of the unlocked tasks so the caller can wake those queues.
+	UnlockDependents(ctx context.Context, completedTaskID string) (agentIDs []string, err error)
 }
 
 // TeamRepo manages agent teams.

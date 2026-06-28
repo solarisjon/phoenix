@@ -231,6 +231,13 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		input = "{}"
 	}
 
+	status := model.TaskStatusPending
+	if len(req.DependsOn) > 0 {
+		// Tasks with dependencies start as queued (not pending) so the scheduler
+		// doesn't try to dispatch them — they stay blocked until UnlockDependents
+		// clears their depends_on after all prereqs complete.
+		status = model.TaskStatusQueued
+	}
 	t := &model.Task{
 		ID:          uuid.New().String(),
 		ProjectID:   req.ProjectID,
@@ -239,13 +246,20 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Source:      req.Source,
 		CriticMode:  req.CriticMode,
-		Status:      model.TaskStatusPending,
+		Status:      status,
 		Input:       input,
 		Output:      "{}",
+		DependsOn:   req.DependsOn,
 		CreatedAt:   time.Now(),
 	}
 	if err := s.tasks.Create(r.Context(), t); err != nil {
 		respondInternalErr(w, err)
+		return
+	}
+
+	// Tasks with unmet dependencies sit as queued until UnlockDependents promotes them.
+	if len(req.DependsOn) > 0 {
+		respond(w, http.StatusCreated, t)
 		return
 	}
 

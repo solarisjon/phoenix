@@ -23,11 +23,19 @@ type agentBundleData struct {
 	ProviderRef    string `json:"provider_ref"`
 }
 
+type agentProviderHint struct {
+	Type  string `json:"type"`  // "llm" | "coding_agent"
+	Kind  string `json:"kind"`  // "anthropic" | "openai" | "claude_code" | etc.
+	Model string `json:"model"` // model name if applicable
+	Note  string `json:"note"`  // human-readable setup note
+}
+
 type agentBundle struct {
-	PhoenixBundleVersion string          `json:"phoenix_bundle_version"`
-	ExportedAt           time.Time       `json:"exported_at"`
-	Agent                agentBundleData `json:"agent"`
-	Provider             *bundleProvider `json:"provider,omitempty"`
+	PhoenixBundleVersion string             `json:"phoenix_bundle_version"`
+	ExportedAt           time.Time          `json:"exported_at"`
+	Agent                agentBundleData    `json:"agent"`
+	Provider             *bundleProvider    `json:"provider,omitempty"`
+	ProviderHint         *agentProviderHint `json:"provider_hint,omitempty"`
 }
 
 type importAgentRequest struct {
@@ -64,6 +72,24 @@ func (s *Server) exportAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var hint *agentProviderHint
+	if bp != nil {
+		note := "Create a provider of type '" + bp.Type + "'"
+		if bp.Kind != "" {
+			note += ", kind '" + bp.Kind + "'"
+		}
+		if bp.Config.Model != "" {
+			note += ", model '" + bp.Config.Model + "'"
+		}
+		note += ", then link it to this agent."
+		hint = &agentProviderHint{
+			Type:  bp.Type,
+			Kind:  bp.Kind,
+			Model: bp.Config.Model,
+			Note:  note,
+		}
+	}
+
 	bundle := agentBundle{
 		PhoenixBundleVersion: "1",
 		ExportedAt:           time.Now().UTC(),
@@ -76,7 +102,8 @@ func (s *Server) exportAgent(w http.ResponseWriter, r *http.Request) {
 			ModelOverride:  agent.ModelOverride,
 			ProviderRef:    "provider_1",
 		},
-		Provider: bp,
+		Provider:     bp,
+		ProviderHint: hint,
 	}
 
 	slug := strings.ToLower(strings.ReplaceAll(agent.Name, " ", "-"))
@@ -120,7 +147,12 @@ func (s *Server) importAgent(w http.ResponseWriter, r *http.Request) {
 		for _, ep := range existingProviders {
 			var cfg map[string]interface{}
 			_ = json.Unmarshal([]byte(ep.Config), &cfg)
-			if cfg["base_url"] == bundle.Provider.Config.BaseURL && cfg["model"] == bundle.Provider.Config.Model {
+			sameURL := cfg["base_url"] == bundle.Provider.Config.BaseURL
+			sameModel := cfg["model"] == bundle.Provider.Config.Model
+			sameKind := bundle.Provider.Kind == "" || cfg["kind"] == bundle.Provider.Kind
+			sameType := string(ep.Type) == bundle.Provider.Type
+			// Match on base_url+model for LLMs, or type+kind for coding agents (no base_url).
+			if (sameURL && sameModel) || (bundle.Provider.Config.BaseURL == "" && sameType && sameKind) {
 				provID = ep.ID
 				break
 			}

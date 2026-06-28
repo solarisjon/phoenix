@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,7 +20,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
-	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority `
+	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -140,12 +141,18 @@ func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	if criticMode == "" {
 		criticMode = model.CriticModeInherit
 	}
+	var dependsOnJSON *string
+	if len(t.DependsOn) > 0 {
+		b, _ := json.Marshal(t.DependsOn)
+		s := string(b)
+		dependsOnJSON = &s
+	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash)
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -252,8 +259,13 @@ func (r *TaskRepo) ProjectSpendForPeriod(ctx context.Context, projectID, period 
 }
 
 func (r *TaskRepo) NextQueuedTask(ctx context.Context, agentID string) (*model.Task, error) {
+	// Only return tasks with no pending dependencies; UnlockDependents clears
+	// depends_on once all prereqs complete, promoting the task to runnable.
 	row := r.db.QueryRowContext(ctx,
-		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? AND status = 'queued' ORDER BY priority DESC, created_at ASC LIMIT 1`,
+		`SELECT`+taskSelectCols+`FROM tasks
+		 WHERE agent_id = ? AND status = 'queued'
+		   AND (depends_on IS NULL OR depends_on = '[]')
+		 ORDER BY priority DESC, created_at ASC LIMIT 1`,
 		agentID)
 	return scanTask(row)
 }
@@ -364,64 +376,74 @@ func (r *TaskRepo) BumpPriority(ctx context.Context, taskID string) error {
 	return nil
 }
 
-func scanTask(row *sql.Row) (*model.Task, error) {
-	var t model.Task
+func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 	var status string
-	var parentID, followUpOf, healthSignal, guardrailReason, lastError, reviewedTaskID sql.NullString
-	var dismissed int
-	var isCriticReview int
+	var parentID, followUpOf, healthSignal, guardrailReason, lastError, reviewedTaskID, dependsOn sql.NullString
+	var dismissed, isCriticReview int
 	var runnerPID sql.NullInt64
 	var timeoutAt, startedAt, completedAt sql.NullTime
 
-	err := row.Scan(
-		&t.ID, &t.ProjectID, &t.AgentID, &parentID, &followUpOf,
-		&t.Title, &t.Description, &status,
-		&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
+	if err := scanFn(
+		&dest.ID, &dest.ProjectID, &dest.AgentID, &parentID, &followUpOf,
+		&dest.Title, &dest.Description, &status,
+		&dest.Input, &dest.Output, &dest.CostUSD, &dest.TokensIn, &dest.TokensOut, &dismissed,
 		&runnerPID, &timeoutAt,
-		&t.Source, &healthSignal, &guardrailReason, &lastError,
-		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache, &t.Priority,
-	)
+		&dest.Source, &healthSignal, &guardrailReason, &lastError,
+		&dest.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
+		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn,
+	); err != nil {
+		return err
+	}
+	dest.Status = model.TaskStatus(status)
+	dest.Dismissed = dismissed != 0
+	dest.IsCriticReview = isCriticReview != 0
+	if parentID.Valid {
+		dest.ParentTaskID = &parentID.String
+	}
+	if followUpOf.Valid {
+		dest.FollowUpOf = &followUpOf.String
+	}
+	if healthSignal.Valid {
+		dest.HealthSignal = &healthSignal.String
+	}
+	if guardrailReason.Valid {
+		dest.GuardrailReason = &guardrailReason.String
+	}
+	if lastError.Valid {
+		dest.LastError = lastError.String
+	}
+	if reviewedTaskID.Valid {
+		dest.ReviewedTaskID = &reviewedTaskID.String
+	}
+	if runnerPID.Valid {
+		dest.RunnerPID = int(runnerPID.Int64)
+	}
+	if timeoutAt.Valid {
+		dest.TimeoutAt = &timeoutAt.Time
+	}
+	if startedAt.Valid {
+		dest.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		dest.CompletedAt = &completedAt.Time
+	}
+	if dest.CriticMode == "" {
+		dest.CriticMode = model.CriticModeInherit
+	}
+	if dependsOn.Valid && dependsOn.String != "" && dependsOn.String != "[]" {
+		_ = json.Unmarshal([]byte(dependsOn.String), &dest.DependsOn)
+	}
+	return nil
+}
+
+func scanTask(row *sql.Row) (*model.Task, error) {
+	var t model.Task
+	err := scanTaskRow(&t, func(dest ...any) error { return row.Scan(dest...) })
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan task: %w", err)
-	}
-	t.Status = model.TaskStatus(status)
-	t.Dismissed = dismissed != 0
-	t.IsCriticReview = isCriticReview != 0
-	if parentID.Valid {
-		t.ParentTaskID = &parentID.String
-	}
-	if followUpOf.Valid {
-		t.FollowUpOf = &followUpOf.String
-	}
-	if healthSignal.Valid {
-		t.HealthSignal = &healthSignal.String
-	}
-	if guardrailReason.Valid {
-		t.GuardrailReason = &guardrailReason.String
-	}
-	if lastError.Valid {
-		t.LastError = lastError.String
-	}
-	if reviewedTaskID.Valid {
-		t.ReviewedTaskID = &reviewedTaskID.String
-	}
-	if runnerPID.Valid {
-		t.RunnerPID = int(runnerPID.Int64)
-	}
-	if timeoutAt.Valid {
-		t.TimeoutAt = &timeoutAt.Time
-	}
-	if startedAt.Valid {
-		t.StartedAt = &startedAt.Time
-	}
-	if completedAt.Valid {
-		t.CompletedAt = &completedAt.Time
-	}
-	if t.CriticMode == "" {
-		t.CriticMode = model.CriticModeInherit
 	}
 	return &t, nil
 }
@@ -430,60 +452,83 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 	var out []*model.Task
 	for rows.Next() {
 		var t model.Task
-		var status string
-		var parentID, followUpOf, healthSignal, guardrailReason, lastError, reviewedTaskID sql.NullString
-		var dismissed int
-		var isCriticReview int
-		var runnerPID sql.NullInt64
-		var timeoutAt, startedAt, completedAt sql.NullTime
-
-		if err := rows.Scan(
-			&t.ID, &t.ProjectID, &t.AgentID, &parentID, &followUpOf,
-			&t.Title, &t.Description, &status,
-			&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
-			&runnerPID, &timeoutAt,
-			&t.Source, &healthSignal, &guardrailReason, &lastError,
-			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache, &t.Priority,
-		); err != nil {
+		if err := scanTaskRow(&t, rows.Scan); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
-		}
-		t.Status = model.TaskStatus(status)
-		t.Dismissed = dismissed != 0
-		t.IsCriticReview = isCriticReview != 0
-		if parentID.Valid {
-			t.ParentTaskID = &parentID.String
-		}
-		if followUpOf.Valid {
-			t.FollowUpOf = &followUpOf.String
-		}
-		if healthSignal.Valid {
-			t.HealthSignal = &healthSignal.String
-		}
-		if guardrailReason.Valid {
-			t.GuardrailReason = &guardrailReason.String
-		}
-		if lastError.Valid {
-			t.LastError = lastError.String
-		}
-		if reviewedTaskID.Valid {
-			t.ReviewedTaskID = &reviewedTaskID.String
-		}
-		if runnerPID.Valid {
-			t.RunnerPID = int(runnerPID.Int64)
-		}
-		if timeoutAt.Valid {
-			t.TimeoutAt = &timeoutAt.Time
-		}
-		if startedAt.Valid {
-			t.StartedAt = &startedAt.Time
-		}
-		if completedAt.Valid {
-			t.CompletedAt = &completedAt.Time
-		}
-		if t.CriticMode == "" {
-			t.CriticMode = model.CriticModeInherit
 		}
 		out = append(out, &t)
 	}
 	return out, rows.Err()
+}
+
+// UnlockDependents finds queued tasks that were waiting on completedTaskID and
+// whose remaining deps are all now completed. It clears their depends_on so
+// NextQueuedTask can pick them up, and returns the agent IDs to drain.
+func (r *TaskRepo) UnlockDependents(ctx context.Context, completedTaskID string) ([]string, error) {
+	// Rough filter: find queued tasks that mention the completed ID in depends_on.
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, agent_id, depends_on FROM tasks
+		WHERE status = 'queued'
+		  AND depends_on IS NOT NULL
+		  AND depends_on != '[]'
+		  AND depends_on LIKE ?`,
+		"%"+completedTaskID+"%")
+	if err != nil {
+		return nil, fmt.Errorf("unlock dependents: %w", err)
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id      string
+		agentID string
+		deps    []string
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var id, agentID string
+		var depsJSON string
+		if err := rows.Scan(&id, &agentID, &depsJSON); err != nil {
+			continue
+		}
+		var deps []string
+		if err := json.Unmarshal([]byte(depsJSON), &deps); err != nil {
+			continue
+		}
+		// Exact check: completedTaskID must actually be in the list.
+		found := false
+		for _, d := range deps {
+			if d == completedTaskID {
+				found = true
+				break
+			}
+		}
+		if found {
+			candidates = append(candidates, candidate{id, agentID, deps})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("unlock dependents scan: %w", err)
+	}
+
+	var agentIDs []string
+	for _, c := range candidates {
+		// Check all deps are completed.
+		allDone := true
+		for _, depID := range c.deps {
+			var s string
+			err := r.db.QueryRowContext(ctx, `SELECT status FROM tasks WHERE id = ?`, depID).Scan(&s)
+			if err != nil || s != string(model.TaskStatusCompleted) {
+				allDone = false
+				break
+			}
+		}
+		if !allDone {
+			continue
+		}
+		// Clear depends_on so NextQueuedTask can pick it up.
+		if _, err := r.db.ExecContext(ctx, `UPDATE tasks SET depends_on = NULL WHERE id = ?`, c.id); err != nil {
+			continue
+		}
+		agentIDs = append(agentIDs, c.agentID)
+	}
+	return agentIDs, nil
 }

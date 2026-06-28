@@ -105,7 +105,8 @@ export interface Task {
   is_critic_review: boolean
   reviewed_task_id: string | null
   critic_mode: string  // "inherit" | "none" | "builtin" | "agent:<id>"
-  priority: number     // higher = runs first; default 0 = FIFO
+  priority: number       // higher = runs first; default 0 = FIFO
+  depends_on: string[]   // task IDs that must complete before this runs; [] = no deps
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -488,11 +489,14 @@ export const api = {
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     search: (q: string) => request<Task[]>(`/tasks/search?q=${encodeURIComponent(q)}`),
-    estimate: (agentId: string, description: string) =>
-      request<{ supported: boolean; estimated_cost_usd: number }>('/tasks/estimate', {
-        method: 'POST',
-        body: JSON.stringify({ agent_id: agentId, description }),
-      }),
+    estimate: (req: { agent_id: string; title?: string; description?: string }) =>
+      request<{
+        supported: boolean
+        prompt_tokens: number
+        estimated_output_tokens: { low: number; high: number }
+        estimated_cost_usd: { low: number; high: number }
+        provider: { type: string; model: string }
+      }>('/tasks/estimate', { method: 'POST', body: JSON.stringify(req) }),
     generateDescription: (title: string, hint?: string, providerId?: string) =>
       request<{ description: string }>('/tasks/generate-description', {
         method: 'POST',

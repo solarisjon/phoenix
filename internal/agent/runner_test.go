@@ -299,6 +299,9 @@ func (r *memTaskRepo) HasActiveTaskForProject(_ context.Context, projectID strin
 }
 
 func (r *memTaskRepo) BumpPriority(_ context.Context, _ string) error { return nil }
+func (r *memTaskRepo) UnlockDependents(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
 
 // ---- Mock project repo ----
 

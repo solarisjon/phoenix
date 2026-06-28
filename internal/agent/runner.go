@@ -638,6 +638,15 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 		return
 	}
 
+	// Wake any tasks that were blocked on this one.
+	if agentIDs, err := r.tasks.UnlockDependents(r.bgCtx, task.ID); err != nil {
+		slog.Warn("runner: unlock dependents", "task_id", task.ID, "error", err)
+	} else {
+		for _, aid := range agentIDs {
+			go r.drainQueue(aid)
+		}
+	}
+
 	if r.memos != nil {
 		posted := r.extractAndSaveMemos(task, ec.agent, out.fullText)
 		r.extractAndSaveArtifacts(task, ec.agent, out.fullText)

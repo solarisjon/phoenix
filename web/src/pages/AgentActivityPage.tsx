@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api, type Task, type Agent, type Project } from '@/lib/api'
 import { phoenixWS } from '@/lib/ws'
@@ -188,6 +188,39 @@ export function AgentActivityPage() {
 
   const totalCost = tasks.reduce((sum, t) => sum + (t.cost_usd ?? 0), 0)
 
+  const importRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState('')
+
+  const handleExport = async () => {
+    if (!agent) return
+    const blob = await api.agents.export(agent.id)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${agent.name.toLowerCase().replace(/\s+/g, '-')}-agent.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportMsg('')
+    try {
+      const text = await file.text()
+      const bundle = JSON.parse(text)
+      const imported = await api.agents.importAgent({ bundle })
+      setImportMsg(`Imported "${imported.name}" successfully`)
+    } catch (err) {
+      setImportMsg(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setImporting(false)
+      if (importRef.current) importRef.current.value = ''
+    }
+  }
+
   if (loading) {
     return <div className="text-slate-400 py-12 text-center">Loading…</div>
   }
@@ -206,7 +239,7 @@ export function AgentActivityPage() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link to="/settings?tab=agents" className="text-slate-400 hover:text-white text-sm">← Agents</Link>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1">
           <div className="w-9 h-9 rounded-lg bg-violet-900/50 border border-violet-800/50 flex items-center justify-center text-violet-400 font-bold text-sm">
             {agent.name.charAt(0).toUpperCase()}
           </div>
@@ -215,7 +248,19 @@ export function AgentActivityPage() {
             <p className="text-sm text-slate-500">Activity log · {tasks.length} task{tasks.length !== 1 ? 's' : ''}{totalCost > 0 ? ` · ${formatCost(totalCost)} total` : ''}</p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={handleExport}>↓ Export</Button>
+          <Button variant="secondary" size="sm" onClick={() => importRef.current?.click()} disabled={importing}>
+            {importing ? 'Importing…' : '↑ Import'}
+          </Button>
+          <input ref={importRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+        </div>
       </div>
+      {importMsg && (
+        <p className={`text-sm ${importMsg.includes('successfully') ? 'text-emerald-400' : 'text-red-400'}`}>
+          {importMsg}
+        </p>
+      )}
 
       {/* Status filter tabs */}
       <div className="flex gap-1 flex-wrap">

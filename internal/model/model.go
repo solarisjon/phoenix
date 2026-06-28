@@ -179,6 +179,7 @@ type Task struct {
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
 	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
 	Priority        int        `json:"priority"`    // higher = runs first; default 0 = FIFO
+	DependsOn       []string   `json:"depends_on"`  // task IDs that must complete before this task runs; nil = no deps
 	PromptHash      string     `json:"prompt_hash"` // SHA-256 of the assembled prompt; used for monitor diffing
 	SummaryCache    string     `json:"summary_cache"` // cached summary of older follow-up turns (stored on the root task)
 	CreatedAt       time.Time  `json:"created_at"`
