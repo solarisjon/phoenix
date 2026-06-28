@@ -223,6 +223,7 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 // deadline for LLM/Ollama and a 60-second deadline for coding agents (which must
 // spawn a subprocess). A quick binary-existence check is run first for coding
 // agents to give a clearer error than a raw exec failure.
+// Results are also persisted as the provider's health state.
 func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	rec, err := s.providers.Get(r.Context(), id)
@@ -242,10 +243,23 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 		LatencyMs int64  `json:"latency_ms"`
 	}
 
+	persist := func(ok bool, latencyMs int64, errMsg string) {
+		status := "error"
+		if ok {
+			status = "ok"
+		}
+		ms := latencyMs
+		if err := s.providers.UpdateHealth(r.Context(), id, status, &ms, errMsg); err != nil {
+			slog.Warn("testProvider: persist health", "provider_id", id, "error", err)
+		}
+	}
+
 	// For coding agents do a fast binary preflight before spawning.
 	if rec.Type == model.ProviderTypeCodingAgent {
-		if err := testCodingAgentBinary(rec.Config); err != nil {
-			respond(w, http.StatusOK, result{false, err.Error(), time.Since(start).Milliseconds()})
+		if err := provider.CheckCodingAgentBinary(rec.Config); err != nil {
+			latencyMs := time.Since(start).Milliseconds()
+			persist(false, latencyMs, err.Error())
+			respond(w, http.StatusOK, result{false, err.Error(), latencyMs})
 			return
 		}
 	}
@@ -253,7 +267,10 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	// Build provider from registry.
 	prov, err := s.registry.Get(r.Context(), id)
 	if err != nil {
-		respond(w, http.StatusOK, result{false, "failed to build provider: " + err.Error(), time.Since(start).Milliseconds()})
+		latencyMs := time.Since(start).Milliseconds()
+		msg := "failed to build provider: " + err.Error()
+		persist(false, latencyMs, msg)
+		respond(w, http.StatusOK, result{false, msg, latencyMs})
 		return
 	}
 
@@ -272,10 +289,84 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	})
 	latencyMs := time.Since(start).Milliseconds()
 	if testErr != nil {
+		persist(false, latencyMs, testErr.Error())
 		respond(w, http.StatusOK, result{false, testErr.Error(), latencyMs})
 		return
 	}
+	persist(true, latencyMs, "")
 	respond(w, http.StatusOK, result{true, fmt.Sprintf("Connected · %dms", latencyMs), latencyMs})
+}
+
+// healthProvider triggers an immediate lightweight probe of the provider and
+// returns its current health state. For LLM providers this is a 1-token
+// completion; for coding agents it checks binary availability.
+func (s *Server) healthProvider(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rec, err := s.providers.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if rec == nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	var (
+		status    string
+		latencyMs int64
+		errMsg    string
+	)
+
+	if rec.Type == model.ProviderTypeCodingAgent {
+		start := time.Now()
+		if err := provider.CheckCodingAgentBinary(rec.Config); err != nil {
+			status = "error"
+			errMsg = err.Error()
+		} else {
+			status = "ok"
+		}
+		latencyMs = time.Since(start).Milliseconds()
+	} else {
+		prov, buildErr := s.registry.Get(r.Context(), id)
+		if buildErr != nil {
+			status = "error"
+			errMsg = "could not build provider: " + buildErr.Error()
+		} else {
+			start := time.Now()
+			tctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+			_, testErr := prov.Execute(tctx, provider.TaskRequest{
+				Prompt: "Reply with exactly one word: ok",
+			})
+			cancel()
+			latencyMs = time.Since(start).Milliseconds()
+			if testErr != nil {
+				status = "error"
+				errMsg = testErr.Error()
+				s.registry.Invalidate(id)
+			} else {
+				status = "ok"
+			}
+		}
+	}
+
+	ms := latencyMs
+	if err := s.providers.UpdateHealth(r.Context(), id, status, &ms, errMsg); err != nil {
+		slog.Warn("healthProvider: persist", "provider_id", id, "error", err)
+	}
+
+	type healthResult struct {
+		Status    string  `json:"status"`
+		LatencyMs int64   `json:"latency_ms"`
+		Error     string  `json:"error,omitempty"`
+		CheckedAt string  `json:"checked_at"`
+	}
+	respond(w, http.StatusOK, healthResult{
+		Status:    status,
+		LatencyMs: latencyMs,
+		Error:     errMsg,
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // refreshEnvFromLoginShell spawns the user's login shell, captures its
@@ -338,38 +429,6 @@ func refreshEnvFromLoginShell() error {
 		updated++
 	}
 	slog.Info("resync: refreshed environment variables", "count", updated, "shell", shellBase)
-	return nil
-}
-
-// testCodingAgentBinary checks that the configured binary (or its default) is
-// findable via PATH or as an absolute path.
-func testCodingAgentBinary(configJSON string) error {
-	var cfg struct {
-		Kind       string `json:"kind"`
-		BinaryPath string `json:"binary_path"`
-	}
-	expandedConfig := provider.ExpandEnv(configJSON)
-	if err := json.Unmarshal([]byte(expandedConfig), &cfg); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
-	}
-
-	bin := strings.TrimSpace(cfg.BinaryPath)
-	if bin == "" {
-		switch cfg.Kind {
-		case "pi":
-			bin = "pi"
-		case "claudecode", "claude":
-			bin = "claude"
-		case "crush":
-			bin = "crush"
-		default: // opencode or unset
-			bin = "opencode"
-		}
-	}
-
-	if _, err := exec.LookPath(bin); err != nil {
-		return fmt.Errorf("binary %q not found on PATH", bin)
-	}
 	return nil
 }
 

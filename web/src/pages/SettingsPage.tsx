@@ -773,12 +773,70 @@ function AppearanceTab() {
   )
 }
 
+function TaskTemplatesTab() {
+  const [templates, setTemplates] = useState<import('../lib/api').TaskTemplate[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = () => {
+    api.taskTemplates.list().then(setTemplates).catch(() => {}).finally(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  const remove = async (id: string) => {
+    if (!confirm('Delete this template?')) return
+    await api.taskTemplates.delete(id).catch(() => {})
+    load()
+  }
+
+  if (loading) return <div className="text-slate-500 text-sm">Loading…</div>
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Task Templates</h2>
+        <p className="text-slate-400 text-sm mt-1">
+          Reusable prompt scaffolds. Create them from the task compose form using "Save as template".
+          Supports <code className="bg-slate-800 px-1 rounded text-xs text-slate-300">{'{{date}}'}</code> and{' '}
+          <code className="bg-slate-800 px-1 rounded text-xs text-slate-300">{'{{project_name}}'}</code> variables.
+        </p>
+      </div>
+      {templates.length === 0 ? (
+        <div className="text-slate-500 text-sm py-8 text-center border border-dashed border-slate-700 rounded-lg">
+          No templates yet. Open any project, compose a task, and click "Save as template".
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {templates.map(t => (
+            <div key={t.id} className="flex items-start justify-between gap-4 bg-slate-900 border border-slate-800 rounded-lg px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-white text-sm">{t.name}</span>
+                  <span className="text-xs text-slate-500">{t.project_id ? 'project' : 'global'}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5 truncate">{t.title}</p>
+                {t.description && <p className="text-xs text-slate-600 mt-0.5 truncate">{t.description}</p>}
+              </div>
+              <button
+                onClick={() => remove(t.id)}
+                className="text-xs text-red-400 hover:text-red-300 flex-shrink-0 mt-0.5"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const TABS = [
   { id: 'agents', label: 'Agents' },
   { id: 'providers', label: 'Providers' },
   { id: 'system', label: 'System' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'archived', label: 'Archived' },
+  { id: 'templates', label: 'Templates' },
 ]
 
 export function SettingsPage() {
@@ -820,6 +878,7 @@ export function SettingsPage() {
         {tab === 'system' && <SystemTab />}
         {tab === 'appearance' && <AppearanceTab />}
         {tab === 'archived' && <ArchivedProjectsTab />}
+        {tab === 'templates' && <TaskTemplatesTab />}
       </div>
     </div>
   )

@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
+import { EditRetryModal } from '@/components/edit-retry-modal'
 import { getErrorMessage } from '@/lib/errors'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
@@ -206,7 +207,9 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
   const output = stream || parseOutput(task.output)
   const [retrying, setRetrying] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [bumping, setBumping] = useState(false)
   const [forceResetting, setForceResetting] = useState(false)
+  const [editRetrying, setEditRetrying] = useState(false)
 
   // Stream live output when the modal is open for a running task
   useEffect(() => {
@@ -241,6 +244,11 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
     try { await api.tasks.forceReset(task.id); onRetry() } finally { setForceResetting(false) }
   }
 
+  const bump = async () => {
+    setBumping(true)
+    try { await api.tasks.bump(task.id); onRetry() } finally { setBumping(false) }
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -256,7 +264,14 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
         </div>
         <div>
           <p className="text-slate-500 text-xs mb-0.5">Status</p>
-          <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
+            {task.priority > 0 && (
+              <span className="text-xs bg-amber-900/50 text-amber-300 border border-amber-700/50 rounded px-1.5 py-0.5">
+                P+{task.priority}
+              </span>
+            )}
+          </div>
         </div>
         <div>
           <p className="text-slate-500 text-xs mb-0.5">Created</p>
@@ -305,6 +320,11 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
         <Link to={`/projects/${task.project_id}`} onClick={onClose}>
           <Button variant="secondary" size="sm">View Project →</Button>
         </Link>
+        {task.status === 'queued' && (
+          <Button size="sm" variant="secondary" onClick={bump} disabled={bumping}>
+            {bumping ? 'Bumping…' : '⬆ Bump'}
+          </Button>
+        )}
         {(task.status === 'running' || task.status === 'queued') && (
           <>
             <Button size="sm" variant="secondary" onClick={cancel} disabled={cancelling || forceResetting}>
@@ -321,10 +341,21 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
           </>
         )}
         {task.status === 'failed' && (
-          <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
+          <>
+            <Button size="sm" variant="secondary" onClick={() => setEditRetrying(true)}>✎ Edit & Retry</Button>
+            <Button size="sm" onClick={retry} disabled={retrying}>{retrying ? 'Retrying…' : '↺ Retry'}</Button>
+          </>
         )}
       </div>
-      <FollowUpThread task={task} agents={agents} onSent={onRetry} />
+      {editRetrying ? (
+        <EditRetryModal
+          task={task}
+          onDone={() => { setEditRetrying(false); onRetry() }}
+          onClose={() => setEditRetrying(false)}
+        />
+      ) : (
+        <FollowUpThread task={task} agents={agents} onSent={onRetry} />
+      )}
     </div>
   )
 }

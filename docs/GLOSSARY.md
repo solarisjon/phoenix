@@ -176,12 +176,24 @@ Queue → Running → Completed
 
 ---
 
+### Task Template
+
+> A saved prompt scaffold — a title and description pre-filled for a common task.
+> Templates make repetitive work faster: click once to pre-fill the compose panel,
+> tweak if needed, and run.
+
+- Can be global (available in every project) or scoped to a specific project or agent
+- Created from the task compose panel or via Settings → Task Templates
+- Applied from the **Templates** button in the compose panel
+
+---
+
 ### Queue
 
-> An Agent's FIFO waiting room. Work items arrive from multiple sources and are
-> processed immediately in the order they arrive. The Queue only builds up when
-> the Agent is already at maximum concurrency. The human can inspect the Queue
-> and intervene — cancelling items before they become Tasks.
+> An Agent's waiting room. Work items arrive from multiple sources and are
+> processed in priority order (higher priority first; ties broken by arrival time).
+> The Queue only builds up when the Agent is already at maximum concurrency.
+> The human can inspect the Queue and intervene — cancelling items before they become Tasks.
 
 **Sources that write to an Agent's Queue:**
 - A human (directly queuing work for an agent)
@@ -191,6 +203,7 @@ Queue → Running → Completed
 **Queue intervention:**
 - See all waiting items and their source
 - Cancel an item before it executes
+- **Bump** an item to move it to the front (higher priority runs first)
 - See how long items have been waiting
 
 ---
@@ -320,16 +333,27 @@ Provider ◄─────────────── used by ────�
 
 ---
 
+### Memory Plugin
+
+> An optional plugin type that gives an Agent persistent memory across Tasks.
+> Without a memory plugin, every Task starts fresh — the Agent has no recollection
+> of prior runs. With a memory plugin, the Agent can recall past outputs,
+> decisions, and learned context in subsequent Tasks.
+
+- Currently: **Hindsight** — a built-in memory plugin that summarises completed task output and stores it for future recall
+- Configured in Settings → Plugins → Memory
+- Memory is per-agent; enabling the plugin does not share memory between agents
+
+---
+
 ## What is NOT in scope (yet)
 
-- **Workflow / Pipeline** — ordered or conditional chains of Tasks
+- **Workflow / Pipeline** — ordered or conditional chains of Tasks (task dependency chains are on the roadmap)
 - **Trigger** — event-based firing (webhook, file change, external event) beyond schedules
-- **Memory** — persistent state an Agent carries across Tasks
-- **Integration / Channel** — connections to external systems (Slack, GitHub, Jira)
-- **Agent import/export** — file format and import flow
+- **Integration / Channel** — deep two-way connections to external systems (GitHub Issues plugin is in progress; Slack, Jira are not)
 - **Multi-user** — roles, permissions, team access control
 
 ---
 
-*Last updated: 2026-06-22 (v0.4)*
+*Last updated: 2026-06-27 (v0.7 in progress)*
 *Agreed with: Jon Bowman*

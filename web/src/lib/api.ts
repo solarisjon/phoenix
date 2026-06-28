@@ -1,5 +1,16 @@
 // Typed API client for Phoenix backend
 
+export interface TaskTemplate {
+  id: string
+  name: string
+  description: string
+  title: string
+  body: string
+  project_id: string | null
+  agent_id: string | null
+  created_at: string
+}
+
 export interface Provider {
   id: string
   name: string
@@ -7,6 +18,10 @@ export interface Provider {
   config: string
   created_by: string
   created_at: string
+  health_status: 'ok' | 'error' | 'unknown'
+  health_latency_ms: number | null
+  health_error: string
+  health_checked_at: string | null
 }
 
 export interface Agent {
@@ -90,6 +105,7 @@ export interface Task {
   is_critic_review: boolean
   reviewed_task_id: string | null
   critic_mode: string  // "inherit" | "none" | "builtin" | "agent:<id>"
+  priority: number     // higher = runs first; default 0 = FIFO
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -358,6 +374,7 @@ export const api = {
     delete: (id: string) => request<void>(`/providers/${id}`, { method: 'DELETE' }),
     resync: (id: string) => request<{ status: string; message: string }>(`/providers/${id}/resync`, { method: 'POST' }),
     test: (id: string) => request<{ ok: boolean; message: string; latency_ms: number }>(`/providers/${id}/test`, { method: 'POST' }),
+    health: (id: string) => request<{ status: string; latency_ms: number; error?: string; checked_at: string }>(`/providers/${id}/health`),
   },
   agents: {
     list: () => request<Agent[]>('/agents'),
@@ -483,6 +500,7 @@ export const api = {
       }),
     listByAgent: (agentId: string) => request<Task[]>(`/agents/${agentId}/tasks`),
     listRunning: () => request<Task[]>('/tasks/running'),
+    bump: (id: string) => request<Task>(`/tasks/${id}/bump`, { method: 'POST', body: '{}' }),
     cancel: (id: string) => request<void>(`/tasks/${id}/cancel`, { method: 'POST', body: '{}' }),
     forceReset: (id: string) => request<Task>(`/tasks/${id}/force-reset`, { method: 'POST', body: '{}' }),
   },
@@ -597,5 +615,13 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ vault_id: vaultId ?? '', provider_id: providerId ?? '' }),
       }),
+  },
+  taskTemplates: {
+    list: (projectId?: string) =>
+      request<TaskTemplate[]>(`/task-templates${projectId ? `?project_id=${projectId}` : ''}`),
+    create: (data: Partial<TaskTemplate>) =>
+      request<TaskTemplate>('/task-templates', { method: 'POST', body: JSON.stringify(data) }),
+    delete: (id: string) =>
+      request<void>(`/task-templates/${id}`, { method: 'DELETE' }),
   },
 }

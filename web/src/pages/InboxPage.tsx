@@ -12,6 +12,7 @@ import { parseOutput, timeAgo, taskStatusVariant, taskStatusLabel } from '@/lib/
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { getErrorMessage } from '@/lib/errors'
+import { EditRetryModal } from '@/components/edit-retry-modal'
 
 // ---- Revise modal ----
 
@@ -56,7 +57,19 @@ function TaskDetail({ task, agents, agentName, projectName, onRetry, onClose }: 
   onRetry: () => void
   onClose: () => void
 }) {
+  const [editRetrying, setEditRetrying] = useState(false)
   const output = parseOutput(task.output)
+
+  if (editRetrying) {
+    return (
+      <EditRetryModal
+        task={task}
+        onDone={() => { setEditRetrying(false); onRetry() }}
+        onClose={() => setEditRetrying(false)}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -92,7 +105,8 @@ function TaskDetail({ task, agents, agentName, projectName, onRetry, onClose }: 
         </div>
       </div>
       {task.status === 'failed' && (
-        <div className="flex justify-end">
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={() => setEditRetrying(true)}>✎ Edit & Retry</Button>
           <Button onClick={onRetry}>↺ Retry Task</Button>
         </div>
       )}
@@ -153,6 +167,7 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
   const [revising, setRevising] = useState(false)
   const [detail, setDetail] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [editRetrying, setEditRetrying] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const approve = async () => {
@@ -222,7 +237,10 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
               {/* Actions */}
               <div className="flex gap-2 flex-wrap">
                 {isFailed ? (
-                  <Button size="sm" onClick={retry} disabled={busy}>↺ Retry</Button>
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => setEditRetrying(true)} disabled={busy}>✎ Edit & Retry</Button>
+                    <Button size="sm" onClick={retry} disabled={busy}>↺ Retry</Button>
+                  </>
                 ) : (
                   <>
                     <Button size="sm" onClick={approve} disabled={busy}>
@@ -266,6 +284,16 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
             task={task}
             onDone={() => { setEditing(false); onAction() }}
             onClose={() => setEditing(false)}
+          />
+        </Modal>
+      )}
+
+      {editRetrying && (
+        <Modal title="Edit & Retry" onClose={() => setEditRetrying(false)} className="max-w-xl">
+          <EditRetryModal
+            task={task}
+            onDone={() => { setEditRetrying(false); onAction() }}
+            onClose={() => setEditRetrying(false)}
           />
         </Modal>
       )}

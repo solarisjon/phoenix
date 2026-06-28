@@ -11,6 +11,9 @@ Get notified on your phone when tasks fail, complete, or need approval.
 
 ## 2. Get your chat ID
 
+**Easy way:** Phoenix can discover it automatically — skip ahead to step 3 and click **Detect Chat ID** after entering your token. Send your bot any message first so the API has a recent update to read.
+
+**Manual way:**
 1. Start a conversation with your new bot (send it any message)
 2. Open `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` in a browser
 3. Find the `chat.id` number in the response (e.g. `-1001234567890` for groups, or a positive number for DMs)

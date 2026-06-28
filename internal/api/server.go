@@ -36,6 +36,7 @@ type Server struct {
 	pluginRepo     store.PluginRepo
 	ruleRepo       store.NotificationRuleRepo
 	obsidianVaults store.ObsidianVaultRepo
+	taskTemplates  store.TaskTemplateRepo
 	pluginManager  *plugin.Manager
 	runner         *agent.Runner
 	registry       *registry.Registry
@@ -63,6 +64,7 @@ func New(
 	pluginRepo store.PluginRepo,
 	ruleRepo store.NotificationRuleRepo,
 	obsidianVaults store.ObsidianVaultRepo,
+	taskTemplates store.TaskTemplateRepo,
 	pluginManager *plugin.Manager,
 	runner *agent.Runner,
 	reg *registry.Registry,
@@ -87,6 +89,7 @@ func New(
 		pluginRepo:     pluginRepo,
 		ruleRepo:       ruleRepo,
 		obsidianVaults: obsidianVaults,
+		taskTemplates:  taskTemplates,
 		pluginManager:  pluginManager,
 		runner:         runner,
 		registry:       reg,
@@ -131,6 +134,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/providers/{id}/pricing", s.updateProviderPricing) // before /{id} catch-all
 		r.Post("/providers/{id}/resync", s.resyncProvider)
 		r.Post("/providers/{id}/test", s.testProvider)
+		r.Get("/providers/{id}/health", s.healthProvider)
 
 		// Agents
 		r.Get("/agents", s.listAgents)
@@ -159,6 +163,11 @@ func (s *Server) buildRouter() http.Handler {
 
 		// Import
 		r.Post("/import/team", s.importTeam)
+
+		// Task templates
+		r.Get("/task-templates", s.listTaskTemplates)
+		r.Post("/task-templates", s.createTaskTemplate)
+		r.Delete("/task-templates/{id}", s.deleteTaskTemplate)
 
 		// Projects
 		r.Get("/projects", s.listProjects)
@@ -196,6 +205,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Put("/tasks/{id}", s.updateTask)
 		r.Delete("/tasks/{id}", s.deleteTask)
 		r.Post("/tasks/{id}/retry", s.retryTask)
+		r.Post("/tasks/{id}/bump", s.bumpTask)
 		r.Post("/tasks/{id}/cancel", s.cancelTask)
 		r.Post("/tasks/{id}/force-reset", s.forceResetTask)
 		r.Post("/tasks/{id}/dismiss", s.dismissTask)

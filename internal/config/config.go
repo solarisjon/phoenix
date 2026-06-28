@@ -29,6 +29,9 @@ type Config struct {
 	// CORSOrigin is an optional comma-separated list of allowed CORS origins
 	// beyond the default localhost/loopback set.
 	CORSOrigin string
+
+	// HealthCheckInterval is how often the background checker probes each provider.
+	HealthCheckInterval time.Duration
 }
 
 // Load reads environment variables and returns a populated Config.
@@ -41,8 +44,9 @@ func Load(defaultDBPath string) Config {
 		Port:              envString("PHOENIX_PORT", "8080"),
 		TaskTimeout:       envDuration("PHOENIX_TASK_TIMEOUT", 30*time.Minute),
 		SchedulerInterval: envDuration("PHOENIX_SCHEDULER_INTERVAL", 60*time.Second),
-		HTTPTimeout:       envDuration("PHOENIX_HTTP_TIMEOUT", 60*time.Second),
-		CORSOrigin:        os.Getenv("PHOENIX_CORS_ORIGIN"),
+		HTTPTimeout:         envDuration("PHOENIX_HTTP_TIMEOUT", 60*time.Second),
+		CORSOrigin:          os.Getenv("PHOENIX_CORS_ORIGIN"),
+		HealthCheckInterval: envDuration("PHOENIX_HEALTH_CHECK_INTERVAL", 10*time.Minute),
 	}
 }
 

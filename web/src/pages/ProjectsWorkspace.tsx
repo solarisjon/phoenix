@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider } from '@/lib/api'
+import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider, type TaskTemplate } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
@@ -1085,6 +1085,11 @@ interface TaskComposeFormProps {
   onCancel: () => void
 }
 
+// applyTemplateVars replaces {{date}} and {{project_name}} in a string.
+function applyTemplateVars(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`)
+}
+
 function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskComposeFormProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -1098,13 +1103,55 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
   const [aiProviderID, setAiProviderID] = useState('')
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiError, setAiError] = useState('')
+  const [templates, setTemplates] = useState<TaskTemplate[]>([])
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const [templateName, setTemplateName] = useState('')
+  const [templateScope, setTemplateScope] = useState<'global' | 'project'>('global')
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false)
+  const [templateSaved, setTemplateSaved] = useState(false)
+
+  const templateVars = {
+    date: new Date().toISOString().slice(0, 10),
+    project_name: project.name,
+  }
 
   useEffect(() => {
     api.providers.list().then(list => {
       setProviders(list)
       setAiProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
     }).catch(() => {})
-  }, [])
+    api.taskTemplates.list(project.id).then(setTemplates).catch(() => {})
+  }, [project.id])
+
+  const applyTemplate = (t: TaskTemplate) => {
+    setTitle(applyTemplateVars(t.title, templateVars))
+    setDescription(applyTemplateVars(t.body, templateVars))
+    if (t.agent_id) {
+      const agent = projectAgents.find(a => a.id === t.agent_id)
+      if (agent) setAgentId(agent.id)
+    }
+  }
+
+  const saveAsTemplate = async () => {
+    if (!templateName.trim()) return
+    setSavingTemplate(true)
+    try {
+      await api.taskTemplates.create({
+        name: templateName.trim(),
+        title: title.trim() || 'Untitled',
+        body: description,
+        project_id: templateScope === 'project' ? project.id : null,
+        agent_id: agentId || null,
+      })
+      setShowSaveTemplate(false)
+      setTemplateName('')
+      setTemplateSaved(true)
+      setTimeout(() => setTemplateSaved(false), 2500)
+      api.taskTemplates.list(project.id).then(setTemplates).catch(() => {})
+    } catch { /* ignore */ } finally {
+      setSavingTemplate(false)
+    }
+  }
 
   const generateDescription = async () => {
     if (!title.trim()) { setAiError('Enter a task title first'); return }
@@ -1167,6 +1214,29 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
             </select>
           )}
         </div>
+
+        {/* Template picker */}
+        {templates.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Use template</label>
+            <select
+              defaultValue=""
+              onChange={e => {
+                const t = templates.find(t => t.id === e.target.value)
+                if (t) applyTemplate(t)
+                e.target.value = ''
+              }}
+              className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
+            >
+              <option value="" disabled>Pick a template…</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.project_id ? '' : ' (global)'}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Title */}
         <div>
@@ -1232,6 +1302,53 @@ function TaskComposeForm({ project, projectAgents, onCreated, onCancel }: TaskCo
             rows={5}
             className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-500"
           />
+          {/* Save as template inline UI */}
+          <div className="mt-1.5">
+            {templateSaved ? (
+              <p className="text-xs text-emerald-400">✓ Template saved</p>
+            ) : showSaveTemplate ? (
+              <div className="mt-2 rounded-lg border border-slate-700 bg-slate-800/60 p-3 space-y-2">
+                <input
+                  type="text"
+                  value={templateName}
+                  onChange={e => setTemplateName(e.target.value)}
+                  placeholder="Template name…"
+                  className="w-full text-xs bg-slate-900 border border-slate-700 text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-violet-500"
+                  autoFocus
+                />
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-slate-400">Scope:</label>
+                  <select
+                    value={templateScope}
+                    onChange={e => setTemplateScope(e.target.value as 'global' | 'project')}
+                    className="text-xs bg-slate-900 border border-slate-700 text-slate-300 rounded px-2 py-1 focus:outline-none focus:border-violet-500"
+                  >
+                    <option value="global">Global (all projects)</option>
+                    <option value="project">This project only</option>
+                  </select>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => { setShowSaveTemplate(false); setTemplateName('') }}
+                    className="text-xs text-slate-500 hover:text-slate-300"
+                  >Cancel</button>
+                  <button
+                    onClick={saveAsTemplate}
+                    disabled={savingTemplate || !templateName.trim()}
+                    className="text-xs bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-slate-200 rounded px-3 py-1"
+                  >{savingTemplate ? 'Saving…' : '💾 Save'}</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSaveTemplate(true)}
+                className="text-xs text-slate-500 hover:text-slate-400 transition-colors"
+              >
+                💾 Save as template
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Devil's Advocate toggle */}

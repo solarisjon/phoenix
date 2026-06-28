@@ -54,7 +54,8 @@ func testServer(t *testing.T) *Server {
 	ruleRepo := sqllite.NewNotificationRuleRepo(db)
 	pm := plugin.NewManager(pluginRepo, ruleRepo, systemSettingsRepo, plugin.ManagerOpts{NoPlugins: true})
 	obsidianVaultRepo := sqllite.NewObsidianVaultRepo(db)
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, obsidianVaultRepo, pm, runner, reg, pricing.New(), adminRepo, 0)
+	taskTemplateRepo := sqllite.NewTaskTemplateRepo(db)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, obsidianVaultRepo, taskTemplateRepo, pm, runner, reg, pricing.New(), adminRepo, 0)
 }
 
 type mockProv struct{}

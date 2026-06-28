@@ -15,7 +15,9 @@ func NewProviderRepo(db *DB) *ProviderRepo { return &ProviderRepo{db} }
 
 func (r *ProviderRepo) List(ctx context.Context) ([]*model.Provider, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, type, config, created_by, created_at FROM providers ORDER BY created_at ASC`)
+		`SELECT id, name, type, config, created_by, created_at,
+		        health_status, health_latency_ms, health_error, health_checked_at
+		 FROM providers ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
@@ -25,8 +27,20 @@ func (r *ProviderRepo) List(ctx context.Context) ([]*model.Provider, error) {
 
 func (r *ProviderRepo) Get(ctx context.Context, id string) (*model.Provider, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, type, config, created_by, created_at FROM providers WHERE id = ?`, id)
+		`SELECT id, name, type, config, created_by, created_at,
+		        health_status, health_latency_ms, health_error, health_checked_at
+		 FROM providers WHERE id = ?`, id)
 	return scanProvider(row)
+}
+
+func (r *ProviderRepo) UpdateHealth(ctx context.Context, id, status string, latencyMs *int64, errMsg string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE providers SET health_status = ?, health_latency_ms = ?, health_error = ?, health_checked_at = datetime('now') WHERE id = ?`,
+		status, latencyMs, errMsg, id)
+	if err != nil {
+		return fmt.Errorf("update provider health: %w", err)
+	}
+	return nil
 }
 
 func (r *ProviderRepo) Create(ctx context.Context, p *model.Provider) error {
@@ -60,7 +74,10 @@ func (r *ProviderRepo) Delete(ctx context.Context, id string) error {
 func scanProvider(row *sql.Row) (*model.Provider, error) {
 	var p model.Provider
 	var typ string
-	err := row.Scan(&p.ID, &p.Name, &typ, &p.Config, &p.CreatedBy, &p.CreatedAt)
+	var latencyMs sql.NullInt64
+	var checkedAt sql.NullTime
+	err := row.Scan(&p.ID, &p.Name, &typ, &p.Config, &p.CreatedBy, &p.CreatedAt,
+		&p.HealthStatus, &latencyMs, &p.HealthError, &checkedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -68,6 +85,12 @@ func scanProvider(row *sql.Row) (*model.Provider, error) {
 		return nil, fmt.Errorf("scan provider: %w", err)
 	}
 	p.Type = model.ProviderType(typ)
+	if latencyMs.Valid {
+		p.HealthLatencyMs = &latencyMs.Int64
+	}
+	if checkedAt.Valid {
+		p.HealthCheckedAt = &checkedAt.Time
+	}
 	return &p, nil
 }
 
@@ -76,10 +99,19 @@ func scanProviders(rows *sql.Rows) ([]*model.Provider, error) {
 	for rows.Next() {
 		var p model.Provider
 		var typ string
-		if err := rows.Scan(&p.ID, &p.Name, &typ, &p.Config, &p.CreatedBy, &p.CreatedAt); err != nil {
+		var latencyMs sql.NullInt64
+		var checkedAt sql.NullTime
+		if err := rows.Scan(&p.ID, &p.Name, &typ, &p.Config, &p.CreatedBy, &p.CreatedAt,
+			&p.HealthStatus, &latencyMs, &p.HealthError, &checkedAt); err != nil {
 			return nil, fmt.Errorf("scan provider row: %w", err)
 		}
 		p.Type = model.ProviderType(typ)
+		if latencyMs.Valid {
+			p.HealthLatencyMs = &latencyMs.Int64
+		}
+		if checkedAt.Valid {
+			p.HealthCheckedAt = &checkedAt.Time
+		}
 		out = append(out, &p)
 	}
 	return out, rows.Err()

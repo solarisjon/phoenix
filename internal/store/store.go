@@ -24,6 +24,7 @@ type ProviderRepo interface {
 	Create(ctx context.Context, p *model.Provider) error
 	Update(ctx context.Context, p *model.Provider) error
 	Delete(ctx context.Context, id string) error
+	UpdateHealth(ctx context.Context, id, status string, latencyMs *int64, errMsg string) error
 }
 
 // AgentRepo manages agent records.
@@ -119,6 +120,10 @@ type TaskRepo interface {
 	// SaveSummaryCache persists a summary string on the root task of a follow-up
 	// chain so future follow-ups can skip re-summarising the same turns.
 	SaveSummaryCache(ctx context.Context, taskID, summary string) error
+
+	// SetPriority updates the scheduling priority of a task.
+	// Higher values run before lower ones; ties are broken by created_at ASC.
+	SetPriority(ctx context.Context, taskID string, priority int) error
 }
 
 // TeamRepo manages agent teams.
@@ -171,6 +176,16 @@ type TotalUsage struct {
 type TaskCountByStatus struct {
 	Status string `json:"status"`
 	Count  int    `json:"count"`
+}
+
+// TaskTemplateRepo manages reusable task prompt templates.
+type TaskTemplateRepo interface {
+	// List returns all templates. If projectID is non-empty, returns global templates
+	// plus templates scoped to that project.
+	List(ctx context.Context, projectID string) ([]*model.TaskTemplate, error)
+	Get(ctx context.Context, id string) (*model.TaskTemplate, error)
+	Create(ctx context.Context, t *model.TaskTemplate) error
+	Delete(ctx context.Context, id string) error
 }
 
 // AgentDraftRepo manages pending agent hire proposals.

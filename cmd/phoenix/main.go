@@ -18,6 +18,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/frontend"
+	"github.com/solarisjon/phoenix/internal/healthcheck"
 	"github.com/solarisjon/phoenix/internal/logging"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/paths"
@@ -78,6 +79,7 @@ func main() {
 	pluginRepo := sqlite.NewPluginRepo(db)
 	notificationRuleRepo := sqlite.NewNotificationRuleRepo(db)
 	obsidianVaultRepo := sqlite.NewObsidianVaultRepo(db)
+	taskTemplateRepo := sqlite.NewTaskTemplateRepo(db)
 
 	// Wire up plugin manager.
 	pluginManager := plugin.NewManager(pluginRepo, notificationRuleRepo, systemSettingsRepo, plugin.ManagerOpts{
@@ -121,7 +123,7 @@ func main() {
 		taskRepo, statsRepo, userRepo, teamRepo,
 		agentDraftRepo, systemSettingsRepo,
 		memoRepo,
-		pluginRepo, notificationRuleRepo, obsidianVaultRepo, pluginManager,
+		pluginRepo, notificationRuleRepo, obsidianVaultRepo, taskTemplateRepo, pluginManager,
 		runner, reg, pricingReg,
 		adminRepo,
 		cfg.HTTPTimeout,
@@ -208,6 +210,11 @@ func main() {
 	// Start Telegram inbound pollers (after sigCtx so they share the same lifetime).
 	pluginManager.StartPollers(sigCtx)
 	defer pluginManager.StopPollers()
+
+	// Start the provider health checker.
+	healthChecker := healthcheck.New(providerRepo, reg, cfg.HealthCheckInterval)
+	healthChecker.Start(sigCtx)
+	defer healthChecker.Stop()
 
 	// Start the monitor scheduler. Scans monitors every SchedulerInterval and
 	// fires tasks for monitors with schedule_interval set.

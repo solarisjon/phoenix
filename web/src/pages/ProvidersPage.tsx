@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api, type Provider } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -372,6 +372,31 @@ const defaultCoding: CodingAgentConfig = {
   extra_args: [],
 }
 
+function HealthDot({ status, checkedAt, latencyMs, error }: {
+  status: string
+  checkedAt: string | null
+  latencyMs: number | null
+  error: string
+}) {
+  const dotClass = status === 'ok'
+    ? 'bg-emerald-400'
+    : status === 'error'
+      ? 'bg-red-500'
+      : 'bg-slate-600'
+
+  const label = status === 'ok'
+    ? `Healthy · ${latencyMs}ms · ${checkedAt ? new Date(checkedAt).toLocaleTimeString() : ''}`
+    : status === 'error'
+      ? `Unhealthy · ${error || 'unknown error'}`
+      : 'Not yet checked'
+
+  return (
+    <span title={label} className="inline-flex items-center">
+      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', dotClass)} />
+    </span>
+  )
+}
+
 function parseConfig(type: string, configJSON: string): LLMConfig | CodingAgentConfig {
   try {
     const parsed = JSON.parse(configJSON)
@@ -562,13 +587,19 @@ export function ProvidersPage() {
   const [resyncMessage, setResyncMessage] = useState<string>('')
   const [testStates, setTestStates] = useState<Record<string, { testing: boolean; ok?: boolean; message?: string }>>({})
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try { setProviders(await api.providers.list()) }
     catch { /* ignore */ }
     finally { setLoading(false) }
-  }
+  }, [])
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    // Re-fetch providers every 30s so health dots stay fresh as the background
+    // checker updates them without requiring a manual page reload.
+    const timer = setInterval(load, 30_000)
+    return () => clearInterval(timer)
+  }, [load])
 
   const remove = async (id: string) => {
     if (!confirm('Delete this provider? Any agents using it will stop working.')) return
@@ -663,7 +694,15 @@ export function ProvidersPage() {
                       {providerIcon(p)}
                     </div>
                     <div>
-                      <h3 className="font-medium text-white">{p.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium text-white">{p.name}</h3>
+                        <HealthDot
+                          status={p.health_status ?? 'unknown'}
+                          checkedAt={p.health_checked_at ?? null}
+                          latencyMs={p.health_latency_ms ?? null}
+                          error={p.health_error ?? ''}
+                        />
+                      </div>
                       <Badge variant={p.type === 'llm' ? 'info' : 'success'} className="mt-0.5">
                         {providerLabel(p)}
                       </Badge>

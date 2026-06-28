@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-06-26 (v0.5)  
+**Last updated:** 2026-06-27 (v0.7 in progress)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -59,25 +59,38 @@ internal/
       011_project_kind.sql             # projects.kind ('project' | 'monitor')
       033_plugins.sql                  # plugins + notification_rules tables, master switch settings
       034_project_objective.sql        # projects.objective TEXT DEFAULT ''
-      036_plugin_memory_type.sql         # rebuild plugins table to allow type='memory'
-      037_obsidian_vaults.sql            # obsidian_vaults table + obsidian_root/auto_write settings
-      038_memo_artifact_path.sql         # memos.artifact_path for .md inline viewing
+      035_context_summarisation.sql    # tasks.summary_cache for follow-up chain summarisation
+      036_plugin_memory_type.sql       # rebuild plugins table to allow type='memory'
+      037_obsidian_vaults.sql          # obsidian_vaults table + obsidian_root/auto_write settings
+      038_memo_artifact_path.sql       # memos.artifact_path for .md inline viewing
+      039_project_paused_status.sql    # projects.status adds 'paused' value for monitor pause/resume
+      040_agents_projects_fts.sql      # FTS5 tables for agents and projects (was tasks-only)
+      041_provider_health.sql          # providers: health_status, health_latency_ms, health_error, health_checked_at
+      042_task_templates.sql           # task_templates table (id, name, description, title, body, project_id, agent_id)
+      043_task_priority.sql            # tasks.priority INTEGER DEFAULT 0 + idx_tasks_priority (priority DESC, created_at ASC)
     agent.go, task.go, project.go, team.go, agent_draft.go, stats.go, admin.go, sqlite.go
+    task_template.go                   # TaskTemplateRepo: List/Get/Create/Delete
     system_settings.go                 # SystemSettingsRepo: Get/Save global guardrails + Obsidian settings
     plugin.go, notification_rule.go    # PluginRepo + NotificationRuleRepo
     obsidian.go                        # ObsidianVaultRepo: CRUD for vault configurations
   api/
     server.go                          # router — ALL routes registered here
-    agent.go                           # CRUD + generate + spawnTask (source field added)
+    agent.go                           # CRUD + generate + spawnTask + import/export + clearMemory
     agent_draft.go                     # CRUD + approve + reject + dismiss
-    task.go                            # CRUD + retry + dismiss + followup + quick + listRunning + listAttention
+    task.go                            # CRUD + retry + bumpTask + cancel + forceReset + dismiss + undismiss + followup + quick + listRunning + listAttention + estimate + search
+    task_template.go                   # listTaskTemplates + createTaskTemplate + deleteTaskTemplate
     inbox.go                           # approve + reject + revise + dismissAll
-    settings.go                        # GET/PUT /admin/settings + generate-guardrails
+    settings.go                        # GET/PUT /admin/settings + generate-guardrails + restore + sysinfo + reset
     memo.go                            # CRUD + getMemoFileContent (serves .md artifacts inline)
-    obsidian.go                        # vault CRUD + POST /api/obsidian/write/:task_id manual write
-    provider.go, project.go, team.go, stats.go, admin.go
-    plugin.go                          # CRUD + enable/disable + chats (Telegram) + /api/themes
+    obsidian.go                        # vault CRUD + discover + generateContext + write (manual trigger)
+    provider.go                        # CRUD + models + pricing + resync + test + health (healthProvider)
+    project.go, team.go, stats.go, admin.go
+    plugin.go                          # CRUD + enable/disable + test + schema + chats (Telegram) + rules + /api/themes
     hub.go / ws.go / events.go         # WebSocket
+  healthcheck/
+    checker.go                         # background provider health-check goroutine; pings each provider on interval
+  provider/
+    check.go                           # CheckCodingAgentBinary: verify binary exists on PATH before spawning
   agent/
     runner.go                          # goroutine lifecycle, task execution, PID tracking, timeout, Obsidian auto-write
     prompt.go                          # system prompt assembly; guardrails; hiring; InjectObsidianVaults()
@@ -108,26 +121,27 @@ web/src/
     ui/markdown-output.tsx             # react-markdown with --ph-* var scoped CSS
     ui/quick-task.tsx                  # floating FAB + ⌘K modal
     ui/theme-picker.tsx                # theme switcher; fetches /api/themes, injects community theme CSS
+    edit-retry-modal.tsx               # pre-fills failed task title+description for edit-before-retry; creates follow-up task
   pages/
     DashboardPage.tsx, InboxPage.tsx, TasksPage.tsx
     BriefingPage.tsx                   # memos list; MdFileViewer renders .md artifact_path inline
     PluginsPage.tsx                    # plugin management: notifiers (Telegram/Webhook), custom themes, memory plugins
     ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task view | task detail/compose
-    ProjectsWorkspace.tsx              # THREE-PANE workspace: project list | task view | task detail/compose
                                        # replaces old ProjectsPage.tsx + ProjectDetailPage.tsx
                                        # includes: ProjectListItem, MiddlePane (status-grouped sections,
                                        #   inline objective editor, AI suggest card), TaskRow, TaskDetailView,
-                                       #   TaskComposeView, FileRow, FilePreviewView, AgentPickerModal
-    MonitorsPage.tsx                   # lists kind=monitor; flat dark cards with health-signal dots
+                                       #   TaskComposeView (task templates picker), FileRow, FilePreviewView, AgentPickerModal
+    MonitorsPage.tsx                   # lists kind=monitor; flat dark cards with health-signal dots; pause button
     MonitorDetailPage.tsx              # run log, countdown, run-now; RunCard with left-border status color
-    AgentsPage.tsx, ProvidersPage.tsx
-    SettingsPage.tsx                   # System tab: Global Guardrails + DB backup; Obsidian tab: vault manager + auto-write toggle
+    AgentActivityPage.tsx              # per-agent task history / activity log
+    AgentsPage.tsx, ProvidersPage.tsx  # ProvidersPage shows health dot + Test button per provider
+    SettingsPage.tsx                   # System tab: Global Guardrails + DB backup + configurable server URL; Obsidian tab: vault manager + auto-write toggle
     TeamsPage.tsx, TeamDetailPage.tsx
 ```
 
 ---
 
-## Data Model — Current State (migrations 001–038)
+## Data Model — Current State (migrations 001–043)
 
 ### agents
 ```sql
@@ -157,9 +171,13 @@ timeout_at DATETIME,
 source TEXT DEFAULT '',              -- free-text provenance (migration 010)
 health_signal TEXT,                  -- monitor runs: all_clear|needs_attention|failed (migration 016)
 guardrail_reason TEXT,               -- set when hard guardrail fires
+last_error TEXT DEFAULT '',          -- last error message (migration 025)
 is_critic_review INTEGER DEFAULT 0,  -- critic tasks flagged to prevent critic loops (migration 019)
 reviewed_task_id TEXT,               -- FK to original task this critic reviewed (migration 019)
 critic_mode TEXT DEFAULT 'inherit',  -- inherit|none|builtin|agent:<id> (migration 024)
+prompt_hash TEXT DEFAULT '',         -- dedup key: SHA256 of (project_id+agent_id+prompt) (migration 027)
+summary_cache TEXT DEFAULT '',       -- cached chain summary for follow-up context (migration 035)
+priority INTEGER NOT NULL DEFAULT 0, -- scheduler ordering: higher runs first; ties → created_at ASC (migration 043)
 created_at, started_at, completed_at
 ```
 
@@ -184,8 +202,27 @@ schedule_times TEXT NOT NULL DEFAULT '[]',       -- migration 026: JSON array of
 schedule_catch_up INTEGER NOT NULL DEFAULT 0,    -- migration 026: daily only; run a missed time once at next opportunity same day
 critic_agent_id TEXT,                -- deprecated; use critic_mode (migration 019)
 critic_mode TEXT DEFAULT 'none',     -- none|builtin|agent:<id> (migration 024)
-owner, status, created_at,
+owner,
+status TEXT DEFAULT 'active' CHECK(status IN ('active','archived','paused')), -- migration 039 adds 'paused'
+created_at,
 tags TEXT NOT NULL DEFAULT '[]'      -- migration 023: JSON array of tag strings
+```
+
+### task_templates (migration 042)
+```sql
+id, name, description TEXT DEFAULT '', title, body TEXT DEFAULT '',
+project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,  -- NULL = global
+agent_id   TEXT REFERENCES agents(id)   ON DELETE SET NULL, -- NULL = any agent
+created_at
+```
+
+### providers (added columns, migrations 041)
+```sql
+-- existing: id, name, type, kind, config, created_at
+health_status     TEXT NOT NULL DEFAULT 'unknown',  -- 'unknown'|'healthy'|'degraded'|'unreachable'
+health_latency_ms INTEGER,
+health_error      TEXT NOT NULL DEFAULT '',
+health_checked_at DATETIME
 ```
 
 ### plugins (migrations 033, 036)
@@ -241,10 +278,23 @@ GET/POST           /api/providers
 GET/PUT/DELETE     /api/providers/:id
 GET                /api/providers/:id/models
 
+GET/POST           /api/providers
+GET/PUT/DELETE     /api/providers/:id
+GET                /api/providers/:id/models
+PUT                /api/providers/:id/pricing
+POST               /api/providers/:id/resync      # clear cached adapter (hot-reload config)
+POST               /api/providers/:id/test        # on-demand health check
+GET                /api/providers/:id/health      # latest cached health status
+
 GET/POST           /api/agents
 POST               /api/agents/generate
+POST               /api/agents/import             # import agent JSON bundle
 POST               /api/agents/spawn              # body: source field optional
-GET/PUT/DELETE     /api/agents/:id
+GET                /api/agents/:id
+PUT/DELETE         /api/agents/:id
+GET                /api/agents/:id/tasks          # per-agent task history
+GET                /api/agents/:id/export         # export agent JSON
+DELETE             /api/agents/:id/memory         # clear agent memory (Hindsight plugin)
 
 GET/POST           /api/agent-drafts
 PUT                /api/agent-drafts/:id
@@ -252,72 +302,100 @@ POST               /api/agent-drafts/:id/approve
 POST               /api/agent-drafts/:id/reject
 POST               /api/agent-drafts/:id/dismiss
 
-GET/POST           /api/projects                  # GET: ?kind=project|monitor&status=active|archived (default status=active)
-GET/PUT/DELETE     /api/projects/:id              # PUT: kind + objective fields accepted; DELETE hard-deletes project + all tasks
+GET/POST           /api/projects                  # GET: ?kind=project|monitor&status=active|archived|paused
+GET/PUT/DELETE     /api/projects/:id
 POST               /api/projects/:id/archive      # sets status=archived; blocks if tasks running
 POST               /api/projects/:id/restore      # sets status=active
+POST               /api/projects/:id/pause        # sets status=paused (monitors only)
 GET                /api/projects/summaries        # task health summary keyed by project ID
+POST               /api/projects/generate-description
 GET/POST           /api/projects/:id/agents
 DELETE             /api/projects/:id/agents/:agentId
+GET                /api/projects/:id/agents       # list assigned agents
 POST               /api/projects/:id/teams
 GET                /api/projects/:id/files        # list files in working_dir (depth ≤3, no hidden)
 GET                /api/projects/:id/files/*      # get file content (≤256KB)
-GET                /api/projects/:id/history      # all completed tasks regardless of dismissed state (v0.4)
-POST               /api/projects/:id/suggest      # AI next-action suggestions based on objective + history (v0.4)
+GET                /api/projects/:id/history      # all completed tasks regardless of dismissed state
+GET                /api/projects/:id/summary      # single project summary (used internally)
+GET                /api/projects/:id/spend        # per-project cost breakdown
+POST               /api/projects/:id/suggest      # AI next-action suggestions
 
-GET/POST           /api/tasks                    # ?project_id= filter; POST: source field optional
-POST               /api/tasks/quick              # sandbox project
+GET/POST           /api/task-templates            # GET: ?project_id= (null=global+project)
+DELETE             /api/task-templates/:id
+
+GET/POST           /api/tasks                     # ?project_id= filter
+POST               /api/tasks/quick               # sandbox project
 GET                /api/tasks/running
 GET                /api/tasks/attention
+GET                /api/tasks/search              # FTS5 across tasks
+POST               /api/tasks/estimate            # pre-run token/cost estimate
+POST               /api/tasks/generate-description
 GET/PUT/DELETE     /api/tasks/:id
 POST               /api/tasks/:id/retry
+POST               /api/tasks/:id/bump            # increase priority (higher = runs sooner)
+POST               /api/tasks/:id/cancel          # cancel queued task
+POST               /api/tasks/:id/force-reset     # force-fail running/stuck task
 POST               /api/tasks/:id/dismiss
+POST               /api/tasks/:id/undismiss
 POST               /api/tasks/:id/followup
+POST               /api/tasks/:id/obsidian-write  # manually save task to Obsidian vault
 
 GET                /api/inbox
-POST               /api/inbox/dismiss-all         # ?filter=failed|awaiting|all
+POST               /api/inbox/dismiss-all         # ?filter=failed|awaiting|completed|all
 POST               /api/inbox/:taskId/approve
 POST               /api/inbox/:taskId/reject
 POST               /api/inbox/:taskId/revise
 
 GET/POST           /api/teams
+POST               /api/teams/generate-description
 GET/PUT/DELETE     /api/teams/:id
 GET/POST           /api/teams/:id/agents
 DELETE             /api/teams/:id/agents/:agentId
-POST               /api/teams/:id/assign/:projectId
+POST               /api/teams/:id/broadcast
 GET                /api/teams/:id/export
 POST               /api/import/team
 
-GET                /api/memos                    # ?status=unread|read|flagged|archived (default: all non-archived)
-POST               /api/memos                    # create memo manually
-GET                /api/memos/count              # {count} of unread+flagged (sidebar badge)
-GET                /api/memos/file-content       # ?path=<abs_path> — serve .md artifact inline (migration 038)
-PUT                /api/memos/:id/status         # {status: unread|read|flagged|archived}
+GET                /api/memos                     # ?status=unread|read|flagged|archived
+POST               /api/memos
+GET                /api/memos/count               # unread+flagged count (sidebar badge)
+GET                /api/memos/file-content        # ?path=<abs_path> — serve .md artifact inline
+PUT                /api/memos/:id/status
 DELETE             /api/memos/:id
 
-GET/POST           /api/obsidian/vaults          # vault CRUD
+GET/POST           /api/obsidian/vaults           # requireObsidianEnabled middleware
 GET/PUT/DELETE     /api/obsidian/vaults/:id
-POST               /api/obsidian/vaults/discover # scan obsidian_root for vault directories
-POST               /api/obsidian/write/:taskId   # manually trigger AI note write for a completed task
+GET                /api/obsidian/discover         # scan obsidian_root for vault directories
+POST               /api/obsidian/generate-context # AI-generate vault context description
 
-GET/POST           /api/plugins                  # plugin CRUD (v0.4)
+GET/POST           /api/plugins
 GET/PUT/DELETE     /api/plugins/:id
 POST               /api/plugins/:id/enable
 POST               /api/plugins/:id/disable
-GET                /api/plugins/:id/chats        # Telegram: discover chat IDs via getUpdates
-GET/POST           /api/notification-rules
-PUT/DELETE         /api/notification-rules/:id
-GET                /api/themes                   # enabled community themes (type=theme plugins)
+POST               /api/plugins/:id/test
+GET                /api/plugins/:id/schema
+GET                /api/plugins/:id/chats         # Telegram: discover chat IDs via getUpdates
+GET/POST           /api/plugins/:id/rules
+PUT/DELETE         /api/plugins/:id/rules/:rid
+GET                /api/themes                    # enabled community themes
 
+GET                /api/search                    # global FTS across tasks, agents, projects
 GET                /api/stats/costs
-GET                /api/admin/backup
-GET/PUT            /api/admin/settings            # global guardrails + plugin master switches
+GET                /api/stats/costs/insights      # trend analysis + anomaly flags
+
+GET                /api/fs/stat                   # ?path= — stat a filesystem path
+POST               /api/fs/mkdir                  # {path} — create directory
+
+GET                /api/admin/backup              # stream VACUUM INTO snapshot
+POST               /api/admin/restore             # restore from uploaded snapshot
+GET                /api/admin/sysinfo             # OS/Go/disk/memory stats
+GET/PUT            /api/admin/settings            # global guardrails + plugin master switches + server URL
 POST               /api/admin/settings/generate-guardrails
+POST               /api/admin/reset               # DANGER: factory reset (wipe all data)
 
 WS                 /api/ws
 ```
 
-**Route ordering:** static routes MUST be before `{id}` params in chi. `/tasks/quick`, `/tasks/running`, `/tasks/attention`, `/agents/generate`, `/agents/spawn`, `/inbox/dismiss-all`, `/projects/summaries`, `/projects/generate-description` all registered before `/:id` params.
+**Route ordering:** static routes MUST be before `{id}` params in chi. `/tasks/quick`, `/tasks/running`, `/tasks/attention`, `/tasks/search`, `/tasks/estimate`, `/agents/generate`, `/agents/spawn`, `/agents/import`, `/inbox/dismiss-all`, `/projects/summaries`, `/projects/generate-description`, `/memos/count`, `/memos/file-content` all registered before `/:id` params.
 
 ---
 
@@ -394,7 +472,7 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–038
+- Migrations applied: 001–043
 
 ---
 
@@ -436,12 +514,32 @@ Recently completed (2026-06-26 — v0.5):
 - ✓ Obsidian vault integration — vault CRUD, auto-write post-task, vault routing in system prompts, Settings → Obsidian tab, TaskThreadCard "Save to Obsidian" button (#70)
 - ✓ Briefing: clickable link to view .md artifact files inline — MdFileViewer in BriefingPage, artifact_path on memos, GET /api/memos/file-content endpoint (#71)
 
+Recently completed (2026-06-27 — v0.6):
+- ✓ Themes: 15 built-in themes (8 dark, 7 light); DB-persisted selection; theme-aware status badges (#63, #59, #45, #56-58)
+- ✓ Webhook HMAC-SHA256 signing — X-Phoenix-Signature header on each POST (#50)
+- ✓ Telegram /status command — reply with recent task statuses without opening UI (#44)
+- ✓ FTS5 extended to agents and projects (was tasks-only) — GET /api/search global; GET /api/tasks/search per-tasks (#48)
+- ✓ Monitor pause/resume — POST /api/projects/:id/pause sets status=paused; resume via restore (#45)
+- ✓ Agent assignment guard — scheduler skips monitors whose agent already has a running/queued task (#43)
+- ✓ Dedup scheduler — prompt_hash dedup prevents re-queuing same prompt in same project (#41)
+- ✓ Configurable server URL — stored in system_settings, injected into spawn/hire agent prompts (#40)
+
+In progress (v0.7):
+- ◑ Provider health checks (#62) — background checker in internal/healthcheck/, GET /api/providers/:id/health, POST /api/providers/:id/test, status dot on provider cards
+- ◑ Task templates (#47) — migration 042, GET/POST/DELETE /api/task-templates, template picker in compose panel, EditRetryModal for retry-with-edit
+- ◑ Task priority / bump (#61) — migration 043, tasks.priority, POST /api/tasks/:id/bump, scheduler orders by priority DESC, created_at ASC
+- ◑ Retry with edit (#46) — EditRetryModal component (web/src/components/edit-retry-modal.tsx); creates follow-up task with edited prompt
+
 Open backlog — https://github.com/solarisjon/phoenix/issues:
 1. **#13** Mobile-friendly layout (sidebar collapses to bottom nav)
 2. **#19** Keyboard shortcuts (R=retry, D=dismiss, J/K navigate)
 3. **#12** Multi-user authentication (Phase 7 — large)
 4. **#14** claudecode smoke test (BLOCKED: needs claude auth)
 5. **#7**  Copilot adapter (BLOCKED: needs copilot login)
+6. **#51** Discord notifier plugin
+7. **#52** Email (SMTP) notifier plugin
+8. **#53** GitHub Issues plugin — bidirectional
+9. **#66** Task dependency chains
 
 ---
 
@@ -474,3 +572,10 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 - **Obsidian artifact type:** agents use `Type: obsidian` in ARTIFACT blocks (not `Type: file`) to declare a vault write. `ParsedArtifact.Vault` carries the vault name. `extractAndSaveArtifacts()` in `runner_extract.go` handles directory creation for obsidian type.
 - **artifact_path on memos:** only set for `Type: file` artifacts whose path ends in `.md`. Other file types and all non-file artifact types leave `artifact_path` empty. The `GET /api/memos/file-content` endpoint only serves absolute paths with `.md` extension — rejects all others with 400.
 - **plugins.type 'memory':** migration 036 rebuilds the plugins table to allow the 'memory' type (SQLite cannot ALTER CHECK constraints). Safe to run on existing DB — data is copied.
+- **taskSelectCols priority column:** `priority` was added to `taskSelectCols` const in `task.go` (migration 043). If you add a new task column, add it to `taskSelectCols` AND update `scanTask` + `scanTasks` — mismatched column count causes a scan panic at runtime.
+- **SetPriority in test fakes:** any struct implementing `store.TaskRepo` (test fakes like `memTaskRepo`, `fakeTaskRepo`) must implement `SetPriority(ctx, taskID, priority) error`. Add a no-op stub if the test doesn't need real priority.
+- **task_templates project_id NULL semantics:** `project_id = NULL` means global (available everywhere). `project_id = X` means scoped to that project only. `GET /api/task-templates?project_id=X` returns global + project-specific templates. No `project_id` param returns only global.
+- **Provider health checker:** `internal/healthcheck/checker.go` starts in a goroutine via `healthchecker.Start(sigCtx)` in `main.go`. It calls `GET /api/providers` internally and pings each provider. For coding_agent providers it calls `CheckCodingAgentBinary()` from `internal/provider/check.go` (binary PATH check only, no subprocess). For llm/ollama it makes an HTTP request. Results written via `providerRepo.UpdateHealth()`.
+- **Monitor pause status:** `projects.status` now has three values: `active`, `archived`, `paused`. Paused monitors appear in the monitors list but fire no scheduler ticks. The scheduler `shouldRun()` checks `status == active`. `POST /api/projects/:id/pause` sets status=paused; `POST /api/projects/:id/restore` sets it back to active.
+- **Retry-with-edit is a follow-up:** `EditRetryModal` does NOT call `/retry` — it calls `/api/tasks` (create) with `follow_up_of: task.id`. This keeps the original task intact and chains the re-run as a follow-up. The UI shows it in the same thread.
+- **Configurable server URL:** stored in system_settings as key `server_url`. Empty = use `http://localhost:8080`. Injected into agent spawn/hire instructions by `prompt.go`. Agents use this URL to call back to the API — set it when running Phoenix behind a reverse proxy or non-default port.

@@ -18,7 +18,18 @@ The Webhook notifier sends a JSON POST to any HTTP endpoint when events occur. U
 
 Same as Telegram — pick which events trigger a notification.
 
-## 3. What gets sent
+## 3. Verify requests with HMAC signing (optional)
+
+Set a **Secret** in the webhook config. Phoenix will include an `X-Phoenix-Signature` header on every POST — the value is `HMAC-SHA256(secret, body)` encoded as hex. Verify this on your server to confirm the request came from Phoenix.
+
+```bash
+# Verify in Python
+import hmac, hashlib
+expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+assert request.headers['X-Phoenix-Signature'] == expected
+```
+
+## 4. What gets sent
 
 The webhook receives a JSON POST with this structure:
 

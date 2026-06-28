@@ -578,6 +578,30 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusNoContent, nil)
 }
 
+func (s *Server) bumpTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.Status != model.TaskStatusQueued {
+		respondErr(w, http.StatusConflict, "only queued tasks can be bumped")
+		return
+	}
+	newPriority := task.Priority + 10
+	if err := s.tasks.SetPriority(r.Context(), id, newPriority); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	task.Priority = newPriority
+	respond(w, http.StatusOK, task)
+}
+
 func (s *Server) cancelTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	task, err := s.tasks.Get(r.Context(), id)

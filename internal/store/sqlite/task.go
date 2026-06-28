@@ -19,7 +19,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
-	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache `
+	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -253,7 +253,7 @@ func (r *TaskRepo) ProjectSpendForPeriod(ctx context.Context, projectID, period 
 
 func (r *TaskRepo) NextQueuedTask(ctx context.Context, agentID string) (*model.Task, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? AND status = 'queued' ORDER BY created_at ASC LIMIT 1`,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE agent_id = ? AND status = 'queued' ORDER BY priority DESC, created_at ASC LIMIT 1`,
 		agentID)
 	return scanTask(row)
 }
@@ -355,6 +355,15 @@ func (r *TaskRepo) SaveSummaryCache(ctx context.Context, taskID, summary string)
 	return nil
 }
 
+func (r *TaskRepo) SetPriority(ctx context.Context, taskID string, priority int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET priority = ? WHERE id = ?`, priority, taskID)
+	if err != nil {
+		return fmt.Errorf("set priority: %w", err)
+	}
+	return nil
+}
+
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
 	var status string
@@ -370,7 +379,7 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 		&runnerPID, &timeoutAt,
 		&t.Source, &healthSignal, &guardrailReason, &lastError,
-		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache,
+		&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache, &t.Priority,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -434,7 +443,7 @@ func scanTasks(rows *sql.Rows) ([]*model.Task, error) {
 			&t.Input, &t.Output, &t.CostUSD, &t.TokensIn, &t.TokensOut, &dismissed,
 			&runnerPID, &timeoutAt,
 			&t.Source, &healthSignal, &guardrailReason, &lastError,
-			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache,
+			&t.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID, &t.CriticMode, &t.PromptHash, &t.SummaryCache, &t.Priority,
 		); err != nil {
 			return nil, fmt.Errorf("scan task row: %w", err)
 		}

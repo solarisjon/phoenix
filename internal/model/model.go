@@ -52,12 +52,16 @@ type User struct {
 
 // Provider holds configuration for an LLM endpoint or coding agent tool.
 type Provider struct {
-	ID        string       `json:"id"`
-	Name      string       `json:"name"`
-	Type      ProviderType `json:"type"`
-	Config    string       `json:"config"` // JSON blob
-	CreatedBy string       `json:"created_by"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID              string       `json:"id"`
+	Name            string       `json:"name"`
+	Type            ProviderType `json:"type"`
+	Config          string       `json:"config"` // JSON blob
+	CreatedBy       string       `json:"created_by"`
+	CreatedAt       time.Time    `json:"created_at"`
+	HealthStatus    string       `json:"health_status"`              // "ok" | "error" | "unknown"
+	HealthLatencyMs *int64       `json:"health_latency_ms,omitempty"` // nil if never checked
+	HealthError     string       `json:"health_error,omitempty"`
+	HealthCheckedAt *time.Time   `json:"health_checked_at,omitempty"`
 }
 
 // Agent is an AI agent with a behaviour description, guardrails, and a provider.
@@ -174,6 +178,7 @@ type Task struct {
 	IsCriticReview  bool       `json:"is_critic_review"`
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
 	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
+	Priority        int        `json:"priority"`    // higher = runs first; default 0 = FIFO
 	PromptHash      string     `json:"prompt_hash"` // SHA-256 of the assembled prompt; used for monitor diffing
 	SummaryCache    string     `json:"summary_cache"` // cached summary of older follow-up turns (stored on the root task)
 	CreatedAt       time.Time  `json:"created_at"`
@@ -304,6 +309,20 @@ type NotificationRule struct {
 	Enabled   bool            `json:"enabled"`
 	Template  *string         `json:"template"` // nil = use default template
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+// TaskTemplate is a reusable prompt scaffold for quick task creation.
+// project_id nil = global (available in all projects).
+// agent_id nil = user picks the agent at creation time.
+type TaskTemplate struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"` // what the template is for
+	Title       string    `json:"title"`        // task title (may contain {{vars}})
+	Body        string    `json:"body"`         // task description (may contain {{vars}})
+	ProjectID   *string   `json:"project_id"`   // nil = global
+	AgentID     *string   `json:"agent_id"`     // nil = inherits from project
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // AgentDraft is a proposed new agent submitted by a hiring agent for human

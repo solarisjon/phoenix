@@ -298,6 +298,8 @@ func (r *memTaskRepo) HasActiveTaskForProject(_ context.Context, projectID strin
 	return false, nil
 }
 
+func (r *memTaskRepo) SetPriority(_ context.Context, _ string, _ int) error { return nil }
+
 // ---- Mock project repo ----
 
 type mockProjectRepo struct{}
@@ -393,6 +395,9 @@ func (f *fakeProviderRepo) Get(_ context.Context, _ string) (*model.Provider, er
 func (f *fakeProviderRepo) Create(_ context.Context, _ *model.Provider) error { return nil }
 func (f *fakeProviderRepo) Update(_ context.Context, _ *model.Provider) error { return nil }
 func (f *fakeProviderRepo) Delete(_ context.Context, _ string) error          { return nil }
+func (f *fakeProviderRepo) UpdateHealth(_ context.Context, _, _ string, _ *int64, _ string) error {
+	return nil
+}
 
 // waitForStatus polls until the task reaches the expected status or times out.
 func waitForStatus(t *testing.T, repo *memTaskRepo, taskID string, want model.TaskStatus) {

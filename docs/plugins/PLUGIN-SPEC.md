@@ -111,7 +111,10 @@ Notifier plugins are compiled into Phoenix and cannot be created via the API. Th
 |---|---|---|---|---|
 | `url` | string | yes | yes | `"https://hooks.slack.com/services/..."` |
 | `auth_header` | string | no | yes | `"Authorization: Bearer ${TOKEN}"` |
+| `secret` | string | no | yes | `"${WEBHOOK_SECRET}"` — enables HMAC signing |
 | `timeout_seconds` | integer | no | no | `10` (default) |
+
+**HMAC signing:** When `secret` is set, each POST includes an `X-Phoenix-Signature` header containing `HMAC-SHA256(secret, body)` in hex. Verify this on your server to authenticate that the request came from Phoenix.
 
 ### Configure a notifier via API
 
