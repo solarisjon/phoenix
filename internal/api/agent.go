@@ -47,7 +47,8 @@ func (r createAgentRequest) validate() string {
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
-	list, err := s.agents.List(r.Context())
+	u := userFromCtx(r.Context())
+	list, err := s.agents.List(r.Context(), u.ID)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
@@ -93,11 +94,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.users.GetDefault(r.Context())
-	if err != nil || user == nil {
-		respondInternalErr(w, err)
-		return
-	}
+	user := userFromCtx(r.Context())
 
 	status := model.AgentStatusActive
 	if req.Status != "" {
@@ -202,7 +199,7 @@ func (s *Server) generateAgent(w http.ResponseWriter, r *http.Request) {
 	// Fall back to first available LLM provider if none specified.
 	providerID := req.ProviderID
 	if providerID == "" {
-		providers, err := s.providers.List(r.Context())
+		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
 		if err != nil || len(providers) == 0 {
 			respondErr(w, http.StatusBadRequest, "no providers available for generation")
 			return

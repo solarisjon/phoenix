@@ -135,14 +135,10 @@ func (s *Server) importAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.users.GetDefault(r.Context())
-	if err != nil || user == nil {
-		respondInternalErr(w, err)
-		return
-	}
+	user := userFromCtx(r.Context())
 
 	var provID string
-	existingProviders, _ := s.providers.List(r.Context())
+	existingProviders, _ := s.providers.List(r.Context(), user.ID)
 	if bundle.Provider != nil {
 		for _, ep := range existingProviders {
 			var cfg map[string]interface{}

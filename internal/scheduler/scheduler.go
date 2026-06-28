@@ -48,10 +48,11 @@ type Scheduler struct {
 	// minute is never skipped between ticks.
 	dailyPunctualWindow time.Duration
 
-	mu     sync.Mutex
-	stops  map[string]scheduleEntry // key: monitorID (interval schedules only)
-	ctx    context.Context
-	cancel context.CancelFunc
+	mu         sync.Mutex
+	stops      map[string]scheduleEntry // key: monitorID (interval schedules only)
+	agentIndex map[string]int           // key: monitorID → next round-robin index
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // scheduleEntry tracks the cancel function and the interval that was active when
@@ -78,6 +79,7 @@ func New(
 		refreshInterval:     refreshInterval,
 		dailyPunctualWindow: refreshInterval + time.Minute,
 		stops:               make(map[string]scheduleEntry),
+		agentIndex:          make(map[string]int),
 		ctx:                 ctx,
 		cancel:              cancel,
 	}
@@ -129,7 +131,7 @@ type timeOfDay struct {
 func (s *Scheduler) sync() {
 	ctx := s.ctx
 
-	projects, err := s.projects.List(ctx)
+	projects, err := s.projects.List(ctx, "")
 	if err != nil {
 		slog.Error("scheduler: list projects", "error", err)
 		return
@@ -147,21 +149,25 @@ func (s *Scheduler) sync() {
 			continue
 		}
 
-		// Find the first active assigned agent to execute tasks.
+		// Collect active assigned agents and select via round-robin.
 		assigned, err := s.projects.ListAgents(ctx, proj.ID)
 		if err != nil || len(assigned) == 0 {
 			continue
 		}
-		var execAgent *model.Agent
+		var activeAgents []*model.Agent
 		for _, a := range assigned {
 			if a.Status == model.AgentStatusActive {
-				execAgent = a
-				break
+				activeAgents = append(activeAgents, a)
 			}
 		}
-		if execAgent == nil {
+		if len(activeAgents) == 0 {
 			continue
 		}
+		s.mu.Lock()
+		idx := s.agentIndex[proj.ID] % len(activeAgents)
+		s.agentIndex[proj.ID] = idx + 1
+		s.mu.Unlock()
+		execAgent := activeAgents[idx]
 
 		kind := proj.ScheduleKind
 		if kind == "" {

@@ -15,20 +15,26 @@ func NewUserRepo(db *DB) *UserRepo { return &UserRepo{db} }
 
 func (r *UserRepo) Get(ctx context.Context, id string) (*model.User, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, email, settings, created_at FROM users WHERE id = ?`, id)
+		`SELECT id, name, email, settings, password_hash, created_at FROM users WHERE id = ?`, id)
 	return scanUser(row)
 }
 
 func (r *UserRepo) GetDefault(ctx context.Context) (*model.User, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, name, email, settings, created_at FROM users ORDER BY created_at ASC LIMIT 1`)
+		`SELECT id, name, email, settings, password_hash, created_at FROM users ORDER BY created_at ASC LIMIT 1`)
+	return scanUser(row)
+}
+
+func (r *UserRepo) GetByName(ctx context.Context, name string) (*model.User, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, name, email, settings, password_hash, created_at FROM users WHERE name = ?`, name)
 	return scanUser(row)
 }
 
 func (r *UserRepo) Create(ctx context.Context, u *model.User) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO users (id, name, email, settings) VALUES (?, ?, ?, ?)`,
-		u.ID, u.Name, u.Email, u.Settings)
+		`INSERT INTO users (id, name, email, settings, password_hash) VALUES (?, ?, ?, ?, ?)`,
+		u.ID, u.Name, u.Email, u.Settings, u.PasswordHash)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
@@ -45,9 +51,18 @@ func (r *UserRepo) Update(ctx context.Context, u *model.User) error {
 	return nil
 }
 
+func (r *UserRepo) SetPasswordHash(ctx context.Context, userID, hash string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = ? WHERE id = ?`, hash, userID)
+	if err != nil {
+		return fmt.Errorf("set password hash: %w", err)
+	}
+	return nil
+}
+
 func scanUser(row *sql.Row) (*model.User, error) {
 	var u model.User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Settings, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.Settings, &u.PasswordHash, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -64,7 +64,7 @@ func (c *Checker) loop(ctx context.Context) {
 }
 
 func (c *Checker) probeAll(ctx context.Context) {
-	providers, err := c.providers.List(ctx)
+	providers, err := c.providers.List(ctx, "")
 	if err != nil {
 		slog.Error("healthcheck: list providers", "error", err)
 		return

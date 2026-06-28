@@ -67,7 +67,7 @@ func TestProviderCRUD(t *testing.T) {
 	p := seedProvider(t, db)
 
 	// List
-	list, err := repo.List(ctx)
+	list, err := repo.List(ctx, "")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("List: err=%v len=%d", err, len(list))
 	}
@@ -95,7 +95,7 @@ func TestProviderCRUD(t *testing.T) {
 	if err := repo.Delete(ctx, p.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	list, _ = repo.List(ctx)
+	list, _ = repo.List(ctx, "")
 	if len(list) != 0 {
 		t.Error("expected empty list after delete")
 	}
@@ -129,7 +129,7 @@ func TestAgentCRUD(t *testing.T) {
 
 	a := seedAgent(t, db)
 
-	list, err := repo.List(ctx)
+	list, err := repo.List(ctx, "")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("List: err=%v len=%d", err, len(list))
 	}
@@ -177,7 +177,7 @@ func TestProjectCRUD(t *testing.T) {
 
 	proj := seedProject(t, db)
 
-	list, err := repo.List(ctx)
+	list, err := repo.List(ctx, "")
 	if err != nil || len(list) != 1 {
 		t.Fatalf("List: err=%v len=%d", err, len(list))
 	}

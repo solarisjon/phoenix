@@ -13,11 +13,20 @@ type ProviderRepo struct{ db *DB }
 
 func NewProviderRepo(db *DB) *ProviderRepo { return &ProviderRepo{db} }
 
-func (r *ProviderRepo) List(ctx context.Context) ([]*model.Provider, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, type, config, created_by, created_at,
-		        health_status, health_latency_ms, health_error, health_checked_at
-		 FROM providers ORDER BY created_at ASC`)
+func (r *ProviderRepo) List(ctx context.Context, userID string) ([]*model.Provider, error) {
+	var rows *sql.Rows
+	var err error
+	if userID == "" {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT id, name, type, config, created_by, created_at,
+			        health_status, health_latency_ms, health_error, health_checked_at
+			 FROM providers ORDER BY created_at ASC`)
+	} else {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT id, name, type, config, created_by, created_at,
+			        health_status, health_latency_ms, health_error, health_checked_at
+			 FROM providers WHERE created_by = ? ORDER BY created_at ASC`, userID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}

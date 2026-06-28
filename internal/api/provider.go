@@ -36,7 +36,8 @@ func (r createProviderRequest) validate() string {
 }
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
-	list, err := s.providers.List(r.Context())
+	u := userFromCtx(r.Context())
+	list, err := s.providers.List(r.Context(), u.ID)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
@@ -71,11 +72,7 @@ func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.users.GetDefault(r.Context())
-	if err != nil || user == nil {
-		respondInternalErr(w, err)
-		return
-	}
+	user := userFromCtx(r.Context())
 
 	config := req.Config
 	if config == "" {

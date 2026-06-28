@@ -17,12 +17,12 @@ import (
 
 type fakeAgentRepo struct{}
 
-func (r *fakeAgentRepo) List(_ context.Context) ([]*model.Agent, error)              { return nil, nil }
-func (r *fakeAgentRepo) Get(_ context.Context, _ string) (*model.Agent, error)       { return nil, nil }
-func (r *fakeAgentRepo) Create(_ context.Context, _ *model.Agent) error              { return nil }
-func (r *fakeAgentRepo) Update(_ context.Context, _ *model.Agent) error              { return nil }
-func (r *fakeAgentRepo) Delete(_ context.Context, _ string) error                    { return nil }
-func (r *fakeAgentRepo) Search(_ context.Context, _ string) ([]*model.Agent, error)  { return nil, nil }
+func (r *fakeAgentRepo) List(_ context.Context, _ string) ([]*model.Agent, error)              { return nil, nil }
+func (r *fakeAgentRepo) Get(_ context.Context, _ string) (*model.Agent, error)                 { return nil, nil }
+func (r *fakeAgentRepo) Create(_ context.Context, _ *model.Agent) error                        { return nil }
+func (r *fakeAgentRepo) Update(_ context.Context, _ *model.Agent) error                        { return nil }
+func (r *fakeAgentRepo) Delete(_ context.Context, _ string) error                              { return nil }
+func (r *fakeAgentRepo) Search(_ context.Context, _, _ string) ([]*model.Agent, error)         { return nil, nil }
 
 type fakeProjectRepo struct {
 	mu       sync.Mutex
@@ -37,15 +37,15 @@ func newFakeProjectRepo(projects []*model.Project, agents map[string][]*model.Ag
 	return &fakeProjectRepo{projects: projects, agents: agents}
 }
 
-func (r *fakeProjectRepo) List(_ context.Context) ([]*model.Project, error) {
+func (r *fakeProjectRepo) List(_ context.Context, _ string) ([]*model.Project, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]*model.Project(nil), r.projects...), nil
 }
-func (r *fakeProjectRepo) ListByKind(_ context.Context, _ string) ([]*model.Project, error) {
-	return r.List(context.Background())
+func (r *fakeProjectRepo) ListByKind(_ context.Context, _, _ string) ([]*model.Project, error) {
+	return r.List(context.Background(), "")
 }
-func (r *fakeProjectRepo) ListByStatus(_ context.Context, _, _ string) ([]*model.Project, error) {
+func (r *fakeProjectRepo) ListByStatus(_ context.Context, _, _, _ string) ([]*model.Project, error) {
 	return nil, nil
 }
 func (r *fakeProjectRepo) Get(_ context.Context, id string) (*model.Project, error) {
@@ -95,8 +95,11 @@ func (r *fakeProjectRepo) ListAgents(_ context.Context, projectID string) ([]*mo
 	defer r.mu.Unlock()
 	return append([]*model.Agent(nil), r.agents[projectID]...), nil
 }
-func (r *fakeProjectRepo) Search(_ context.Context, _ string) ([]*model.Project, error) {
+func (r *fakeProjectRepo) Search(_ context.Context, _, _ string) ([]*model.Project, error) {
 	return nil, nil
+}
+func (r *fakeProjectRepo) UpdateHeartbeatSignal(_ context.Context, _, _ string, _ int) error {
+	return nil
 }
 
 type fakeTaskRepo struct {

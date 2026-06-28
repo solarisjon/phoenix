@@ -20,7 +20,7 @@ const titles: Record<string, string> = {
   '/feed': 'Event Log',
 }
 
-export function AppLayout({ children }: { children: React.ReactNode }) {
+export function AppLayout({ children, onLogout, userName }: { children: React.ReactNode; onLogout?: () => void; userName?: string }) {
   const location = useLocation()
   const [inboxCount, setInboxCount] = useState(0)
   const [activeCount, setActiveCount] = useState(0)
@@ -85,7 +85,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
       <Sidebar inboxCount={inboxCount} activeCount={activeCount} memoCount={memoCount} />
       <main className="flex-1 flex flex-col overflow-hidden">
-        <TopBar inboxCount={inboxCount} title={title} />
+        <TopBar inboxCount={inboxCount} title={title} onLogout={onLogout} userName={userName} />
         <div className="flex-1 overflow-auto p-6">
           {children}
         </div>

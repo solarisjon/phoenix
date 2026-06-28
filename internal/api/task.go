@@ -33,12 +33,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		respondInternalErr(w, err)
 		return
 	}
-	agents, err := s.agents.Search(r.Context(), safe)
+	userID := userFromCtx(r.Context()).ID
+	agents, err := s.agents.Search(r.Context(), safe, userID)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
 	}
-	projects, err := s.projects.Search(r.Context(), safe)
+	projects, err := s.projects.Search(r.Context(), safe, userID)
 	if err != nil {
 		respondInternalErr(w, err)
 		return

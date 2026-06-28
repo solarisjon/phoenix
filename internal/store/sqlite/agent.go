@@ -14,12 +14,22 @@ type AgentRepo struct{ db *DB }
 
 func NewAgentRepo(db *DB) *AgentRepo { return &AgentRepo{db} }
 
-func (r *AgentRepo) List(ctx context.Context) ([]*model.Agent, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
-		       provider_id, model_override, can_spawn_agents, can_hire_agents,
-		       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
-		FROM agents ORDER BY created_at ASC`)
+func (r *AgentRepo) List(ctx context.Context, userID string) ([]*model.Agent, error) {
+	var rows *sql.Rows
+	var err error
+	if userID == "" {
+		rows, err = r.db.QueryContext(ctx, `
+			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
+			       provider_id, model_override, can_spawn_agents, can_hire_agents,
+			       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
+			FROM agents ORDER BY created_at ASC`)
+	} else {
+		rows, err = r.db.QueryContext(ctx, `
+			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
+			       provider_id, model_override, can_spawn_agents, can_hire_agents,
+			       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
+			FROM agents WHERE created_by = ? ORDER BY created_at ASC`, userID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
@@ -87,14 +97,26 @@ func (r *AgentRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *AgentRepo) Search(ctx context.Context, query string) ([]*model.Agent, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
-		       provider_id, model_override, can_spawn_agents, can_hire_agents,
-		       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
-		FROM agents
-		WHERE rowid IN (SELECT rowid FROM agents_fts WHERE agents_fts MATCH ?)
-		ORDER BY created_at DESC LIMIT 50`, query)
+func (r *AgentRepo) Search(ctx context.Context, query, userID string) ([]*model.Agent, error) {
+	var rows *sql.Rows
+	var err error
+	if userID == "" {
+		rows, err = r.db.QueryContext(ctx, `
+			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
+			       provider_id, model_override, can_spawn_agents, can_hire_agents,
+			       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
+			FROM agents
+			WHERE rowid IN (SELECT rowid FROM agents_fts WHERE agents_fts MATCH ?)
+			ORDER BY created_at DESC LIMIT 50`, query)
+	} else {
+		rows, err = r.db.QueryContext(ctx, `
+			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
+			       provider_id, model_override, can_spawn_agents, can_hire_agents,
+			       max_concurrent, max_cost_per_run, fallback_model, created_by, status, created_at, template_id
+			FROM agents
+			WHERE created_by = ? AND rowid IN (SELECT rowid FROM agents_fts WHERE agents_fts MATCH ?)
+			ORDER BY created_at DESC LIMIT 50`, userID, query)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("search agents: %w", err)
 	}

@@ -13,9 +13,16 @@ type TeamRepo struct{ db *DB }
 
 func NewTeamRepo(db *DB) *TeamRepo { return &TeamRepo{db} }
 
-func (r *TeamRepo) List(ctx context.Context) ([]*model.Team, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, created_by, created_at FROM teams ORDER BY created_at ASC`)
+func (r *TeamRepo) List(ctx context.Context, userID string) ([]*model.Team, error) {
+	var rows *sql.Rows
+	var err error
+	if userID == "" {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT id, name, description, created_by, created_at FROM teams ORDER BY created_at ASC`)
+	} else {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT id, name, description, created_by, created_at FROM teams WHERE created_by = ? ORDER BY created_at ASC`, userID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list teams: %w", err)
 	}

@@ -41,12 +41,21 @@ const (
 
 // ---- Domain Types ----
 
-// User represents a Phoenix user. Single-user for Phase 1 but FK-ready for multi-user.
+// User represents a Phoenix user.
 type User struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Email        string    `json:"email"`
+	Settings     string    `json:"settings"`      // JSON blob
+	PasswordHash string    `json:"-"`             // bcrypt hash; never serialised
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Session is an authenticated browser session tied to a user.
+type Session struct {
 	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Email     string    `json:"email"`
-	Settings  string    `json:"settings"` // JSON blob
+	UserID    string    `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -144,7 +153,23 @@ type Project struct {
 	BudgetPeriod           string   `json:"budget_period"`           // "day" | "week" | "month" | "total"
 	ContextSummarisation   bool     `json:"context_summarisation"`   // if true, long follow-up chains are summarised before injection
 	Tags                   []string `json:"tags"`                    // free-text labels for grouping/filtering
-	CreatedAt              time.Time `json:"created_at"`
+
+	// Heartbeat reaction fields (monitors only — migration 045)
+	HeartbeatOnAttention    string  `json:"heartbeat_on_attention"`     // "" | "spawn" | "notify" | "escalate"
+	HeartbeatOnFailed       string  `json:"heartbeat_on_failed"`        // same options
+	LinkedProjectID         *string `json:"linked_project_id"`          // project to spawn remediation tasks in
+	HeartbeatConsecutiveBad  int    `json:"heartbeat_consecutive_bad"`   // consecutive non-clear signal count
+	HeartbeatLastSignal      string `json:"heartbeat_last_signal"`       // last signal value
+	HeartbeatEscalateAfter   int    `json:"heartbeat_escalate_after"`    // fire escalate action only after N consecutive bad; 0 = immediately
+
+	// Monitor cache TTL (migration 048)
+	MonitorCacheTTL int `json:"monitor_cache_ttl"` // seconds; 0 = cache indefinitely (original behaviour)
+
+	// ReAct autonomous loop fields (migration 046)
+	ReactMode     bool `json:"react_mode"`     // enable autonomous NEXT_ACTION iteration
+	MaxIterations int  `json:"max_iterations"` // safety cap; 0 = use default (10)
+
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ProjectAgent links an agent to a project.
@@ -178,8 +203,9 @@ type Task struct {
 	IsCriticReview  bool       `json:"is_critic_review"`
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
 	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
-	Priority        int        `json:"priority"`    // higher = runs first; default 0 = FIFO
-	DependsOn       []string   `json:"depends_on"`  // task IDs that must complete before this task runs; nil = no deps
+	Priority        int        `json:"priority"`       // higher = runs first; default 0 = FIFO
+	DependsOn       []string   `json:"depends_on"`     // task IDs that must complete before this task runs; nil = no deps
+	LoopIteration   int        `json:"loop_iteration"` // iteration index within a ReAct loop (0 = first/only)
 	PromptHash      string     `json:"prompt_hash"` // SHA-256 of the assembled prompt; used for monitor diffing
 	SummaryCache    string     `json:"summary_cache"` // cached summary of older follow-up turns (stored on the root task)
 	CreatedAt       time.Time  `json:"created_at"`

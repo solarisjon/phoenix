@@ -13,13 +13,25 @@ import (
 type UserRepo interface {
 	Get(ctx context.Context, id string) (*model.User, error)
 	GetDefault(ctx context.Context) (*model.User, error)
+	GetByName(ctx context.Context, name string) (*model.User, error)
 	Create(ctx context.Context, u *model.User) error
 	Update(ctx context.Context, u *model.User) error
+	SetPasswordHash(ctx context.Context, userID, hash string) error
+}
+
+// SessionRepo manages authenticated browser sessions.
+type SessionRepo interface {
+	Create(ctx context.Context, s *model.Session) error
+	GetByID(ctx context.Context, id string) (*model.Session, error)
+	DeleteByID(ctx context.Context, id string) error
+	DeleteByUserID(ctx context.Context, userID string) error
 }
 
 // ProviderRepo manages provider configurations.
 type ProviderRepo interface {
-	List(ctx context.Context) ([]*model.Provider, error)
+	// List returns providers. When userID is non-empty only that user's providers
+	// are returned; passing "" returns all providers (used by health checker).
+	List(ctx context.Context, userID string) ([]*model.Provider, error)
 	Get(ctx context.Context, id string) (*model.Provider, error)
 	Create(ctx context.Context, p *model.Provider) error
 	Update(ctx context.Context, p *model.Provider) error
@@ -29,33 +41,40 @@ type ProviderRepo interface {
 
 // AgentRepo manages agent records.
 type AgentRepo interface {
-	List(ctx context.Context) ([]*model.Agent, error)
+	// List returns agents. When userID is non-empty only that user's agents are
+	// returned; passing "" returns all agents.
+	List(ctx context.Context, userID string) ([]*model.Agent, error)
 	Get(ctx context.Context, id string) (*model.Agent, error)
 	Create(ctx context.Context, a *model.Agent) error
 	Update(ctx context.Context, a *model.Agent) error
 	Delete(ctx context.Context, id string) error
-	Search(ctx context.Context, query string) ([]*model.Agent, error)
+	Search(ctx context.Context, query, userID string) ([]*model.Agent, error)
 }
 
 // ProjectRepo manages projects and project-agent assignments.
 type ProjectRepo interface {
-	List(ctx context.Context) ([]*model.Project, error)
-	ListByKind(ctx context.Context, kind string) ([]*model.Project, error)
-	// ListByStatus returns projects filtered by status ('active' or 'archived').
-	// An empty status returns all projects regardless of status.
-	ListByStatus(ctx context.Context, kind, status string) ([]*model.Project, error)
+	// List returns projects. Passing userID="" returns all projects (used by scheduler).
+	List(ctx context.Context, userID string) ([]*model.Project, error)
+	ListByKind(ctx context.Context, kind, userID string) ([]*model.Project, error)
+	// ListByStatus returns projects filtered by kind and status.
+	// Empty kind/status matches all. Passing userID="" returns all users' projects.
+	ListByStatus(ctx context.Context, kind, status, userID string) ([]*model.Project, error)
 	Get(ctx context.Context, id string) (*model.Project, error)
 	Create(ctx context.Context, p *model.Project) error
 	Update(ctx context.Context, p *model.Project) error
 	Delete(ctx context.Context, id string) error
 	// DeleteWithTasks hard-deletes a project and all its tasks.
 	DeleteWithTasks(ctx context.Context, id string) error
-	Search(ctx context.Context, query string) ([]*model.Project, error)
+	Search(ctx context.Context, query, userID string) ([]*model.Project, error)
 
 	AssignAgent(ctx context.Context, projectID, agentID string) (bool, error)
 	IsAgentAssigned(ctx context.Context, projectID, agentID string) (bool, error)
 	RemoveAgent(ctx context.Context, projectID, agentID string) error
 	ListAgents(ctx context.Context, projectID string) ([]*model.Agent, error)
+
+	// UpdateHeartbeatSignal records the latest health signal and updates the
+	// consecutive-bad counter without touching any other project fields.
+	UpdateHeartbeatSignal(ctx context.Context, projectID, signal string, consecutiveBad int) error
 }
 
 // TaskRepo manages task records.
@@ -134,7 +153,8 @@ type TaskRepo interface {
 
 // TeamRepo manages agent teams.
 type TeamRepo interface {
-	List(ctx context.Context) ([]*model.Team, error)
+	// List returns teams. Passing userID="" returns all teams.
+	List(ctx context.Context, userID string) ([]*model.Team, error)
 	Get(ctx context.Context, id string) (*model.Team, error)
 	Create(ctx context.Context, t *model.Team) error
 	Update(ctx context.Context, t *model.Team) error

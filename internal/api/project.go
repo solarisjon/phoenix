@@ -34,6 +34,17 @@ type createProjectRequest struct {
 	BudgetPeriod         string   `json:"budget_period"`         // "day" | "week" | "month" | "total"
 	ContextSummarisation bool     `json:"context_summarisation"` // opt-in: summarise long follow-up chains
 	Tags                 []string `json:"tags"`
+
+	// Heartbeat reaction (monitors only)
+	HeartbeatOnAttention   string  `json:"heartbeat_on_attention"`   // "" | "spawn" | "notify" | "escalate"
+	HeartbeatOnFailed      string  `json:"heartbeat_on_failed"`      // same options
+	LinkedProjectID        *string `json:"linked_project_id"`        // project to spawn remediation tasks in
+	HeartbeatEscalateAfter int     `json:"heartbeat_escalate_after"` // N consecutive bad before escalate fires; 0 = immediately
+	MonitorCacheTTL        int     `json:"monitor_cache_ttl"`        // seconds; 0 = cache indefinitely
+
+	// ReAct autonomous loop
+	ReactMode     bool `json:"react_mode"`
+	MaxIterations int  `json:"max_iterations"` // 0 = system default (10)
 }
 
 func (r createProjectRequest) validate() string {
@@ -100,10 +111,11 @@ type assignAgentRequest struct {
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	kind := r.URL.Query().Get("kind")     // optional: "project" | "monitor"
 	status := r.URL.Query().Get("status") // optional: "active" | "archived" | "paused" — defaults to all non-archived
+	userID := userFromCtx(r.Context()).ID
 	var list []*model.Project
 	if status == "" {
 		// Default: return all non-archived (active + paused) so paused monitors remain visible.
-		all, err := s.projects.ListByStatus(r.Context(), kind, "")
+		all, err := s.projects.ListByStatus(r.Context(), kind, "", userID)
 		if err != nil {
 			respondInternalErr(w, err)
 			return
@@ -115,7 +127,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var err error
-		list, err = s.projects.ListByStatus(r.Context(), kind, status)
+		list, err = s.projects.ListByStatus(r.Context(), kind, status, userID)
 		if err != nil {
 			respondInternalErr(w, err)
 			return
@@ -151,11 +163,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.users.GetDefault(r.Context())
-	if err != nil || user == nil {
-		respondInternalErr(w, err)
-		return
-	}
+	user := userFromCtx(r.Context())
 
 	status := model.ProjectStatusActive
 	if req.Status != "" {
@@ -194,6 +202,13 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		BudgetPeriod:         resolveBudgetPeriod(req.BudgetPeriod),
 		ContextSummarisation: req.ContextSummarisation,
 		Tags:                 normaliseTags(req.Tags),
+		HeartbeatOnAttention:   req.HeartbeatOnAttention,
+		HeartbeatOnFailed:      req.HeartbeatOnFailed,
+		LinkedProjectID:        req.LinkedProjectID,
+		HeartbeatEscalateAfter: req.HeartbeatEscalateAfter,
+		MonitorCacheTTL:        req.MonitorCacheTTL,
+		ReactMode:              req.ReactMode,
+		MaxIterations:        req.MaxIterations,
 		CreatedAt:            time.Now(),
 	}
 	if err := s.projects.Create(r.Context(), p); err != nil {
@@ -238,6 +253,13 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	existing.BudgetUSD = req.BudgetUSD
 	existing.BudgetPeriod = resolveBudgetPeriod(req.BudgetPeriod)
 	existing.ContextSummarisation = req.ContextSummarisation
+	existing.HeartbeatOnAttention = req.HeartbeatOnAttention
+	existing.HeartbeatOnFailed = req.HeartbeatOnFailed
+	existing.LinkedProjectID = req.LinkedProjectID
+	existing.HeartbeatEscalateAfter = req.HeartbeatEscalateAfter
+	existing.MonitorCacheTTL = req.MonitorCacheTTL
+	existing.ReactMode = req.ReactMode
+	existing.MaxIterations = req.MaxIterations
 
 	if msg, err := s.validateCriticAgent(r.Context(), existing.CriticMode, req.CriticAgentID); err != nil {
 		respondInternalErr(w, err)
@@ -549,7 +571,7 @@ func (s *Server) generateProjectDescription(w http.ResponseWriter, r *http.Reque
 
 	providerID := req.ProviderID
 	if providerID == "" {
-		providers, err := s.providers.List(r.Context())
+		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
 		if err != nil || len(providers) == 0 {
 			respondErr(w, http.StatusBadRequest, "no providers available for generation")
 			return
@@ -706,7 +728,7 @@ func (s *Server) suggestProjectNextAction(w http.ResponseWriter, r *http.Request
 	}
 
 	// Find a suitable LLM provider.
-	providers, err := s.providers.List(r.Context())
+	providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
 	if err != nil || len(providers) == 0 {
 		respondErr(w, http.StatusUnprocessableEntity, "no providers available for suggestions")
 		return

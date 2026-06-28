@@ -168,15 +168,11 @@ func (s *Server) importTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.users.GetDefault(r.Context())
-	if err != nil || user == nil {
-		respondInternalErr(w, err)
-		return
-	}
+	user := userFromCtx(r.Context())
 
 	// Create/reuse providers
 	refToProviderID := make(map[string]string)
-	existingProviders, _ := s.providers.List(r.Context())
+	existingProviders, _ := s.providers.List(r.Context(), user.ID)
 
 	var createdProviderIDs []string
 	var skipped []string

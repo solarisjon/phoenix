@@ -37,7 +37,7 @@ type assignTeamRequest struct {
 }
 
 func (s *Server) listTeams(w http.ResponseWriter, r *http.Request) {
-	list, err := s.teams.List(r.Context())
+	list, err := s.teams.List(r.Context(), userFromCtx(r.Context()).ID)
 	if err != nil {
 		respondInternalErr(w, err)
 		return
@@ -72,11 +72,7 @@ func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.users.GetDefault(r.Context())
-	if err != nil || user == nil {
-		respondInternalErr(w, err)
-		return
-	}
+	user := userFromCtx(r.Context())
 
 	t := &model.Team{
 		ID:          uuid.New().String(),
@@ -366,7 +362,7 @@ func (s *Server) generateTeamDescription(w http.ResponseWriter, r *http.Request)
 
 	providerID := req.ProviderID
 	if providerID == "" {
-		providers, err := s.providers.List(r.Context())
+		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
 		if err != nil || len(providers) == 0 {
 			respondErr(w, http.StatusBadRequest, "no providers available for generation")
 			return

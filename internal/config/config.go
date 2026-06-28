@@ -32,6 +32,16 @@ type Config struct {
 
 	// HealthCheckInterval is how often the background checker probes each provider.
 	HealthCheckInterval time.Duration
+
+	// AuthEnabled enables the login screen and per-user session enforcement.
+	// When false (default) the server operates in single-user mode with no auth.
+	AuthEnabled bool
+
+	// SeedUsers is an optional comma-separated list of "name:password" pairs
+	// that are created (or updated) in the database on startup.
+	// Example: "jon:s3cret,wife:0th3rS3cr3t"
+	// Only used when AuthEnabled is true.
+	SeedUsers string
 }
 
 // Load reads environment variables and returns a populated Config.
@@ -40,13 +50,15 @@ type Config struct {
 // Unset or unparseable values fall back to their stated defaults.
 func Load(defaultDBPath string) Config {
 	return Config{
-		DBPath:            envString("PHOENIX_DB_PATH", defaultDBPath),
-		Port:              envString("PHOENIX_PORT", "8080"),
-		TaskTimeout:       envDuration("PHOENIX_TASK_TIMEOUT", 30*time.Minute),
-		SchedulerInterval: envDuration("PHOENIX_SCHEDULER_INTERVAL", 60*time.Second),
+		DBPath:              envString("PHOENIX_DB_PATH", defaultDBPath),
+		Port:                envString("PHOENIX_PORT", "8080"),
+		TaskTimeout:         envDuration("PHOENIX_TASK_TIMEOUT", 30*time.Minute),
+		SchedulerInterval:   envDuration("PHOENIX_SCHEDULER_INTERVAL", 60*time.Second),
 		HTTPTimeout:         envDuration("PHOENIX_HTTP_TIMEOUT", 60*time.Second),
 		CORSOrigin:          os.Getenv("PHOENIX_CORS_ORIGIN"),
 		HealthCheckInterval: envDuration("PHOENIX_HEALTH_CHECK_INTERVAL", 10*time.Minute),
+		AuthEnabled:         os.Getenv("PHOENIX_AUTH_ENABLED") == "true",
+		SeedUsers:           os.Getenv("PHOENIX_SEED_USERS"),
 	}
 }
 

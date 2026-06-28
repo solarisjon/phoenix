@@ -50,7 +50,7 @@ func (s *Server) generateGlobalGuardrails(w http.ResponseWriter, r *http.Request
 
 	providerID := req.ProviderID
 	if providerID == "" {
-		providers, err := s.providers.List(r.Context())
+		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
 		if err != nil || len(providers) == 0 {
 			respondErr(w, http.StatusBadRequest, "no providers available for generation")
 			return

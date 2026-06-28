@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { AuthProvider, useAuth } from '@/context/AuthContext'
+import LoginPage from '@/pages/LoginPage'
 
 const DashboardPage     = lazy(() => import('@/pages/DashboardPage').then(m => ({ default: m.DashboardPage })))
 const InboxPage         = lazy(() => import('@/pages/InboxPage').then(m => ({ default: m.InboxPage })))
@@ -18,10 +20,24 @@ const AgentActivityPage = lazy(() => import('@/pages/AgentActivityPage').then(m 
 const PluginsPage       = lazy(() => import('@/pages/PluginsPage').then(m => ({ default: m.PluginsPage })))
 const CostInsightsPage  = lazy(() => import('@/pages/CostInsightsPage'))
 
-export default function App() {
+function AuthenticatedApp() {
+  const { user, isLoading, logout } = useAuth()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-slate-500 text-sm">Loading…</div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <LoginPage onLogin={() => window.location.reload()} />
+  }
+
   return (
     <BrowserRouter>
-      <AppLayout>
+      <AppLayout onLogout={logout} userName={user.name}>
         <Suspense fallback={<div className="text-slate-500 text-sm p-6">Loading…</div>}>
           <Routes>
             <Route path="/" element={<DashboardPage />} />
@@ -48,5 +64,13 @@ export default function App() {
         </Suspense>
       </AppLayout>
     </BrowserRouter>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
   )
 }

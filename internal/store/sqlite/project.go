@@ -16,31 +16,43 @@ func NewProjectRepo(db *DB) *ProjectRepo { return &ProjectRepo{db} }
 
 const projectSelectCols = `id, name, description, objective, working_dir, kind, schedule_interval,
 	schedule_kind, schedule_times, schedule_catch_up,
-	owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags, created_at`
+	owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags,
+	heartbeat_on_attention, heartbeat_on_failed, linked_project_id, heartbeat_consecutive_bad, heartbeat_last_signal, heartbeat_escalate_after,
+	monitor_cache_ttl,
+	react_mode, max_iterations,
+	created_at`
 
-// ListByKind returns projects filtered by kind, active only.
-func (r *ProjectRepo) ListByKind(ctx context.Context, kind string) ([]*model.Project, error) {
-	return r.ListByStatus(ctx, kind, string(model.ProjectStatusActive))
+// ListByKind returns projects filtered by kind and userID, active only.
+func (r *ProjectRepo) ListByKind(ctx context.Context, kind, userID string) ([]*model.Project, error) {
+	return r.ListByStatus(ctx, kind, string(model.ProjectStatusActive), userID)
 }
 
-// ListByStatus returns projects filtered by kind and status. Empty strings match all values.
-func (r *ProjectRepo) ListByStatus(ctx context.Context, kind, status string) ([]*model.Project, error) {
-	var rows *sql.Rows
-	var err error
-	switch {
-	case kind == "" && status == "":
-		rows, err = r.db.QueryContext(ctx,
-			`SELECT `+projectSelectCols+` FROM projects ORDER BY created_at ASC`)
-	case kind == "":
-		rows, err = r.db.QueryContext(ctx,
-			`SELECT `+projectSelectCols+` FROM projects WHERE status = ? ORDER BY created_at ASC`, status)
-	case status == "":
-		rows, err = r.db.QueryContext(ctx,
-			`SELECT `+projectSelectCols+` FROM projects WHERE kind = ? ORDER BY created_at ASC`, kind)
-	default:
-		rows, err = r.db.QueryContext(ctx,
-			`SELECT `+projectSelectCols+` FROM projects WHERE kind = ? AND status = ? ORDER BY created_at ASC`, kind, status)
+// ListByStatus returns projects filtered by kind, status, and userID.
+// Empty kind/status matches all values. Empty userID returns all users' projects.
+func (r *ProjectRepo) ListByStatus(ctx context.Context, kind, status, userID string) ([]*model.Project, error) {
+	// Build WHERE clause dynamically.
+	where := ""
+	args := []any{}
+	addCond := func(cond string, vals ...any) {
+		if where == "" {
+			where = "WHERE " + cond
+		} else {
+			where += " AND " + cond
+		}
+		args = append(args, vals...)
 	}
+	if kind != "" {
+		addCond("kind = ?", kind)
+	}
+	if status != "" {
+		addCond("status = ?", status)
+	}
+	if userID != "" {
+		addCond("owner = ?", userID)
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+projectSelectCols+` FROM projects `+where+` ORDER BY created_at ASC`,
+		args...)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -48,9 +60,9 @@ func (r *ProjectRepo) ListByStatus(ctx context.Context, kind, status string) ([]
 	return scanProjects(rows)
 }
 
-// List returns all projects regardless of status (scheduler, stats, etc.).
-func (r *ProjectRepo) List(ctx context.Context) ([]*model.Project, error) {
-	return r.ListByStatus(ctx, "", "")
+// List returns all projects (scheduler, stats, etc.). Pass userID="" to get all users' projects.
+func (r *ProjectRepo) List(ctx context.Context, userID string) ([]*model.Project, error) {
+	return r.ListByStatus(ctx, "", "", userID)
 }
 
 func (r *ProjectRepo) Get(ctx context.Context, id string) (*model.Project, error) {
@@ -73,12 +85,19 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO projects (id, name, description, objective, working_dir, kind, schedule_interval,
 		 schedule_kind, schedule_times, schedule_catch_up,
-		 owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags,
+		 heartbeat_on_attention, heartbeat_on_failed, linked_project_id, heartbeat_consecutive_bad, heartbeat_last_signal, heartbeat_escalate_after,
+		 monitor_cache_ttl,
+		 react_mode, max_iterations)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Description, p.Objective, p.WorkingDir, kind, p.ScheduleInterval,
 		scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
-		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), boolToInt(p.ContextSummarisation), tagsJSON)
+		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), boolToInt(p.ContextSummarisation), tagsJSON,
+		p.HeartbeatOnAttention, p.HeartbeatOnFailed, nullString(p.LinkedProjectID),
+		p.HeartbeatConsecutiveBad, p.HeartbeatLastSignal, p.HeartbeatEscalateAfter,
+		p.MonitorCacheTTL,
+		boolToInt(p.ReactMode), p.MaxIterations)
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -100,13 +119,33 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 		`UPDATE projects SET name = ?, description = ?, objective = ?, working_dir = ?, kind = ?,
 		 schedule_interval = ?, schedule_kind = ?, schedule_times = ?, schedule_catch_up = ?,
 		 status = ?, critic_agent_id = ?, critic_mode = ?, monitor_model = ?,
-		 budget_usd = ?, budget_period = ?, context_summarisation = ?, tags = ? WHERE id = ?`,
+		 budget_usd = ?, budget_period = ?, context_summarisation = ?, tags = ?,
+		 heartbeat_on_attention = ?, heartbeat_on_failed = ?, linked_project_id = ?, heartbeat_escalate_after = ?,
+		 monitor_cache_ttl = ?,
+		 react_mode = ?, max_iterations = ?
+		 WHERE id = ?`,
 		p.Name, p.Description, p.Objective, p.WorkingDir, kind,
 		p.ScheduleInterval, scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
-		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), boolToInt(p.ContextSummarisation), tagsJSON, p.ID)
+		p.BudgetUSD, resolveBudgetPeriod(p.BudgetPeriod), boolToInt(p.ContextSummarisation), tagsJSON,
+		p.HeartbeatOnAttention, p.HeartbeatOnFailed, nullString(p.LinkedProjectID), p.HeartbeatEscalateAfter,
+		p.MonitorCacheTTL,
+		boolToInt(p.ReactMode), p.MaxIterations,
+		p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
+	}
+	return nil
+}
+
+// UpdateHeartbeatSignal records the latest health signal and consecutive-bad counter
+// without touching any other project fields, avoiding overwrite races during long tasks.
+func (r *ProjectRepo) UpdateHeartbeatSignal(ctx context.Context, projectID, signal string, consecutiveBad int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE projects SET heartbeat_last_signal = ?, heartbeat_consecutive_bad = ? WHERE id = ?`,
+		signal, consecutiveBad, projectID)
+	if err != nil {
+		return fmt.Errorf("update heartbeat signal: %w", err)
 	}
 	return nil
 }
@@ -187,12 +226,22 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 	return scanAgents(rows)
 }
 
-func (r *ProjectRepo) Search(ctx context.Context, query string) ([]*model.Project, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+projectSelectCols+` FROM projects
-         WHERE rowid IN (SELECT rowid FROM projects_fts WHERE projects_fts MATCH ?)
-         AND status != 'archived'
-         ORDER BY created_at DESC LIMIT 50`, query)
+func (r *ProjectRepo) Search(ctx context.Context, query, userID string) ([]*model.Project, error) {
+	var rows *sql.Rows
+	var err error
+	if userID == "" {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT `+projectSelectCols+` FROM projects
+             WHERE rowid IN (SELECT rowid FROM projects_fts WHERE projects_fts MATCH ?)
+             AND status != 'archived'
+             ORDER BY created_at DESC LIMIT 50`, query)
+	} else {
+		rows, err = r.db.QueryContext(ctx,
+			`SELECT `+projectSelectCols+` FROM projects
+             WHERE owner = ? AND rowid IN (SELECT rowid FROM projects_fts WHERE projects_fts MATCH ?)
+             AND status != 'archived'
+             ORDER BY created_at DESC LIMIT 50`, userID, query)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("search projects: %w", err)
 	}
@@ -202,43 +251,60 @@ func (r *ProjectRepo) Search(ctx context.Context, query string) ([]*model.Projec
 
 // ---- scan helpers ----
 
-func scanProject(row *sql.Row) (*model.Project, error) {
-	var p model.Project
+func scanProjectRow(dest *model.Project, scanFn func(...any) error) error {
 	var status, kind, tagsJSON string
 	var scheduleKind, timesJSON string
-	var catchUp, ctxSumm int
-	var criticAgentID sql.NullString
-	err := row.Scan(
-		&p.ID, &p.Name, &p.Description, &p.Objective, &p.WorkingDir, &kind, &p.ScheduleInterval,
+	var catchUp, ctxSumm, reactMode int
+	var criticAgentID, linkedProjectID sql.NullString
+	err := scanFn(
+		&dest.ID, &dest.Name, &dest.Description, &dest.Objective, &dest.WorkingDir, &kind, &dest.ScheduleInterval,
 		&scheduleKind, &timesJSON, &catchUp,
-		&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel,
-		&p.BudgetUSD, &p.BudgetPeriod, &ctxSumm, &tagsJSON, &p.CreatedAt,
+		&dest.Owner, &status, &criticAgentID, &dest.CriticMode, &dest.MonitorModel,
+		&dest.BudgetUSD, &dest.BudgetPeriod, &ctxSumm, &tagsJSON,
+		&dest.HeartbeatOnAttention, &dest.HeartbeatOnFailed, &linkedProjectID,
+		&dest.HeartbeatConsecutiveBad, &dest.HeartbeatLastSignal, &dest.HeartbeatEscalateAfter,
+		&dest.MonitorCacheTTL,
+		&reactMode, &dest.MaxIterations,
+		&dest.CreatedAt,
 	)
+	if err != nil {
+		return err
+	}
+	dest.Status = model.ProjectStatus(status)
+	dest.Kind = model.ProjectKind(kind)
+	if criticAgentID.Valid {
+		dest.CriticAgentID = &criticAgentID.String
+	}
+	if linkedProjectID.Valid {
+		dest.LinkedProjectID = &linkedProjectID.String
+	}
+	if dest.Kind == "" {
+		dest.Kind = model.ProjectKindProject
+	}
+	if dest.CriticMode == "" {
+		dest.CriticMode = model.CriticModeNone
+	}
+	dest.ScheduleKind = scheduleKind
+	if dest.ScheduleKind == "" {
+		dest.ScheduleKind = model.ScheduleKindInterval
+	}
+	dest.ScheduleTimes = unmarshalStringSlice(timesJSON)
+	dest.ScheduleCatchUp = catchUp != 0
+	dest.ContextSummarisation = ctxSumm != 0
+	dest.ReactMode = reactMode != 0
+	dest.Tags = unmarshalTags(tagsJSON)
+	return nil
+}
+
+func scanProject(row *sql.Row) (*model.Project, error) {
+	var p model.Project
+	err := scanProjectRow(&p, func(dest ...any) error { return row.Scan(dest...) })
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan project: %w", err)
 	}
-	p.Status = model.ProjectStatus(status)
-	p.Kind = model.ProjectKind(kind)
-	if criticAgentID.Valid {
-		p.CriticAgentID = &criticAgentID.String
-	}
-	if p.Kind == "" {
-		p.Kind = model.ProjectKindProject
-	}
-	if p.CriticMode == "" {
-		p.CriticMode = model.CriticModeNone
-	}
-	p.ScheduleKind = scheduleKind
-	if p.ScheduleKind == "" {
-		p.ScheduleKind = model.ScheduleKindInterval
-	}
-	p.ScheduleTimes = unmarshalStringSlice(timesJSON)
-	p.ScheduleCatchUp = catchUp != 0
-	p.ContextSummarisation = ctxSumm != 0
-	p.Tags = unmarshalTags(tagsJSON)
 	return &p, nil
 }
 
@@ -246,37 +312,9 @@ func scanProjects(rows *sql.Rows) ([]*model.Project, error) {
 	var out []*model.Project
 	for rows.Next() {
 		var p model.Project
-		var status, kind, tagsJSON string
-		var scheduleKind, timesJSON string
-		var catchUp, ctxSumm int
-		var criticAgentID sql.NullString
-		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Description, &p.Objective, &p.WorkingDir, &kind, &p.ScheduleInterval,
-			&scheduleKind, &timesJSON, &catchUp,
-			&p.Owner, &status, &criticAgentID, &p.CriticMode, &p.MonitorModel,
-			&p.BudgetUSD, &p.BudgetPeriod, &ctxSumm, &tagsJSON, &p.CreatedAt,
-		); err != nil {
+		if err := scanProjectRow(&p, rows.Scan); err != nil {
 			return nil, fmt.Errorf("scan project row: %w", err)
 		}
-		p.Status = model.ProjectStatus(status)
-		p.Kind = model.ProjectKind(kind)
-		if criticAgentID.Valid {
-			p.CriticAgentID = &criticAgentID.String
-		}
-		if p.Kind == "" {
-			p.Kind = model.ProjectKindProject
-		}
-		if p.CriticMode == "" {
-			p.CriticMode = model.CriticModeNone
-		}
-		p.ScheduleKind = scheduleKind
-		if p.ScheduleKind == "" {
-			p.ScheduleKind = model.ScheduleKindInterval
-		}
-		p.ScheduleTimes = unmarshalStringSlice(timesJSON)
-		p.ScheduleCatchUp = catchUp != 0
-		p.ContextSummarisation = ctxSumm != 0
-		p.Tags = unmarshalTags(tagsJSON)
 		out = append(out, &p)
 	}
 	return out, rows.Err()

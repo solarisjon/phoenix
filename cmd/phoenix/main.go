@@ -14,6 +14,7 @@ import (
 	_ "time/tzdata" // embed timezone data for scratch/minimal containers
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/config"
@@ -72,6 +73,7 @@ func main() {
 	taskRepo := sqlite.NewTaskRepo(db)
 	statsRepo := sqlite.NewStatsRepo(db)
 	userRepo := sqlite.NewUserRepo(db)
+	sessionRepo := sqlite.NewSessionRepo(db)
 	teamRepo := sqlite.NewTeamRepo(db)
 	agentDraftRepo := sqlite.NewAgentDraftRepo(db)
 	systemSettingsRepo := sqlite.NewSystemSettingsRepo(db)
@@ -80,6 +82,14 @@ func main() {
 	notificationRuleRepo := sqlite.NewNotificationRuleRepo(db)
 	obsidianVaultRepo := sqlite.NewObsidianVaultRepo(db)
 	taskTemplateRepo := sqlite.NewTaskTemplateRepo(db)
+
+	// Seed users from PHOENIX_SEED_USERS when auth is enabled.
+	if cfg.AuthEnabled && cfg.SeedUsers != "" {
+		if err := seedUsers(context.Background(), userRepo, cfg.SeedUsers); err != nil {
+			slog.Error("failed to seed users", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// Wire up plugin manager.
 	pluginManager := plugin.NewManager(pluginRepo, notificationRuleRepo, systemSettingsRepo, plugin.ManagerOpts{
@@ -120,13 +130,14 @@ func main() {
 
 	apiServer := api.New(
 		providerRepo, agentRepo, projectRepo,
-		taskRepo, statsRepo, userRepo, teamRepo,
+		taskRepo, statsRepo, userRepo, sessionRepo, teamRepo,
 		agentDraftRepo, systemSettingsRepo,
 		memoRepo,
 		pluginRepo, notificationRuleRepo, obsidianVaultRepo, taskTemplateRepo, pluginManager,
 		runner, reg, pricingReg,
 		adminRepo,
 		cfg.HTTPTimeout,
+		cfg,
 	)
 
 	// Wire Obsidian vault repo into runner for prompt injection and auto-write.
@@ -282,4 +293,55 @@ func main() {
 		slog.Error("HTTP shutdown error", "error", err)
 	}
 	slog.Info("shutdown complete")
+}
+
+// seedUsers parses PHOENIX_SEED_USERS ("name:pass,name2:pass2") and ensures each
+// user exists in the database with a bcrypt-hashed password.
+func seedUsers(ctx context.Context, users *sqlite.UserRepo, spec string) error {
+	for _, entry := range strings.Split(spec, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		idx := strings.Index(entry, ":")
+		if idx < 1 {
+			slog.Warn("seedUsers: skipping invalid entry (expected 'name:password')", "entry", entry)
+			continue
+		}
+		name := entry[:idx]
+		password := entry[idx+1:]
+		if name == "" || password == "" {
+			continue
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash password for %q: %w", name, err)
+		}
+
+		existing, err := users.GetByName(ctx, name)
+		if err != nil {
+			return fmt.Errorf("look up user %q: %w", name, err)
+		}
+
+		if existing == nil {
+			u := &model.User{
+				ID:           uuid.New().String(),
+				Name:         name,
+				Email:        "",
+				Settings:     "{}",
+				PasswordHash: string(hash),
+			}
+			if err := users.Create(ctx, u); err != nil {
+				return fmt.Errorf("create user %q: %w", name, err)
+			}
+			slog.Info("seedUsers: created user", "name", name)
+		} else {
+			if err := users.SetPasswordHash(ctx, existing.ID, string(hash)); err != nil {
+				return fmt.Errorf("update password for %q: %w", name, err)
+			}
+			slog.Info("seedUsers: updated password for user", "name", name)
+		}
+	}
+	return nil
 }

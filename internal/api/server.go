@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/solarisjon/phoenix/internal/agent"
+	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/logging"
 	"github.com/solarisjon/phoenix/internal/plugin"
 	"github.com/solarisjon/phoenix/internal/pricing"
@@ -29,6 +30,7 @@ type Server struct {
 	tasks          store.TaskRepo
 	stats          store.StatsRepo
 	users          store.UserRepo
+	sessions       store.SessionRepo
 	teams          store.TeamRepo
 	agentDrafts    store.AgentDraftRepo
 	systemSettings store.SystemSettingsRepo
@@ -46,6 +48,7 @@ type Server struct {
 	admin          *sqlite.AdminRepo
 	startTime      time.Time
 	httpTimeout    time.Duration
+	cfg            config.Config
 }
 
 // New creates a Server and registers all routes.
@@ -57,6 +60,7 @@ func New(
 	tasks store.TaskRepo,
 	stats store.StatsRepo,
 	users store.UserRepo,
+	sessions store.SessionRepo,
 	teams store.TeamRepo,
 	agentDrafts store.AgentDraftRepo,
 	systemSettings store.SystemSettingsRepo,
@@ -71,6 +75,7 @@ func New(
 	pricingReg *pricing.Registry,
 	admin *sqlite.AdminRepo,
 	httpTimeout time.Duration,
+	cfg config.Config,
 ) *Server {
 	if httpTimeout <= 0 {
 		httpTimeout = 60 * time.Second
@@ -82,6 +87,7 @@ func New(
 		tasks:          tasks,
 		stats:          stats,
 		users:          users,
+		sessions:       sessions,
 		teams:          teams,
 		agentDrafts:    agentDrafts,
 		systemSettings: systemSettings,
@@ -98,6 +104,7 @@ func New(
 		admin:          admin,
 		startTime:      time.Now(),
 		httpTimeout:    httpTimeout,
+		cfg:            cfg,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -124,6 +131,15 @@ func (s *Server) buildRouter() http.Handler {
 	r.Use(requestLoggerMiddleware)
 
 	r.Route("/api", func(r chi.Router) {
+		// Login/logout are always public.
+		r.Post("/auth/login", s.handleLogin)
+		r.Post("/auth/logout", s.handleLogout)
+
+		// All other routes go through auth middleware (pass-through in single-user mode).
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware(s.cfg, s.users, s.sessions))
+			// /auth/me sits inside the group so the user is available via context.
+			r.Get("/auth/me", s.handleMe)
 		// Providers
 		r.Get("/providers", s.listProviders)
 		r.Post("/providers", s.createProvider)
@@ -286,6 +302,7 @@ func (s *Server) buildRouter() http.Handler {
 
 		// WebSocket
 		r.Get("/ws", s.handleWS)
+		}) // end authMiddleware group
 	})
 
 	return r

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/agent"
+	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/plugin"
 	"github.com/solarisjon/phoenix/internal/pricing"
@@ -38,6 +39,7 @@ func testServer(t *testing.T) *Server {
 	taskRepo := sqllite.NewTaskRepo(db)
 	statsRepo := sqllite.NewStatsRepo(db)
 	userRepo := sqllite.NewUserRepo(db)
+	sessionRepo := sqllite.NewSessionRepo(db)
 	teamRepo := sqllite.NewTeamRepo(db)
 
 	reg := registry.NewRegistry(provRepo)
@@ -55,7 +57,7 @@ func testServer(t *testing.T) *Server {
 	pm := plugin.NewManager(pluginRepo, ruleRepo, systemSettingsRepo, plugin.ManagerOpts{NoPlugins: true})
 	obsidianVaultRepo := sqllite.NewObsidianVaultRepo(db)
 	taskTemplateRepo := sqllite.NewTaskTemplateRepo(db)
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, obsidianVaultRepo, taskTemplateRepo, pm, runner, reg, pricing.New(), adminRepo, 0)
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, sessionRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, obsidianVaultRepo, taskTemplateRepo, pm, runner, reg, pricing.New(), adminRepo, 0, config.Config{})
 }
 
 type mockProv struct{}
