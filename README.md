@@ -37,6 +37,10 @@ A self-hosted **harness engineering** platform for AI agents. Define agents with
 | **Provider health checks** | Background ping every 10 minutes; status shown on each provider card. Manual test via the Test button. |
 | **Retry with edit** | On any failed task, edit the title and description before re-running. The new run is linked as a follow-up. |
 | **Task priority** | Bump a queued task to jump ahead of others. Higher-priority tasks run first; ties broken by creation time. |
+| **Task dependency chains** | Block a task until one or more other tasks complete. Dependent tasks start as `queued` and are skipped by the scheduler until all prereqs finish. Set dependencies in the task compose panel. |
+| **Agent export / import** | Export any agent as a self-contained JSON bundle (persona, instructions, guardrails, provider hint). Import on any Phoenix instance — provider is matched automatically or created from the hint. |
+| **Output diff view** | Select two completed tasks and compare their outputs side-by-side with a line-level diff (added lines green, removed lines red). Checkboxes appear on each completed task row. |
+| **Cost estimator** | Estimate token count and USD cost range before submitting a task. Uses provider pricing and agent config to give a low–high range with no API call required. |
 | **Obsidian integration** | Connect Obsidian vaults. Agents can write notes directly to vault files. Auto-write mode creates a note after every task. Configure vault paths in Settings → Obsidian. |
 | **Cost insights** | Trend analysis and anomaly flags on the Dashboard cost view. |
 | **Monitor pause** | Pause a monitor to stop new runs without archiving it. Resume when ready. |
@@ -158,6 +162,14 @@ Click **✦ Generate with AI** to draft persona, instructions, and guardrails fr
 
 Enable **Allow agent to spawn tasks for other agents**. The agent's system prompt gains instructions to call `POST /api/agents/spawn`, creating tasks for any other agent by ID.
 
+### Agent export / import
+
+On any agent's activity page, use the **↓ Export** button to download a JSON bundle containing the agent's full configuration (name, behaviour, guardrails, hard guardrails, model override, and a provider hint). The API key is never included.
+
+To import on another instance, click **↑ Import** and select the bundle file. Phoenix matches an existing provider by `base_url` and model, or creates a new one from the hint. The agent is created immediately and lands in Settings → Agents.
+
+The bundle format is versioned (`phoenix_bundle_version: "1"`) and human-readable — useful for sharing vetted agent configurations between instances or checking into version control alongside your project.
+
 ### Agent hiring
 
 Enable **Allow agent to hire new agents 🧑‍💼**. When the agent identifies a capability gap, it can propose a new hire via `POST /api/agent-drafts`. The proposal lands in **Inbox → Pending Hires** for human review — name, persona, instructions, guardrails, and provider are all editable before approval. No agent is ever created without human sign-off.
@@ -182,7 +194,13 @@ Dismissing a task from Inbox clears it from the Inbox only. The project always s
 
 **✦ Suggest:** Click to ask AI to propose the next most useful task based on the project's objective and recent task history. A suggestion card appears with a **Run this** button to create and launch it immediately.
 
-**Composing a task:** Click **+ Task** in the centre pane. The agent picker shows only agents assigned to the project. A **Devil's Advocate** toggle lets you attach a critic.
+**Composing a task:** Click **+ Task** in the centre pane. The agent picker shows only agents assigned to the project. Additional options:
+
+- **Depends on** — pick one or more tasks that must complete before this one starts. The new task is held as `queued` until all prerequisites finish; the scheduler unblocks it automatically.
+- **≈ Estimate cost** — click to get a token-count and USD low–high range before submitting.
+- **Devil's Advocate** — toggle to attach a critic.
+
+**Output diff view:** In the Completed section, each task row shows a small checkbox. Select two completed tasks and a **Compare** banner appears — click it to open a line-level diff modal showing added (green) and removed (red) lines between the two outputs.
 
 **File browser:** The **Files** tab lets you browse the working directory and preview text, code, and markdown files in-pane.
 
@@ -537,7 +555,7 @@ docs/
 
 ### Migrations
 
-SQL files in `internal/store/sqlite/migrations/` are embedded and applied in order at startup. To add a migration, create `NNN_description.sql` with a number higher than the current highest (currently `043`).
+SQL files in `internal/store/sqlite/migrations/` are embedded and applied in order at startup. To add a migration, create `NNN_description.sql` with a number higher than the current highest (currently `044`).
 
 ---
 
@@ -560,6 +578,24 @@ SQL files in `internal/store/sqlite/migrations/` are embedded and applied in ord
 **Retry with edit**
 - Edit title and description before re-running a failed task.
 - New run appears in the same follow-up thread.
+
+**Task dependency chains**
+- Block a task until one or more prereqs complete.
+- Dependent tasks start as `queued` and are invisible to the scheduler until `UnlockDependents` clears them after all prereqs finish.
+- Set dependencies from the task compose panel's "Depends on" multi-select.
+
+**Agent export / import**
+- Export any agent as a JSON bundle (configuration + provider hint, no secrets).
+- Import on another instance — provider matched or created automatically.
+- Export / Import buttons on the agent activity page.
+
+**Output diff view**
+- Select two completed tasks in a project and compare outputs with a line-level diff.
+- Added lines highlighted green, removed lines red, context lines in grey.
+
+**Cost estimator**
+- Estimate token count and USD cost range (low–high) before submitting a task.
+- Available in the task compose panel and Quick Task widget.
 
 ### v0.6 (2026-06-27)
 
@@ -644,12 +680,11 @@ Near-term:
 - GitHub Issues plugin — bidirectional (receive issues → tasks, post output → comments)
 - Discord notifier plugin
 - Email (SMTP) notifier plugin
-- Task dependency chains — block task B until task A completes
 
 Longer term:
-- Multi-user authentication (Phase 7)
+- Multi-user authentication
 - Copilot adapter (blocked: needs copilot login)
-- Agent export/import bundle
+- Agent marketplace — publish and discover bundles
 
 ---
 
