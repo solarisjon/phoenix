@@ -51,15 +51,11 @@ podman build -f Containerfile.server -t "$IMAGE" .
 
 # ── Restart container ─────────────────────────────────────────────────────────
 echo "→ Stopping old container..."
-podman stop  "$CONTAINER" 2>/dev/null || true
-podman rm -f "$CONTAINER" 2>/dev/null || true
-
-# Kill any non-podman process still holding the port.
-if ss -tlnp "sport = :${PORT}" 2>/dev/null | grep -q ":${PORT}"; then
-    echo "→ Port ${PORT} still bound — killing occupying process..."
-    fuser -k "${PORT}/tcp" 2>/dev/null || true
-    sleep 1
-fi
+# Stop and remove by current name and any legacy names from old deploy scripts.
+for name in "$CONTAINER" phoenix-vps; do
+    podman stop  "$name" 2>/dev/null || true
+    podman rm -f "$name" 2>/dev/null || true
+done
 
 mkdir -p "$DATA_DIR"
 
@@ -73,10 +69,11 @@ podman run -d \
     "$IMAGE"
 
 # ── Health check ──────────────────────────────────────────────────────────────
+# Any HTTP response (including 401 when auth is enabled) means the server is up.
 echo "→ Waiting for phoenix to start..."
-for i in $(seq 1 10); do
-    if curl -sf "http://localhost:${PORT}/api/auth/me" > /dev/null 2>&1 || \
-       curl -sf "http://localhost:${PORT}/api/agents"   > /dev/null 2>&1; then
+for i in $(seq 1 15); do
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/api/auth/me" 2>/dev/null || echo "000")
+    if [ "$CODE" != "000" ]; then
         echo ""
         echo "✓ Phoenix is up on port ${PORT}"
         exit 0
@@ -84,6 +81,6 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
-echo "✗ Phoenix did not start within 10 seconds"
+echo "✗ Phoenix did not start within 15 seconds"
 podman logs --tail 40 "$CONTAINER" || true
 exit 1
