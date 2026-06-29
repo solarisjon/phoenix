@@ -57,7 +57,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secure := !isLocalhost(r.Host)
+	// Only mark the cookie Secure when the connection is actually HTTPS
+	// (TLS terminated here or signalled by a reverse proxy). Plain HTTP deploys
+	// (VPS without TLS) must not set Secure or the browser discards the cookie.
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sess.ID,
@@ -95,11 +98,3 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, map[string]string{"id": u.ID, "name": u.Name})
 }
 
-// isLocalhost reports whether the request Host header refers to a local address.
-func isLocalhost(host string) bool {
-	h := host
-	if idx := strings.LastIndex(h, ":"); idx != -1 {
-		h = h[:idx]
-	}
-	return h == "localhost" || h == "127.0.0.1" || h == "::1"
-}
