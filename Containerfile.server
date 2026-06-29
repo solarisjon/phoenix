@@ -1,0 +1,53 @@
+# Containerfile.server — multi-stage build for server-side deployment
+#
+# Requires only: podman and git on the server. No Go or Node installation needed.
+#
+# Usage (from project root on the server):
+#   podman build -f Containerfile.server -t localhost/phoenix:latest .
+#
+# Stages:
+#   1. frontend  — Node 20 compiles the React app
+#   2. builder   — Go 1.23 compiles a static binary with the embedded frontend
+#   3. runtime   — FROM scratch; only the binary + TLS certs
+
+# ── Stage 1: Frontend ─────────────────────────────────────────────────────────
+FROM node:20-alpine AS frontend
+
+WORKDIR /app/web
+COPY web/package*.json ./
+RUN npm ci --silent
+COPY web/ ./
+RUN npm run build
+
+# ── Stage 2: Go binary ────────────────────────────────────────────────────────
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+# Download deps first so they are cached independently of source changes.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source and embed the pre-built frontend.
+COPY . .
+COPY --from=frontend /app/web/dist ./internal/frontend/dist
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -o phoenix ./cmd/phoenix/...
+
+# ── Stage 3: Minimal runtime ──────────────────────────────────────────────────
+FROM scratch
+
+# TLS trust bundle from the builder image (Alpine's ca-certificates package).
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+COPY --from=builder /app/phoenix /phoenix
+
+VOLUME /data
+
+ENV PHOENIX_PORT=8090
+ENV PHOENIX_DB_PATH=/data/phoenix.db
+
+EXPOSE 8090
+
+ENTRYPOINT ["/phoenix"]

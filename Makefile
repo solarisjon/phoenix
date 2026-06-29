@@ -1,4 +1,4 @@
-.PHONY: build build-web build-go build-linux deploy deploy-remote deploy-vps server-setup-vps dev dev-go dev-web clean test
+.PHONY: build build-web build-go build-linux deploy deploy-remote deploy-server server-setup dev dev-go dev-web clean test
 
 BINARY := phoenix
 WEB_DIR := web
@@ -61,13 +61,9 @@ deploy-remote:
 server-setup:
 	@bash scripts/server-setup.sh
 
-## deploy-vps: deploy to personal VPS at 72.60.163.231 (solarisjon) with auth enabled
-deploy-vps:
-	@bash scripts/deploy-vps.sh
-
-## server-setup-vps: one-time bootstrap of personal VPS (run once before first deploy-vps)
-server-setup-vps:
-	@bash scripts/server-setup-vps.sh
+## deploy-server: run ON the server after git pull — builds container and restarts phoenix
+deploy-server:
+	@bash scripts/deploy-server.sh
 
 ## test: run all Go tests
 test:
