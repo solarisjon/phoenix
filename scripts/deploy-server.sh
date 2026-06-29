@@ -52,7 +52,14 @@ podman build -f Containerfile.server -t "$IMAGE" .
 # ── Restart container ─────────────────────────────────────────────────────────
 echo "→ Stopping old container..."
 podman stop  "$CONTAINER" 2>/dev/null || true
-podman rm    "$CONTAINER" 2>/dev/null || true
+podman rm -f "$CONTAINER" 2>/dev/null || true
+
+# Kill any non-podman process still holding the port.
+if ss -tlnp "sport = :${PORT}" 2>/dev/null | grep -q ":${PORT}"; then
+    echo "→ Port ${PORT} still bound — killing occupying process..."
+    fuser -k "${PORT}/tcp" 2>/dev/null || true
+    sleep 1
+fi
 
 mkdir -p "$DATA_DIR"
 
