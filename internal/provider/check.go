@@ -28,6 +28,8 @@ func CheckCodingAgentBinary(configJSON string) error {
 			bin = "claude"
 		case "crush":
 			bin = "crush"
+		case "cursor":
+			bin = "cursor"
 		default: // opencode or unset
 			bin = "opencode"
 		}

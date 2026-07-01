@@ -11,6 +11,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider"
 	"github.com/solarisjon/phoenix/internal/provider/claudecode"
 	"github.com/solarisjon/phoenix/internal/provider/crush"
+	"github.com/solarisjon/phoenix/internal/provider/cursor"
 	"github.com/solarisjon/phoenix/internal/provider/llm"
 	"github.com/solarisjon/phoenix/internal/provider/ollama"
 	"github.com/solarisjon/phoenix/internal/provider/opencode"
@@ -150,6 +151,8 @@ func buildProvider(rec *model.Provider) (provider.Provider, error) {
 			return claudecode.New(expandedConfig)
 		case "crush":
 			return crush.New(expandedConfig)
+		case "cursor":
+			return cursor.New(expandedConfig)
 		default:
 			return nil, fmt.Errorf("coding_agent: unknown kind %q", meta.Kind)
 		}
