@@ -313,6 +313,74 @@ func TestTaskCreate_InvalidProject(t *testing.T) {
 	}
 }
 
+func TestTaskCreate_DependsOnUnmet_StaysQueued(t *testing.T) {
+	srv := testServer(t)
+	provID := seedProvider(t, srv)
+	agentID := seedAgent(t, srv, provID)
+	projID := seedProject(t, srv)
+	postJSON(t, srv, "/api/projects/"+projID+"/agents", map[string]string{"agent_id": agentID})
+
+	w := postJSON(t, srv, "/api/tasks", map[string]interface{}{
+		"project_id": projID, "agent_id": agentID, "title": "Blocked task",
+		"depends_on": []string{"some-not-yet-completed-task"},
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var got model.Task
+	json.NewDecoder(w.Body).Decode(&got)
+	if got.Status != model.TaskStatusQueued {
+		t.Errorf("status = %q, want queued", got.Status)
+	}
+}
+
+func TestTaskCreate_DependsOnAlreadySatisfied_RunsImmediately(t *testing.T) {
+	srv := testServer(t)
+	provID := seedProvider(t, srv)
+	// Route this provider through the fast, deterministic mock instead of a real
+	// HTTP call, so the task can actually reach "completed" in this test.
+	srv.registry.InjectForTest(provID, &mockProv{})
+	agentID := seedAgent(t, srv, provID)
+	projID := seedProject(t, srv)
+	postJSON(t, srv, "/api/projects/"+projID+"/agents", map[string]string{"agent_id": agentID})
+
+	w := postJSON(t, srv, "/api/tasks", map[string]interface{}{
+		"project_id": projID, "agent_id": agentID, "title": "Prereq",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create prereq: %d %s", w.Code, w.Body.String())
+	}
+	var prereq model.Task
+	json.NewDecoder(w.Body).Decode(&prereq)
+	waitForTaskStatus(t, srv, prereq.ID, model.TaskStatusCompleted)
+
+	// Now that the prereq has already completed, a task created depending on it
+	// must not get stuck queued forever — it should run (and complete) too.
+	w = postJSON(t, srv, "/api/tasks", map[string]interface{}{
+		"project_id": projID, "agent_id": agentID, "title": "Follow-on",
+		"depends_on": []string{prereq.ID},
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create dependent: %d %s", w.Code, w.Body.String())
+	}
+	var got model.Task
+	json.NewDecoder(w.Body).Decode(&got)
+	waitForTaskStatus(t, srv, got.ID, model.TaskStatusCompleted)
+}
+
+func waitForTaskStatus(t *testing.T, srv *Server, taskID string, want model.TaskStatus) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		task, err := srv.tasks.Get(context.Background(), taskID)
+		if err == nil && task != nil && task.Status == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("task %s did not reach status %q within deadline", taskID, want)
+}
+
 // ---- Stats tests ----
 
 func TestGetCosts(t *testing.T) {

@@ -526,17 +526,8 @@ func (r *TaskRepo) UnlockDependents(ctx context.Context, completedTaskID string)
 
 	var agentIDs []string
 	for _, c := range candidates {
-		// Check all deps are completed.
-		allDone := true
-		for _, depID := range c.deps {
-			var s string
-			err := r.db.QueryRowContext(ctx, `SELECT status FROM tasks WHERE id = ?`, depID).Scan(&s)
-			if err != nil || s != string(model.TaskStatusCompleted) {
-				allDone = false
-				break
-			}
-		}
-		if !allDone {
+		satisfied, err := r.DependenciesSatisfied(ctx, c.deps)
+		if err != nil || !satisfied {
 			continue
 		}
 		// Clear depends_on so NextQueuedTask can pick it up.
@@ -546,4 +537,24 @@ func (r *TaskRepo) UnlockDependents(ctx context.Context, completedTaskID string)
 		agentIDs = append(agentIDs, c.agentID)
 	}
 	return agentIDs, nil
+}
+
+// DependenciesSatisfied reports whether every task ID in ids has status
+// 'completed'. A missing ID counts as unsatisfied — same as an unresolved
+// circular dependency, it simply never unblocks rather than erroring.
+func (r *TaskRepo) DependenciesSatisfied(ctx context.Context, ids []string) (bool, error) {
+	for _, id := range ids {
+		var status string
+		err := r.db.QueryRowContext(ctx, `SELECT status FROM tasks WHERE id = ?`, id).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("dependencies satisfied: %w", err)
+		}
+		if status != string(model.TaskStatusCompleted) {
+			return false, nil
+		}
+	}
+	return true, nil
 }

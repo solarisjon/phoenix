@@ -258,11 +258,23 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status := model.TaskStatusPending
+	depsUnmet := false
 	if len(req.DependsOn) > 0 {
-		// Tasks with dependencies start as queued (not pending) so the scheduler
-		// doesn't try to dispatch them — they stay blocked until UnlockDependents
-		// clears their depends_on after all prereqs complete.
-		status = model.TaskStatusQueued
+		satisfied, err := s.tasks.DependenciesSatisfied(r.Context(), req.DependsOn)
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if !satisfied {
+			// Tasks with unmet dependencies start as queued (not pending) so the
+			// scheduler doesn't try to dispatch them — they stay blocked until
+			// UnlockDependents clears their depends_on after all prereqs complete.
+			status = model.TaskStatusQueued
+			depsUnmet = true
+		}
+		// If every dependency is already completed (e.g. it finished before this
+		// task was created), fall through to the normal pending/run-now path
+		// instead of getting stuck queued forever with nothing left to unlock it.
 	}
 	t := &model.Task{
 		ID:          uuid.New().String(),
@@ -285,7 +297,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tasks with unmet dependencies sit as queued until UnlockDependents promotes them.
-	if len(req.DependsOn) > 0 {
+	if depsUnmet {
 		respond(w, http.StatusCreated, t)
 		return
 	}

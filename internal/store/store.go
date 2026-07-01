@@ -152,6 +152,12 @@ type TaskRepo interface {
 	// clears depends_on (setting it to NULL) so that NextQueuedTask can pick it up,
 	// and returns the agent IDs of the unlocked tasks so the caller can wake those queues.
 	UnlockDependents(ctx context.Context, completedTaskID string) (agentIDs []string, err error)
+
+	// DependenciesSatisfied reports whether every task ID in ids currently has
+	// status 'completed'. A missing ID counts as unsatisfied. Used at task
+	// creation time so a task whose dependencies already finished runs
+	// immediately instead of sitting queued forever.
+	DependenciesSatisfied(ctx context.Context, ids []string) (bool, error)
 }
 
 // TeamRepo manages agent teams.

@@ -290,6 +290,147 @@ func TestTaskCRUD(t *testing.T) {
 	}
 }
 
+func TestTaskDependsOnRoundTrip(t *testing.T) {
+	db := testDB(t)
+	repo := NewTaskRepo(db)
+	ctx := context.Background()
+
+	seedAgent(t, db)
+	seedProject(t, db)
+
+	task := &model.Task{
+		ID:        "task-deps",
+		ProjectID: "proj-1",
+		AgentID:   "agent-1",
+		Title:     "Depends on others",
+		Status:    model.TaskStatusQueued,
+		Input:     `{}`,
+		Output:    `{}`,
+		DependsOn: []string{"task-a", "task-b"},
+	}
+	if err := repo.Create(ctx, task); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := repo.Get(ctx, task.ID)
+	if err != nil || got == nil {
+		t.Fatalf("Get: err=%v", err)
+	}
+	if len(got.DependsOn) != 2 || got.DependsOn[0] != "task-a" || got.DependsOn[1] != "task-b" {
+		t.Errorf("DependsOn = %v, want [task-a task-b]", got.DependsOn)
+	}
+}
+
+func TestDependenciesSatisfied(t *testing.T) {
+	db := testDB(t)
+	repo := NewTaskRepo(db)
+	ctx := context.Background()
+
+	seedAgent(t, db)
+	seedProject(t, db)
+
+	mk := func(id string, status model.TaskStatus) {
+		if err := repo.Create(ctx, &model.Task{
+			ID: id, ProjectID: "proj-1", AgentID: "agent-1",
+			Title: id, Status: status, Input: `{}`, Output: `{}`,
+		}); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+	mk("dep-done", model.TaskStatusCompleted)
+	mk("dep-pending", model.TaskStatusRunning)
+
+	if ok, err := repo.DependenciesSatisfied(ctx, []string{"dep-done"}); err != nil || !ok {
+		t.Errorf("single completed dep: ok=%v err=%v, want true", ok, err)
+	}
+	if ok, err := repo.DependenciesSatisfied(ctx, []string{"dep-done", "dep-pending"}); err != nil || ok {
+		t.Errorf("one pending dep: ok=%v err=%v, want false", ok, err)
+	}
+	if ok, err := repo.DependenciesSatisfied(ctx, []string{"does-not-exist"}); err != nil || ok {
+		t.Errorf("missing dep: ok=%v err=%v, want false, no error", ok, err)
+	}
+}
+
+func TestUnlockDependents(t *testing.T) {
+	db := testDB(t)
+	repo := NewTaskRepo(db)
+	ctx := context.Background()
+
+	seedAgent(t, db)
+	seedProject(t, db)
+
+	mk := func(id string, status model.TaskStatus, deps []string) {
+		if err := repo.Create(ctx, &model.Task{
+			ID: id, ProjectID: "proj-1", AgentID: "agent-1",
+			Title: id, Status: status, Input: `{}`, Output: `{}`, DependsOn: deps,
+		}); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+
+	// Linear chain: b depends on a.
+	mk("task-a", model.TaskStatusRunning, nil)
+	mk("task-b", model.TaskStatusQueued, []string{"task-a"})
+	// Diamond: d depends on both b and c.
+	mk("task-c", model.TaskStatusRunning, nil)
+	mk("task-d", model.TaskStatusQueued, []string{"task-b", "task-c"})
+
+	// Completing task-a should unlock task-b but not task-d (still waiting on task-c).
+	setCompleted(t, ctx, repo, "task-a")
+	agentIDs, err := repo.UnlockDependents(ctx, "task-a")
+	if err != nil {
+		t.Fatalf("UnlockDependents(task-a): %v", err)
+	}
+	if len(agentIDs) != 1 || agentIDs[0] != "agent-1" {
+		t.Errorf("agentIDs = %v, want [agent-1]", agentIDs)
+	}
+	b, _ := repo.Get(ctx, "task-b")
+	if len(b.DependsOn) != 0 {
+		t.Errorf("task-b DependsOn = %v, want cleared", b.DependsOn)
+	}
+	d, _ := repo.Get(ctx, "task-d")
+	if len(d.DependsOn) != 2 {
+		t.Errorf("task-d DependsOn = %v, want still [task-b task-c] (unmet)", d.DependsOn)
+	}
+
+	// task-d still depends on task-b (not yet completed, just unblocked-to-run) and
+	// task-c. Completing task-c alone must not unlock task-d.
+	setCompleted(t, ctx, repo, "task-c")
+	agentIDs, err = repo.UnlockDependents(ctx, "task-c")
+	if err != nil {
+		t.Fatalf("UnlockDependents(task-c): %v", err)
+	}
+	if len(agentIDs) != 0 {
+		t.Errorf("agentIDs = %v, want none (task-b not completed yet)", agentIDs)
+	}
+
+	// Now complete task-b too; task-d's remaining deps are all satisfied.
+	setCompleted(t, ctx, repo, "task-b")
+	agentIDs, err = repo.UnlockDependents(ctx, "task-b")
+	if err != nil {
+		t.Fatalf("UnlockDependents(task-b): %v", err)
+	}
+	if len(agentIDs) != 1 || agentIDs[0] != "agent-1" {
+		t.Errorf("agentIDs = %v, want [agent-1]", agentIDs)
+	}
+	d, _ = repo.Get(ctx, "task-d")
+	if len(d.DependsOn) != 0 {
+		t.Errorf("task-d DependsOn = %v, want cleared", d.DependsOn)
+	}
+}
+
+func setCompleted(t *testing.T, ctx context.Context, repo *TaskRepo, id string) {
+	t.Helper()
+	task, err := repo.Get(ctx, id)
+	if err != nil || task == nil {
+		t.Fatalf("get %s: %v", id, err)
+	}
+	task.Status = model.TaskStatusCompleted
+	if err := repo.Update(ctx, task); err != nil {
+		t.Fatalf("update %s: %v", id, err)
+	}
+}
+
 // ---- Stats ----
 
 func TestStats(t *testing.T) {

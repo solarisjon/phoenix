@@ -321,6 +321,9 @@ func (r *memTaskRepo) BumpPriority(_ context.Context, _ string) error { return n
 func (r *memTaskRepo) UnlockDependents(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
+func (r *memTaskRepo) DependenciesSatisfied(_ context.Context, _ []string) (bool, error) {
+	return true, nil
+}
 
 // ---- Mock project repo ----
 

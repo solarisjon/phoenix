@@ -307,6 +307,9 @@ func (r *fakeTaskRepo) BumpPriority(_ context.Context, _ string) error { return 
 func (r *fakeTaskRepo) UnlockDependents(_ context.Context, _ string) ([]string, error) {
 	return nil, nil
 }
+func (r *fakeTaskRepo) DependenciesSatisfied(_ context.Context, _ []string) (bool, error) {
+	return true, nil
+}
 
 // countingRunner counts RunTask calls and records the task IDs.
 type countingRunner struct {
