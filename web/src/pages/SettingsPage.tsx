@@ -72,7 +72,7 @@ function SystemInfoSection() {
 }
 
 function GlobalGuardrailsSection() {
-  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '' })
+  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '', dynamic_orchestration_enabled: false, orchestrator_agent_id: '', max_subtask_depth: 2, max_subtasks_per_level: 5, orchestrator_confidence_threshold: 0.75 })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -830,9 +830,192 @@ function TaskTemplatesTab() {
   )
 }
 
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+        checked ? 'bg-violet-600' : 'bg-slate-700'
+      }`}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+        checked ? 'translate-x-5' : 'translate-x-0.5'
+      }`} />
+    </button>
+  )
+}
+
+function OrchestrationTab() {
+  const [settings, setSettings] = useState<import('../lib/api').SystemSettings | null>(null)
+  const [agents, setAgents] = useState<import('../lib/api').Agent[]>([])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([api.admin.getSettings(), api.agents.list()])
+      .then(([s, a]) => { setSettings(s); setAgents(a) })
+      .catch(() => {})
+  }, [])
+
+  const save = async () => {
+    if (!settings) return
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await api.admin.saveSettings(settings)
+      setSettings(updated)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!settings) return <div className="text-slate-500 text-sm">Loading…</div>
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold text-white mb-1">Dynamic Orchestration</h2>
+        <p className="text-slate-400 text-sm">
+          When enabled, tasks submitted to projects with no assigned agents are routed to a global orchestrator agent.
+          The orchestrator analyses the task, selects the best model, and optionally decomposes it into subtasks.
+        </p>
+      </div>
+
+      {/* Master switch */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-200">Enable Dynamic Orchestration</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Routes unassigned-project tasks to the orchestrator agent instead of failing.
+          </p>
+        </div>
+        <ToggleSwitch
+          checked={settings.dynamic_orchestration_enabled ?? false}
+          onChange={v => setSettings(s => s ? { ...s, dynamic_orchestration_enabled: v } : s)}
+        />
+      </div>
+
+      {settings.dynamic_orchestration_enabled && (
+        <div className="space-y-6 border-l-2 border-violet-800/40 pl-5">
+
+          {/* Orchestrator agent picker */}
+          <div>
+            <label className="text-sm font-medium text-slate-200 block mb-1.5">Orchestrator Agent</label>
+            <p className="text-xs text-slate-500 mb-2">
+              The agent used to analyse and route tasks. Should be powered by a planning-capable model.
+            </p>
+            <select
+              value={settings.orchestrator_agent_id ?? ''}
+              onChange={e => setSettings(s => s ? { ...s, orchestrator_agent_id: e.target.value } : s)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="">— No orchestrator selected —</option>
+              {agents.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.is_orchestrator ? ' ★' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Max subtask depth */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-slate-200">Max Subtask Depth</label>
+              <span className="text-sm text-violet-300 font-mono">{settings.max_subtask_depth ?? 2}</span>
+            </div>
+            <p className="text-xs text-slate-500 mb-2">Maximum recursive decomposition depth (1 = no recursion).</p>
+            <input
+              type="range"
+              min={1}
+              max={5}
+              step={1}
+              value={settings.max_subtask_depth ?? 2}
+              onChange={e => setSettings(s => s ? { ...s, max_subtask_depth: parseInt(e.target.value) } : s)}
+              className="w-full accent-violet-500"
+            />
+            <div className="flex justify-between text-xs text-slate-600 mt-0.5">
+              <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+            </div>
+          </div>
+
+          {/* Max subtasks per level */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-slate-200">Max Subtasks per Level</label>
+              <span className="text-sm text-violet-300 font-mono">{settings.max_subtasks_per_level ?? 5}</span>
+            </div>
+            <p className="text-xs text-slate-500 mb-2">Maximum number of parallel subtasks spawned at each level.</p>
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={1}
+              value={settings.max_subtasks_per_level ?? 5}
+              onChange={e => setSettings(s => s ? { ...s, max_subtasks_per_level: parseInt(e.target.value) } : s)}
+              className="w-full accent-violet-500"
+            />
+            <div className="flex justify-between text-xs text-slate-600 mt-0.5">
+              <span>1</span><span>3</span><span>5</span><span>7</span><span>10</span>
+            </div>
+          </div>
+
+          {/* Confidence threshold */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-slate-200">Auto-run Confidence Threshold</label>
+              <span className="text-sm text-violet-300 font-mono">{((settings.orchestrator_confidence_threshold ?? 0.75) * 100).toFixed(0)}%</span>
+            </div>
+            <p className="text-xs text-slate-500 mb-2">
+              Plans with confidence ≥ this threshold run automatically.
+              Below it, tasks go to <span className="text-amber-400">awaiting approval</span> for human review.
+            </p>
+            <input
+              type="range"
+              min={50}
+              max={100}
+              step={5}
+              value={Math.round((settings.orchestrator_confidence_threshold ?? 0.75) * 100)}
+              onChange={e => setSettings(s => s ? { ...s, orchestrator_confidence_threshold: parseInt(e.target.value) / 100 } : s)}
+              className="w-full accent-violet-500"
+            />
+            <div className="flex justify-between text-xs text-slate-600 mt-0.5">
+              <span>50%</span><span>60%</span><span>70%</span><span>80%</span><span>90%</span><span>100%</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">{error}</div>
+      )}
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save settings'}
+        </button>
+        {saved && <span className="text-xs text-green-400">✓ Saved</span>}
+      </div>
+    </div>
+  )
+}
+
 const TABS = [
   { id: 'agents', label: 'Agents' },
   { id: 'providers', label: 'Providers' },
+  { id: 'orchestration', label: 'Orchestration' },
   { id: 'system', label: 'System' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'archived', label: 'Archived' },
@@ -875,6 +1058,7 @@ export function SettingsPage() {
       <div>
         {tab === 'agents' && <AgentsPage />}
         {tab === 'providers' && <ProvidersPage />}
+        {tab === 'orchestration' && <OrchestrationTab />}
         {tab === 'system' && <SystemTab />}
         {tab === 'appearance' && <AppearanceTab />}
         {tab === 'archived' && <ArchivedProjectsTab />}

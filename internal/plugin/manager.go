@@ -38,6 +38,8 @@ type Manager struct {
 	plugins  store.PluginRepo
 	rules    store.NotificationRuleRepo
 	settings store.SystemSettingsRepo
+	agents   store.AgentRepo
+	projects store.ProjectRepo
 
 	noPlugins bool // runtime override from CLI flag
 
@@ -60,12 +62,16 @@ func NewManager(
 	plugins store.PluginRepo,
 	rules store.NotificationRuleRepo,
 	settings store.SystemSettingsRepo,
+	agents store.AgentRepo,
+	projects store.ProjectRepo,
 	opts ManagerOpts,
 ) *Manager {
 	return &Manager{
 		plugins:   plugins,
 		rules:     rules,
 		settings:  settings,
+		agents:    agents,
+		projects:  projects,
 		noPlugins: opts.NoPlugins,
 		pollers:   make(map[string]context.CancelFunc),
 	}
@@ -282,12 +288,24 @@ func (m *Manager) dispatch(eventType model.NotifyEventType, taskID, taskTitle, a
 		}
 
 		// Build the notification message.
+		agentName := agentID
+		if m.agents != nil {
+			if a, err := m.agents.Get(ctx, agentID); err == nil && a != nil {
+				agentName = a.Name
+			}
+		}
+		projectName := projectID
+		if m.projects != nil {
+			if p, err := m.projects.Get(ctx, projectID); err == nil && p != nil {
+				projectName = p.Name
+			}
+		}
 		msg := notifiers.NotifyMessage{
 			EventType:   string(eventType),
 			TaskID:      taskID,
 			TaskTitle:   taskTitle,
-			AgentName:   agentID,   // UUID for now; name lookup would require repo injection
-			ProjectName: projectID, // UUID for now; name lookup would require repo injection
+			AgentName:   agentName,
+			ProjectName: projectName,
 			Timestamp:   time.Now(),
 		}
 

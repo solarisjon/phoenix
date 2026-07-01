@@ -1,7 +1,10 @@
 // Package model defines the core domain types shared across Phoenix.
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ---- Enums ----
 
@@ -39,6 +42,67 @@ const (
 	ProviderTypeCodingAgent ProviderType = "coding_agent"
 )
 
+// ModelCapabilityTier classifies a model by its cost/capability tradeoff.
+type ModelCapabilityTier string
+
+const (
+	ModelTierFast      ModelCapabilityTier = "fast"      // cheap, quick, simple tasks
+	ModelTierStandard  ModelCapabilityTier = "standard"  // mid-tier general purpose
+	ModelTierPowerful  ModelCapabilityTier = "powerful"  // top-tier for complex tasks
+	ModelTierPlanning  ModelCapabilityTier = "planning"  // good at reasoning/orchestration
+)
+
+// ModelEntry describes a single model in a provider's whitelisted pool.
+// Stored as a JSON array in providers.allowed_models.
+type ModelEntry struct {
+	ModelID             string              `json:"model_id"`
+	Label               string              `json:"label"`
+	CapabilityTier      ModelCapabilityTier `json:"capability_tier"`
+	CapabilityDesc      string              `json:"capability_description"`
+	UserDescription     string              `json:"user_description,omitempty"`
+	InputCostPer1K      float64             `json:"input_cost_per_1k"`
+	OutputCostPer1K     float64             `json:"output_cost_per_1k"`
+	ProbedAt            *time.Time          `json:"probed_at,omitempty"`
+}
+
+// TaskType distinguishes the role of a task in the orchestration pipeline.
+type TaskType string
+
+const (
+	TaskTypeStandard      TaskType = "standard"      // normal task (default)
+	TaskTypeOrchestration TaskType = "orchestration" // orchestrator planning task
+	TaskTypeSubtask       TaskType = "subtask"       // subtask spawned by orchestrator
+)
+
+// OrchestrationSubtask is one item in an orchestrator's decomposition plan.
+type OrchestrationSubtask struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Domain      string `json:"domain"`     // e.g. "code", "write", "analyse", "research"
+	Complexity  string `json:"complexity"` // "low" | "medium" | "high"
+}
+
+// OrchestrationPlan is the structured output produced by the orchestrator agent.
+// It is stored as JSON in tasks.orchestration_plan.
+type OrchestrationPlan struct {
+	Confidence float64                `json:"confidence"` // 0–1
+	Rationale  string                 `json:"rationale"`
+	Subtasks   []OrchestrationSubtask `json:"subtasks"`
+	SingleTask *OrchestrationSubtask  `json:"single_task,omitempty"` // set when no decomposition needed
+}
+
+// ParseOrchestrationPlan decodes a JSON plan string, returning nil on empty input.
+func ParseOrchestrationPlan(raw string) (*OrchestrationPlan, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var p OrchestrationPlan
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // ---- Domain Types ----
 
 // User represents a Phoenix user.
@@ -65,6 +129,7 @@ type Provider struct {
 	Name            string       `json:"name"`
 	Type            ProviderType `json:"type"`
 	Config          string       `json:"config"` // JSON blob
+	AllowedModels   []ModelEntry `json:"allowed_models"` // curated model pool; empty = unrestricted
 	CreatedBy       string       `json:"created_by"`
 	CreatedAt       time.Time    `json:"created_at"`
 	HealthStatus    string       `json:"health_status"`              // "ok" | "error" | "unknown"
@@ -89,6 +154,7 @@ type Agent struct {
 	MaxConcurrent     int         `json:"max_concurrent"`     // 0 = unlimited
 	MaxCostPerRun     float64     `json:"max_cost_per_run"`   // 0 = unlimited; USD ceiling per run (estimated pre-execution)
 	FallbackModel     string      `json:"fallback_model"`     // model to use when cost budget overflows after context truncation; empty = fail
+	IsOrchestrator    bool        `json:"is_orchestrator"`    // if true, this agent is the global task orchestrator
 	CreatedBy         string      `json:"created_by"`
 	Status            AgentStatus `json:"status"`
 	CreatedAt         time.Time   `json:"created_at"`
@@ -203,14 +269,16 @@ type Task struct {
 	IsCriticReview  bool       `json:"is_critic_review"`
 	ReviewedTaskID  *string    `json:"reviewed_task_id"`
 	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
-	Priority        int        `json:"priority"`       // higher = runs first; default 0 = FIFO
-	DependsOn       []string   `json:"depends_on"`     // task IDs that must complete before this task runs; nil = no deps
-	LoopIteration   int        `json:"loop_iteration"` // iteration index within a ReAct loop (0 = first/only)
-	PromptHash      string     `json:"prompt_hash"` // SHA-256 of the assembled prompt; used for monitor diffing
-	SummaryCache    string     `json:"summary_cache"` // cached summary of older follow-up turns (stored on the root task)
-	CreatedAt       time.Time  `json:"created_at"`
-	StartedAt       *time.Time `json:"started_at"`
-	CompletedAt     *time.Time `json:"completed_at"`
+	Priority             int        `json:"priority"`             // higher = runs first; default 0 = FIFO
+	DependsOn            []string   `json:"depends_on"`           // task IDs that must complete before this task runs; nil = no deps
+	LoopIteration        int        `json:"loop_iteration"`       // iteration index within a ReAct loop (0 = first/only)
+	PromptHash           string     `json:"prompt_hash"`          // SHA-256 of the assembled prompt; used for monitor diffing
+	SummaryCache         string     `json:"summary_cache"`        // cached summary of older follow-up turns (stored on the root task)
+	TaskType             TaskType   `json:"task_type"`            // "standard" | "orchestration" | "subtask"
+	OrchestrationPlan    string     `json:"orchestration_plan"`   // JSON blob: plan produced by orchestrator
+	CreatedAt            time.Time  `json:"created_at"`
+	StartedAt            *time.Time `json:"started_at"`
+	CompletedAt          *time.Time `json:"completed_at"`
 }
 
 // Team is a named group of agents that can be assigned to projects as a unit.
@@ -233,6 +301,13 @@ type SystemSettings struct {
 	ObsidianRoot             string `json:"obsidian_root"`       // filesystem path of vaults directory
 	ObsidianAutoWrite        bool   `json:"obsidian_auto_write"` // auto-write MD to vault after task completion
 	Theme                    string `json:"theme"`               // active UI theme id, e.g. "dracula"
+
+	// Dynamic orchestration settings (migration 051)
+	DynamicOrchestrationEnabled    bool    `json:"dynamic_orchestration_enabled"`
+	OrchestratorAgentID            string  `json:"orchestrator_agent_id"`
+	MaxSubtaskDepth                int     `json:"max_subtask_depth"`               // default 2
+	MaxSubtasksPerLevel            int     `json:"max_subtasks_per_level"`          // default 5
+	OrchestratorConfidenceThreshold float64 `json:"orchestrator_confidence_threshold"` // default 0.75; below = approval required
 }
 
 // ObsidianVault represents a single Obsidian vault directory with user-provided context

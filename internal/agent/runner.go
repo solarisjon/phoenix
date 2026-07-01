@@ -36,8 +36,10 @@ type Runner struct {
 	projects       store.ProjectRepo
 	settings       store.SystemSettingsRepo
 	memos          store.MemoRepo
+	providers      store.ProviderRepo   // nil before SetProviderRepo is called
 	obsidianVaults store.ObsidianVaultRepo // nil = disabled
 	registry       *registry.Registry
+	orchestrator   *Orchestrator        // nil until SetOrchestrator is called
 	onEvent        EventHandler
 	onMemo         MemoHandler
 	memoryClient   memory.MemoryClient // nil = disabled
@@ -110,6 +112,21 @@ func (r *Runner) SetMemoryClient(c memory.MemoryClient) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.memoryClient = c
+}
+
+// SetProviderRepo wires in the provider store so the runner can pass it to the
+// orchestrator for model pool lookups.
+func (r *Runner) SetProviderRepo(repo store.ProviderRepo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.providers = repo
+}
+
+// SetOrchestrator wires in the orchestrator. Must be called after New().
+func (r *Runner) SetOrchestrator(o *Orchestrator) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.orchestrator = o
 }
 
 // RunTask starts execution of the given task in a background goroutine.
@@ -439,6 +456,30 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		req = BuildBuiltinCriticRequest(reviewed)
 	} else {
 		req = AssembleRequest(ec.agent, task, globalGuardrails, r.serverURL())
+
+		// If this agent is the global orchestrator, append decomposition instructions.
+		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration {
+			allAgents, _ := r.agents.List(ctx, "")
+			r.mu.Lock()
+			provRepo := r.providers
+			r.mu.Unlock()
+			allProviders := []*model.Provider{}
+			if provRepo != nil {
+				allProviders, _ = provRepo.List(ctx, "")
+			}
+			sysSettings, _ := r.settings.Get(ctx)
+			maxDepth, maxPerLevel := 2, 5
+			if sysSettings != nil {
+				if sysSettings.MaxSubtaskDepth > 0 {
+					maxDepth = sysSettings.MaxSubtaskDepth
+				}
+				if sysSettings.MaxSubtasksPerLevel > 0 {
+					maxPerLevel = sysSettings.MaxSubtasksPerLevel
+				}
+			}
+			req = InjectOrchestratorInstructions(req, allAgents, allProviders, maxDepth, maxPerLevel)
+		}
+
 		if task.FollowUpOf != nil {
 			rootID := *task.FollowUpOf
 			chain, chainErr := r.tasks.ListFollowUpChain(ctx, rootID)
@@ -650,6 +691,20 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	if err := r.setStatus(r.bgCtx, task, finalStatus, nil); err != nil {
 		slog.Error("runner: set completed status", "error", err)
 		return
+	}
+
+	// If this is an orchestration task, process the plan asynchronously.
+	if task.TaskType == model.TaskTypeOrchestration {
+		r.mu.Lock()
+		orch := r.orchestrator
+		r.mu.Unlock()
+		if orch != nil {
+			go func() {
+				orchCtx, cancel := context.WithTimeout(r.bgCtx, 5*time.Minute)
+				defer cancel()
+				orch.HandleOrchestrationComplete(orchCtx, task, out.fullText)
+			}()
+		}
 	}
 
 	// Wake any tasks that were blocked on this one.

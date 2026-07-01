@@ -204,27 +204,52 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify agent exists.
-	a, err := s.agents.Get(r.Context(), req.AgentID)
-	if err != nil {
-		respondInternalErr(w, err)
-		return
-	}
-	if a == nil {
-		respondErr(w, http.StatusBadRequest, "agent not found")
-		return
-	}
+	agentID := req.AgentID
+	taskType := model.TaskTypeStandard
 
-	// Verify agent is assigned to this project.
-	assigned, err := s.projects.IsAgentAssigned(r.Context(), req.ProjectID, req.AgentID)
-	if err != nil {
-		respondInternalErr(w, err)
-		return
-	}
-	if !assigned {
-		respondErr(w, http.StatusBadRequest,
-			"agent is not assigned to this project — call POST /projects/{id}/agents first")
-		return
+	if agentID == "" {
+		// No explicit agent — try dynamic orchestration.
+		sysSettings, settErr := s.systemSettings.Get(r.Context())
+		if settErr != nil {
+			respondInternalErr(w, settErr)
+			return
+		}
+		if !sysSettings.DynamicOrchestrationEnabled || sysSettings.OrchestratorAgentID == "" {
+			respondErr(w, http.StatusBadRequest, "agent_id is required (dynamic orchestration is not enabled)")
+			return
+		}
+		agentID = sysSettings.OrchestratorAgentID
+		taskType = model.TaskTypeOrchestration
+	} else {
+		// Verify agent exists.
+		a, err := s.agents.Get(r.Context(), agentID)
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if a == nil {
+			respondErr(w, http.StatusBadRequest, "agent not found")
+			return
+		}
+
+		// Verify agent is assigned to this project.
+		assigned, err := s.projects.IsAgentAssigned(r.Context(), req.ProjectID, agentID)
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if !assigned {
+			// Check if dynamic orchestration can handle this case.
+			sysSettings, _ := s.systemSettings.Get(r.Context())
+			if sysSettings != nil && sysSettings.DynamicOrchestrationEnabled && sysSettings.OrchestratorAgentID != "" {
+				agentID = sysSettings.OrchestratorAgentID
+				taskType = model.TaskTypeOrchestration
+			} else {
+				respondErr(w, http.StatusBadRequest,
+					"agent is not assigned to this project — call POST /projects/{id}/agents first")
+				return
+			}
+		}
 	}
 
 	input := req.Input
@@ -242,12 +267,13 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	t := &model.Task{
 		ID:          uuid.New().String(),
 		ProjectID:   req.ProjectID,
-		AgentID:     req.AgentID,
+		AgentID:     agentID,
 		Title:       strings.TrimSpace(req.Title),
 		Description: req.Description,
 		Source:      req.Source,
 		CriticMode:  req.CriticMode,
 		Status:      status,
+		TaskType:    taskType,
 		Input:       input,
 		Output:      "{}",
 		DependsOn:   req.DependsOn,

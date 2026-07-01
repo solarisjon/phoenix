@@ -87,6 +87,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [modelOverride, setModelOverride] = useState(initial?.model_override ?? '')
   const [canSpawnAgents, setCanSpawnAgents] = useState(initial?.can_spawn_agents ?? false)
   const [canHireAgents, setCanHireAgents] = useState(initial?.can_hire_agents ?? false)
+  const [isOrchestrator, setIsOrchestrator] = useState(initial?.is_orchestrator ?? false)
   const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
   const [maxCostPerRun, setMaxCostPerRun] = useState<number>(initial?.max_cost_per_run ?? 0)
   const [fallbackModel, setFallbackModel] = useState(initial?.fallback_model ?? '')
@@ -127,7 +128,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, max_concurrent: maxConcurrent, max_cost_per_run: maxCostPerRun, fallback_model: fallbackModel, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, is_orchestrator: isOrchestrator, max_concurrent: maxConcurrent, max_cost_per_run: maxCostPerRun, fallback_model: fallbackModel, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -290,6 +291,26 @@ function AgentForm({ initial, providers, onSave, onClose }: {
               <p className="text-xs text-slate-500 mt-0.5">
                 When enabled, this agent can propose new agent hires during task execution.
                 Proposals land in the <strong className="text-slate-400">Inbox</strong> for human review and approval before any agent is created.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        {/* Orchestrator toggle */}
+        <div className="border-t border-slate-800 pt-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isOrchestrator}
+              onChange={e => setIsOrchestrator(e.target.checked)}
+              className="mt-0.5 rounded"
+            />
+            <div>
+              <p className="text-sm text-slate-200 font-medium">Global Orchestrator ★</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Designates this agent as the global orchestrator for dynamic task routing.
+                Configure the active orchestrator in Settings → Orchestration.
+                Only one agent should be the designated orchestrator at a time.
               </p>
             </div>
           </label>
@@ -477,6 +498,12 @@ export function AgentsPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium text-white">{a.name}</h3>
+                          {a.is_orchestrator && (
+                            <span className="text-xs bg-violet-900/50 border border-violet-700/50 text-violet-300 px-1.5 py-0.5 rounded-full font-medium">★ Orchestrator</span>
+                          )}
+                          {a.created_by === 'orchestrator' && (
+                            <span className="text-xs bg-slate-800 border border-slate-700 text-slate-400 px-1.5 py-0.5 rounded-full">auto</span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-500">
                           {providerName(a.provider_id)}

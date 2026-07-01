@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, type Provider } from '@/lib/api'
+import { api, type Provider, type ModelEntry, type ModelCapabilityTier } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
-import { Input, Select, Label } from '@/components/ui/input'
+import { Input, Select, Label, Textarea } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { cn } from '@/lib/utils'
 import { ModelComboBox } from '@/components/ui/model-combo-box'
@@ -170,6 +170,7 @@ function CodingAgentFields({ cfg, onChange }: {
     pi: 'pi  or  /opt/homebrew/bin/pi',
     claudecode: 'claude  or  /opt/homebrew/bin/claude',
     crush: 'crush  or  /opt/homebrew/bin/crush',
+    cursor: 'cursor  or  /usr/local/bin/cursor',
   }
 
   return (
@@ -182,6 +183,7 @@ function CodingAgentFields({ cfg, onChange }: {
           <option value="pi">pi</option>
           <option value="claudecode">Claude Code (claude)</option>
           <option value="crush">Crush</option>
+          <option value="cursor">Cursor</option>
         </Select>
       </div>
 
@@ -208,6 +210,7 @@ function CodingAgentFields({ cfg, onChange }: {
             cfg.kind === 'opencode' ? 'llm-proxy/claude-sonnet-4.6' :
             cfg.kind === 'pi'       ? 'llm-proxy/claude-sonnet-4.6  or  sonnet' :
             cfg.kind === 'crush'    ? 'anthropic/claude-sonnet-4-5  or  sonnet' :
+            cfg.kind === 'cursor'   ? 'claude-sonnet-4-5  or  gpt-4o (blank = Cursor default)' :
                                       'claude-opus-4-5  or  sonnet'
           } />
         <p className="text-xs text-slate-600 mt-1">Leave blank to use the agent's default model</p>
@@ -257,6 +260,17 @@ function CodingAgentFields({ cfg, onChange }: {
           <p className="text-xs text-slate-500">
             System prompt is delivered via <code className="bg-slate-800 px-1 rounded text-slate-400">AGENTS.md</code> in the working directory.
             Tool permissions are configured via crush's own config (<code className="bg-slate-800 px-1 rounded text-slate-400">~/.config/crush/crush.json</code>).
+          </p>
+        </div>
+      )}
+
+      {/* cursor-specific */}
+      {cfg.kind === 'cursor' && (
+        <div>
+          <p className="text-xs text-slate-500">
+            Runs tasks via the <code className="bg-slate-800 px-1 rounded text-slate-400">cursor</code> CLI.
+            The system prompt and context are passed as a single prompt argument.
+            Token counts and cost are not reported by the Cursor CLI.
           </p>
         </div>
       )}
@@ -406,6 +420,220 @@ function parseConfig(type: string, configJSON: string): LLMConfig | CodingAgentC
   } catch {
     return type === 'llm' ? { ...defaultLLM } : { ...defaultCoding }
   }
+}
+
+const TIER_LABELS: Record<ModelCapabilityTier, string> = {
+  fast: 'Fast',
+  standard: 'Standard',
+  powerful: 'Powerful',
+  planning: 'Planning',
+}
+
+function ModelPoolSection({ providerId, initialModels }: {
+  providerId: string
+  initialModels: ModelEntry[]
+}) {
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [poolModels, setPoolModels] = useState<ModelEntry[]>(initialModels)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [probingId, setProbingId] = useState<string | null>(null)
+  const [loadingModels, setLoadingModels] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api.providers.listModels(providerId)
+      .then(r => { if (r.supported) setAvailableModels(r.models ?? []) })
+      .catch(() => {})
+      .finally(() => setLoadingModels(false))
+  }, [providerId])
+
+  const isInPool = (modelId: string) => poolModels.some(m => m.model_id === modelId)
+
+  const toggleModel = (modelId: string, checked: boolean) => {
+    if (checked) {
+      setPoolModels(prev => [...prev, {
+        model_id: modelId,
+        label: modelId,
+        capability_tier: 'standard',
+        capability_description: '',
+        user_description: '',
+        input_cost_per_1k: 0,
+        output_cost_per_1k: 0,
+      }])
+    } else {
+      setPoolModels(prev => prev.filter(m => m.model_id !== modelId))
+    }
+  }
+
+  const updateModel = (modelId: string, field: keyof ModelEntry, value: string | number) => {
+    setPoolModels(prev => prev.map(m =>
+      m.model_id === modelId ? { ...m, [field]: value } : m
+    ))
+  }
+
+  const probeModel = async (modelId: string) => {
+    setProbingId(modelId)
+    setError('')
+    try {
+      const result = await api.providers.probeModel(providerId, modelId)
+      setPoolModels(prev => prev.map(m =>
+        m.model_id === modelId ? { ...m, ...result } : m
+      ))
+    } catch (e: unknown) {
+      setError(`Probe failed for ${modelId}: ${getErrorMessage(e)}`)
+    } finally {
+      setProbingId(null)
+    }
+  }
+
+  const savePool = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await api.providers.updateAllowedModels(providerId, poolModels)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loadingModels) return <div className="text-slate-500 text-sm py-2">Loading models…</div>
+
+  if (availableModels.length === 0) {
+    return (
+      <div className="text-slate-500 text-sm py-2">
+        No models available from this provider's API. Save the provider configuration first, then return here to configure the pool.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">
+        Select which models the orchestrator may use from this provider. Checked models become available for dynamic agent assignment.
+      </p>
+
+      <div className="space-y-3">
+        {availableModels.map(modelId => {
+          const inPool = isInPool(modelId)
+          const entry = poolModels.find(m => m.model_id === modelId)
+          return (
+            <div key={modelId} className={cn(
+              'rounded-lg border p-3 transition-colors',
+              inPool ? 'border-violet-700/50 bg-violet-900/10' : 'border-slate-800 bg-slate-900/30'
+            )}>
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={inPool}
+                  onChange={e => toggleModel(modelId, e.target.checked)}
+                  className="mt-1 rounded"
+                />
+                <div className="flex-1 min-w-0 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono text-slate-200 truncate">{modelId}</span>
+                    {inPool && (
+                      <button
+                        onClick={() => probeModel(modelId)}
+                        disabled={probingId === modelId}
+                        className="text-xs text-violet-400 hover:text-violet-300 flex-shrink-0 disabled:opacity-50"
+                      >
+                        {probingId === modelId ? '⏳ Probing…' : '◎ Probe'}
+                      </button>
+                    )}
+                  </div>
+
+                  {inPool && entry && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor={`tier-${modelId}`} className="text-xs">Capability Tier</Label>
+                        <Select
+                          id={`tier-${modelId}`}
+                          value={entry.capability_tier}
+                          onChange={e => updateModel(modelId, 'capability_tier', e.target.value as ModelCapabilityTier)}
+                        >
+                          {(Object.keys(TIER_LABELS) as ModelCapabilityTier[]).map(t => (
+                            <option key={t} value={t}>{TIER_LABELS[t]}</option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor={`label-${modelId}`} className="text-xs">Display Label</Label>
+                        <Input
+                          id={`label-${modelId}`}
+                          value={entry.label}
+                          onChange={e => updateModel(modelId, 'label', e.target.value)}
+                          placeholder={modelId}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`in-cost-${modelId}`} className="text-xs">Input cost / 1k tokens (USD)</Label>
+                        <Input
+                          id={`in-cost-${modelId}`}
+                          type="number"
+                          step="0.000001"
+                          value={entry.input_cost_per_1k || ''}
+                          onChange={e => updateModel(modelId, 'input_cost_per_1k', parseFloat(e.target.value) || 0)}
+                          placeholder="0.001"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`out-cost-${modelId}`} className="text-xs">Output cost / 1k tokens (USD)</Label>
+                        <Input
+                          id={`out-cost-${modelId}`}
+                          type="number"
+                          step="0.000001"
+                          value={entry.output_cost_per_1k || ''}
+                          onChange={e => updateModel(modelId, 'output_cost_per_1k', parseFloat(e.target.value) || 0)}
+                          placeholder="0.003"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Label htmlFor={`desc-${modelId}`} className="text-xs">
+                          Capability Description
+                          {entry.capability_description && <span className="ml-1 text-slate-500">(auto-probed)</span>}
+                        </Label>
+                        <Textarea
+                          id={`desc-${modelId}`}
+                          value={entry.user_description ?? entry.capability_description}
+                          onChange={e => updateModel(modelId, 'user_description', e.target.value)}
+                          rows={2}
+                          placeholder="Describe what this model is good at…"
+                        />
+                        {entry.probed_at && (
+                          <p className="text-xs text-slate-600 mt-0.5">
+                            Probed {new Date(entry.probed_at).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {error && (
+        <p className="text-xs text-red-400">{error}</p>
+      )}
+
+      <div className="flex items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={savePool} disabled={saving}>
+          {saving ? 'Saving…' : 'Save Model Pool'}
+        </Button>
+        {saved && <span className="text-emerald-400 text-xs">✓ Saved</span>}
+        {poolModels.length > 0 && (
+          <span className="text-xs text-slate-500">{poolModels.length} model{poolModels.length !== 1 ? 's' : ''} in pool</span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function ProviderForm({ initial, onSave, onClose }: {
@@ -559,6 +787,22 @@ function ProviderForm({ initial, onSave, onClose }: {
             </Button>
             {pricingSaved && <span className="text-emerald-400 text-xs">✓ Saved</span>}
           </div>
+        </div>
+      )}
+
+      {/* Model Pool — only shown when editing an existing LLM provider */}
+      {initial && (uiType === 'llm' || uiType === 'ollama') && (
+        <div className="border-t border-slate-800 pt-4 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Model Pool</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Curate a whitelist of models available for the orchestrator to pick from.
+            </p>
+          </div>
+          <ModelPoolSection
+            providerId={initial.id}
+            initialModels={initial.allowed_models ?? []}
+          />
         </div>
       )}
 

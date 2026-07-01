@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
@@ -44,6 +46,25 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		obsidianEnabled = true
 	}
 
+	maxDepth := 2
+	if v := kv["max_subtask_depth"]; v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxDepth = n
+		}
+	}
+	maxPerLevel := 5
+	if v := kv["max_subtasks_per_level"]; v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxPerLevel = n
+		}
+	}
+	confidenceThreshold := 0.75
+	if v := kv["orchestrator_confidence_threshold"]; v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			confidenceThreshold = f
+		}
+	}
+
 	s := &model.SystemSettings{
 		GlobalGuardrailsEnabled: kv["global_guardrails_enabled"] == "1",
 		GlobalGuardrails:        kv["global_guardrails"],
@@ -53,6 +74,12 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		ObsidianRoot:            kv["obsidian_root"],
 		ObsidianAutoWrite:       kv["obsidian_auto_write"] == "1",
 		Theme:                   kv["theme"],
+
+		DynamicOrchestrationEnabled:     kv["dynamic_orchestration_enabled"] == "1",
+		OrchestratorAgentID:             kv["orchestrator_agent_id"],
+		MaxSubtaskDepth:                 maxDepth,
+		MaxSubtasksPerLevel:             maxPerLevel,
+		OrchestratorConfidenceThreshold: confidenceThreshold,
 	}
 	return s, nil
 }
@@ -132,6 +159,39 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 	}
 
 	if _, err := r.db.ExecContext(ctx, upsert, "theme", s.Theme, now); err != nil {
+		return err
+	}
+
+	// Orchestration settings.
+	orchEnabled := "0"
+	if s.DynamicOrchestrationEnabled {
+		orchEnabled = "1"
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "dynamic_orchestration_enabled", orchEnabled, now); err != nil {
+		return err
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "orchestrator_agent_id", s.OrchestratorAgentID, now); err != nil {
+		return err
+	}
+	maxDepth := s.MaxSubtaskDepth
+	if maxDepth <= 0 {
+		maxDepth = 2
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "max_subtask_depth", fmt.Sprintf("%d", maxDepth), now); err != nil {
+		return err
+	}
+	maxPerLevel := s.MaxSubtasksPerLevel
+	if maxPerLevel <= 0 {
+		maxPerLevel = 5
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "max_subtasks_per_level", fmt.Sprintf("%d", maxPerLevel), now); err != nil {
+		return err
+	}
+	threshold := s.OrchestratorConfidenceThreshold
+	if threshold <= 0 {
+		threshold = 0.75
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "orchestrator_confidence_threshold", fmt.Sprintf("%g", threshold), now); err != nil {
 		return err
 	}
 

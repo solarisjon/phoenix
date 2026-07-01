@@ -25,6 +25,7 @@ type createAgentRequest struct {
 	ModelOverride     string  `json:"model_override"`
 	CanSpawnAgents    bool    `json:"can_spawn_agents"`
 	CanHireAgents     bool    `json:"can_hire_agents"`
+	IsOrchestrator    bool    `json:"is_orchestrator"`
 	HeartbeatInterval *int    `json:"heartbeat_interval,omitempty"` // kept for bundle import compat; ignored
 	Status            string  `json:"status"`
 	TemplateID        *string `json:"template_id"`
@@ -113,6 +114,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		ModelOverride:     req.ModelOverride,
 		CanSpawnAgents:    req.CanSpawnAgents,
 		CanHireAgents:     req.CanHireAgents,
+		IsOrchestrator:    req.IsOrchestrator,
 		CreatedBy:         user.ID,
 		Status:            status,
 		CreatedAt:         time.Now(),
@@ -169,6 +171,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.ModelOverride = req.ModelOverride
 	existing.CanSpawnAgents = req.CanSpawnAgents
 	existing.CanHireAgents = req.CanHireAgents
+	existing.IsOrchestrator = req.IsOrchestrator
 	existing.TemplateID = req.TemplateID
 	if req.Status != "" {
 		existing.Status = model.AgentStatus(req.Status)

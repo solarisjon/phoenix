@@ -390,6 +390,113 @@ func refreshEnvFromLoginShell() error {
 	return nil
 }
 
+// updateProviderAllowedModels replaces the model pool for a provider.
+// The body is a JSON array of ModelEntry objects.
+func (s *Server) updateProviderAllowedModels(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	p, err := s.providers.Get(ctx, id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	var body struct {
+		Models []model.ModelEntry `json:"models"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+
+	if err := s.providers.UpdateAllowedModels(ctx, id, body.Models); err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	p.AllowedModels = body.Models
+	respond(w, http.StatusOK, p)
+}
+
+// probeProviderModel sends a short capability questionnaire to a specific model
+// on the provider and returns the raw text response + a suggested capability tier.
+func (s *Server) probeProviderModel(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	var body struct {
+		ModelID string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondErr(w, http.StatusBadRequest, "invalid body: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(body.ModelID) == "" {
+		respondErr(w, http.StatusBadRequest, "model_id is required")
+		return
+	}
+
+	p, err := s.providers.Get(ctx, id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if p == nil {
+		respondErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	if p.Type != model.ProviderTypeLLM {
+		respondErr(w, http.StatusBadRequest, "model probing is only supported for llm providers")
+		return
+	}
+
+	prov, err := s.registry.GetWithOverride(ctx, id, body.ModelID)
+	if err != nil {
+		respondErr(w, http.StatusBadRequest, "could not build provider with model override: "+err.Error())
+		return
+	}
+
+	probe := `You are a model self-assessment assistant. Answer in JSON only — no prose.
+Respond with a single JSON object with these fields:
+{
+  "capability_description": "<one sentence: what you are best at>",
+  "capability_tier": "<one of: fast, standard, powerful, planning>",
+  "strengths": ["<short phrase>", "<short phrase>"]
+}
+
+Tier guidance:
+- fast: optimised for speed and low cost, best for simple/short tasks
+- standard: balanced capability and cost, general purpose
+- powerful: highest reasoning capability, best for complex tasks
+- planning: strong at structured reasoning, task decomposition, and orchestration
+
+Answer only with the JSON object.`
+
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := prov.Execute(probeCtx, provider.TaskRequest{
+		Prompt: probe,
+	})
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "probe failed: "+err.Error())
+		return
+	}
+
+	now := time.Now()
+	respond(w, http.StatusOK, map[string]any{
+		"model_id":  body.ModelID,
+		"raw":       strings.TrimSpace(resp.Output),
+		"probed_at": now.UTC().Format(time.RFC3339),
+	})
+}
+
 // updateProviderPricing saves per-provider token price overrides used by
 // the Cost Insights page to compute projected monthly costs.
 func (s *Server) updateProviderPricing(w http.ResponseWriter, r *http.Request) {

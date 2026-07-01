@@ -11,11 +11,25 @@ export interface TaskTemplate {
   created_at: string
 }
 
+export type ModelCapabilityTier = 'fast' | 'standard' | 'powerful' | 'planning'
+
+export interface ModelEntry {
+  model_id: string
+  label: string
+  capability_tier: ModelCapabilityTier
+  capability_description: string
+  user_description?: string
+  input_cost_per_1k: number
+  output_cost_per_1k: number
+  probed_at?: string
+}
+
 export interface Provider {
   id: string
   name: string
   type: 'llm' | 'coding_agent'
   config: string
+  allowed_models: ModelEntry[]
   created_by: string
   created_at: string
   health_status: 'ok' | 'error' | 'unknown'
@@ -36,10 +50,12 @@ export interface Agent {
   model_override: string
   can_spawn_agents: boolean
   can_hire_agents: boolean
+  is_orchestrator: boolean
   max_concurrent: number
   max_cost_per_run: number
   fallback_model: string
   status: 'active' | 'paused' | 'disabled'
+  created_by: string
   created_at: string
   template_id: string | null
 }
@@ -95,6 +111,19 @@ export interface Project {
   created_at: string
 }
 
+export interface OrchestrationSubtask {
+  title: string
+  description: string
+  domain: string
+  complexity: string
+}
+
+export interface OrchestrationPlan {
+  confidence: number
+  rationale: string
+  subtasks: OrchestrationSubtask[]
+}
+
 export interface Task {
   id: string
   project_id: string
@@ -119,6 +148,8 @@ export interface Task {
   priority: number       // higher = runs first; default 0 = FIFO
   depends_on: string[]   // task IDs that must complete before this runs; [] = no deps
   loop_iteration: number // ReAct iteration index; 0 for non-loop tasks
+  task_type: 'standard' | 'orchestration' | 'subtask'
+  orchestration_plan: string   // JSON-encoded OrchestrationPlan; "" if none
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -178,6 +209,12 @@ export interface SystemSettings {
   obsidian_root: string
   obsidian_auto_write: boolean
   theme: string
+  // Dynamic orchestration
+  dynamic_orchestration_enabled: boolean
+  orchestrator_agent_id: string
+  max_subtask_depth: number
+  max_subtasks_per_level: number
+  orchestrator_confidence_threshold: number
 }
 
 export interface ObsidianVault {
@@ -388,6 +425,10 @@ export const api = {
     resync: (id: string) => request<{ status: string; message: string }>(`/providers/${id}/resync`, { method: 'POST' }),
     test: (id: string) => request<{ ok: boolean; message: string; latency_ms: number }>(`/providers/${id}/test`, { method: 'POST' }),
     health: (id: string) => request<{ status: string; latency_ms: number; error?: string; checked_at: string }>(`/providers/${id}/health`),
+    updateAllowedModels: (id: string, models: ModelEntry[]) =>
+      request<{ status: string }>(`/providers/${id}/allowed-models`, { method: 'PUT', body: JSON.stringify({ allowed_models: models }) }),
+    probeModel: (id: string, modelId: string) =>
+      request<ModelEntry>(`/providers/${id}/probe-model`, { method: 'POST', body: JSON.stringify({ model_id: modelId }) }),
   },
   agents: {
     list: () => request<Agent[]>('/agents'),

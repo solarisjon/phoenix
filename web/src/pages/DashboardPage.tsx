@@ -6,7 +6,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
-import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo } from '@/lib/utils'
+import { taskStatusVariant, taskStatusLabel, parseOutput, formatCost, timeAgo, getModelInfo } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { EditRetryModal } from '@/components/edit-retry-modal'
@@ -63,7 +63,7 @@ function DailyTooltip({ active, payload, label }: { active?: boolean; payload?: 
 
 const DAILY_TOOLTIP_CONTENT = <DailyTooltip />
 
-function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; onCancel: () => void; onOpen: () => void }) {
+function RunningTaskCard({ task, queuePos, agents, projects, providers, onCancel, onOpen }: { task: Task; queuePos?: number; agents: Agent[]; projects: Project[]; providers: Provider[]; onCancel: () => void; onOpen: () => void }) {
   const [stream, setStream] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [forceResetting, setForceResetting] = useState(false)
@@ -71,6 +71,7 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }:
   const [hidden, setHidden] = useState(false)
   const agent = agents.find(a => a.id === task.agent_id)
   const project = projects.find(p => p.id === task.project_id)
+  const modelInfo = getModelInfo(agent, providers)
   const scrollRef = useRef<HTMLPreElement>(null)
   const isQueued = task.status === 'queued'
 
@@ -137,15 +138,24 @@ function RunningTaskCard({ task, queuePos, agents, projects, onCancel, onOpen }:
               }
               <p className="text-sm font-medium text-white truncate">{task.title}</p>
             </div>
-            <p className="text-xs text-slate-500">
-              {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline" onClick={e => e.stopPropagation()}>{project.name}</Link> : ''}
-              {project && agent ? ' · ' : ''}
-              {agent?.name ?? ''}
-              {task.started_at && !isQueued && (
-                <> · <ElapsedTimer startedAt={task.started_at} /></>
+            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+              {task.task_type === 'orchestration' && (
+                <span className="text-[10px] font-medium text-violet-400 bg-violet-900/30 border border-violet-800/40 rounded px-1.5 py-0.5 leading-none">⚡ Orchestrator</span>
               )}
-              {isQueued && ' · waiting in queue'}
-            </p>
+              {task.task_type === 'subtask' && (
+                <span className="text-[10px] font-medium text-sky-400 bg-sky-900/30 border border-sky-800/40 rounded px-1.5 py-0.5 leading-none">↳ Subtask</span>
+              )}
+              <span className="text-xs text-slate-500">
+                {project ? <Link to={`/projects/${project.id}`} className="text-violet-400 hover:underline" onClick={e => e.stopPropagation()}>{project.name}</Link> : ''}
+                {project && agent ? ' · ' : ''}
+                {agent?.name ?? ''}
+                {modelInfo && <> · <span className="text-slate-600">{modelInfo.providerName}</span> · <span className="text-slate-600">{modelInfo.model}</span></>}
+                {task.started_at && !isQueued && (
+                  <> · <ElapsedTimer startedAt={task.started_at} /></>
+                )}
+                {isQueued && ' · waiting in queue'}
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant={isQueued ? 'muted' : 'info'}>{isQueued ? 'Queued' : 'Running'}</Badge>
@@ -812,10 +822,10 @@ export function DashboardPage() {
               const queued = runningTasks.filter(t => t.status === 'queued')
               return [
                 ...running.map(t => (
-                  <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} onCancel={load} onOpen={() => setSelectedTask(t)} />
+                  <RunningTaskCard key={t.id} task={t} agents={agents} projects={projects} providers={providers} onCancel={load} onOpen={() => setSelectedTask(t)} />
                 )),
                 ...queued.map((t, i) => (
-                  <RunningTaskCard key={t.id} task={t} queuePos={i + 1} agents={agents} projects={projects} onCancel={load} onOpen={() => setSelectedTask(t)} />
+                  <RunningTaskCard key={t.id} task={t} queuePos={i + 1} agents={agents} projects={projects} providers={providers} onCancel={load} onOpen={() => setSelectedTask(t)} />
                 )),
               ]
             })()}

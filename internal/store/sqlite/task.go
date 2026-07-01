@@ -20,7 +20,8 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	status, input, output, cost_usd, tokens_in, tokens_out, dismissed,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
-	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on, loop_iteration `
+	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on, loop_iteration,
+	task_type, orchestration_plan `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -147,12 +148,16 @@ func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 		s := string(b)
 		dependsOnJSON = &s
 	}
+	taskType := string(t.TaskType)
+	if taskType == "" {
+		taskType = string(model.TaskTypeStandard)
+	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on, loop_iteration)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on, loop_iteration, task_type, orchestration_plan)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON, t.LoopIteration)
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON, t.LoopIteration, taskType, t.OrchestrationPlan)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -174,12 +179,14 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 		  runner_pid = ?, timeout_at = ?,
 		  started_at = ?, completed_at = ?,
 		  health_signal = ?, guardrail_reason = ?, last_error = ?,
-		  is_critic_review = ?, reviewed_task_id = ?, prompt_hash = ?
+		  is_critic_review = ?, reviewed_task_id = ?, prompt_hash = ?,
+		  orchestration_plan = ?
 		WHERE id = ?`,
 		string(t.Status), t.Output, t.CostUSD, t.TokensIn, t.TokensOut, dismissed,
 		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt,
-		t.HealthSignal, t.GuardrailReason, t.LastError, isCriticReview, nullString(t.ReviewedTaskID), t.PromptHash, t.ID)
+		t.HealthSignal, t.GuardrailReason, t.LastError, isCriticReview, nullString(t.ReviewedTaskID), t.PromptHash,
+		t.OrchestrationPlan, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
@@ -383,6 +390,7 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 	var runnerPID sql.NullInt64
 	var timeoutAt, startedAt, completedAt sql.NullTime
 
+	var taskType, orchestrationPlan string
 	if err := scanFn(
 		&dest.ID, &dest.ProjectID, &dest.AgentID, &parentID, &followUpOf,
 		&dest.Title, &dest.Description, &status,
@@ -391,9 +399,16 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 		&dest.Source, &healthSignal, &guardrailReason, &lastError,
 		&dest.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
 		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn, &dest.LoopIteration,
+		&taskType, &orchestrationPlan,
 	); err != nil {
 		return err
 	}
+	if taskType != "" {
+		dest.TaskType = model.TaskType(taskType)
+	} else {
+		dest.TaskType = model.TaskTypeStandard
+	}
+	dest.OrchestrationPlan = orchestrationPlan
 	dest.Status = model.TaskStatus(status)
 	dest.Dismissed = dismissed != 0
 	dest.IsCriticReview = isCriticReview != 0

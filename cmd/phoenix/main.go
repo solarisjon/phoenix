@@ -92,7 +92,7 @@ func main() {
 	}
 
 	// Wire up plugin manager.
-	pluginManager := plugin.NewManager(pluginRepo, notificationRuleRepo, systemSettingsRepo, plugin.ManagerOpts{
+	pluginManager := plugin.NewManager(pluginRepo, notificationRuleRepo, systemSettingsRepo, agentRepo, projectRepo, plugin.ManagerOpts{
 		NoPlugins: *noPlugins,
 	})
 	if err := pluginManager.SeedCorePlugins(context.Background()); err != nil {
@@ -145,6 +145,13 @@ func main() {
 
 	// Wire memory client into runner (nil if plugin is disabled).
 	runner.SetMemoryClient(pluginManager.MemoryClient())
+
+	// Wire provider repo into runner (needed for orchestrator model pool lookups).
+	runner.SetProviderRepo(providerRepo)
+
+	// Wire up the dynamic orchestration engine.
+	orch := agent.NewOrchestrator(agentRepo, taskRepo, projectRepo, providerRepo, systemSettingsRepo, reg, runner)
+	runner.SetOrchestrator(orch)
 
 	// Wire the hub as the runner's event handler so stream events
 	// are broadcast to all WebSocket clients.

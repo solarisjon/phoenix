@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { TaskDiffModal } from '@/components/task-diff-modal'
-import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo, formatCost } from '@/lib/utils'
+import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo, formatCost, getModelInfo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { phoenixWS } from '@/lib/ws'
 
@@ -989,8 +989,14 @@ interface TaskDetailViewProps {
 function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProps) {
   const [approving, setApproving] = useState(false)
   const [approvalNote, setApprovalNote] = useState('')
+  const [providers, setProviders] = useState<Provider[]>([])
   const output = parseOutput(task.output)
   const agent = agents.find(a => a.id === task.agent_id)
+  const modelInfo = getModelInfo(agent, providers)
+
+  useEffect(() => {
+    api.providers.list().then(setProviders).catch(() => {})
+  }, [])
 
   const handleApprove = async () => {
     setApproving(true)
@@ -1018,8 +1024,17 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
       <div className="flex items-start gap-3 px-4 py-3 border-b border-slate-800 shrink-0">
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold text-white leading-snug">{task.title || 'Untitled task'}</h3>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            {task.task_type === 'orchestration' && (
+              <span className="text-[10px] font-medium text-violet-400 bg-violet-900/30 border border-violet-800/40 rounded px-1.5 py-0.5 leading-none">⚡ Orchestrator</span>
+            )}
+            {task.task_type === 'subtask' && (
+              <span className="text-[10px] font-medium text-sky-400 bg-sky-900/30 border border-sky-800/40 rounded px-1.5 py-0.5 leading-none">↳ Subtask</span>
+            )}
             {agent && <span className="text-xs text-slate-500">{agent.name}</span>}
+            {modelInfo && (
+              <span className="text-xs text-slate-600">{modelInfo.providerName} · {modelInfo.model}</span>
+            )}
             <span className="text-xs text-slate-600">{timeAgo(task.created_at)}</span>
             <Badge variant={taskStatusVariant(task.status)} className="text-[10px] py-0 px-1.5">
               {taskStatusLabel(task.status)}
@@ -1179,6 +1194,7 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
   const [templateScope, setTemplateScope] = useState<'global' | 'project'>('global')
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateSaved, setTemplateSaved] = useState(false)
+  const [orchestrationEnabled, setOrchestrationEnabled] = useState(false)
 
   // Cost estimate
   type EstimateResult = {
@@ -1206,6 +1222,7 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
       setAiProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
     }).catch(() => {})
     api.taskTemplates.list(project.id).then(setTemplates).catch(() => {})
+    api.admin.getSettings().then(s => setOrchestrationEnabled(!!s.dynamic_orchestration_enabled)).catch(() => {})
   }, [project.id])
 
   const applyTemplate = (t: TaskTemplate) => {
@@ -1268,13 +1285,13 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
 
   const handleSubmit = async () => {
     if (!title.trim()) { setError('Title is required'); return }
-    if (!agentId) { setError('Select an agent'); return }
+    if (!agentId && !orchestrationEnabled) { setError('Select an agent, or enable Dynamic Orchestration in Settings → Orchestration'); return }
     setError('')
     setSubmitting(true)
     try {
       await api.tasks.create({
         project_id: project.id,
-        agent_id: agentId,
+        agent_id: agentId || '',
         title: title.trim(),
         description: description.trim(),
         critic_mode: criticOn ? 'builtin' : 'none',
@@ -1298,7 +1315,7 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
         {/* Agent picker (project roster only) */}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1">Agent</label>
-          {projectAgents.length === 0 ? (
+          {projectAgents.length === 0 && !orchestrationEnabled ? (
             <p className="text-xs text-amber-400">No agents assigned to this project. Add one via "+ Assign".</p>
           ) : (
             <select
@@ -1306,10 +1323,18 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
               onChange={e => setAgentId(e.target.value)}
               className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
             >
+              {orchestrationEnabled && (
+                <option value="">★ Orchestrator will assign automatically</option>
+              )}
               {projectAgents.map(a => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
+          )}
+          {!agentId && orchestrationEnabled && (
+            <p className="text-xs text-violet-400 mt-1">
+              The orchestrator will analyse this task, select the best model, and optionally decompose it into subtasks.
+            </p>
           )}
         </div>
 
@@ -1549,7 +1574,7 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
         </button>
         <button
           onClick={handleSubmit}
-          disabled={submitting || projectAgents.length === 0}
+          disabled={submitting || (projectAgents.length === 0 && !orchestrationEnabled)}
           className="flex-1 text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-4 py-2"
         >
           {submitting ? 'Creating…' : 'Create Task'}

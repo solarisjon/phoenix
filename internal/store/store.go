@@ -37,6 +37,9 @@ type ProviderRepo interface {
 	Update(ctx context.Context, p *model.Provider) error
 	Delete(ctx context.Context, id string) error
 	UpdateHealth(ctx context.Context, id, status string, latencyMs *int64, errMsg string) error
+	// UpdateAllowedModels replaces the model pool for a provider without touching
+	// any other fields. Used by the model pool editor in the UI.
+	UpdateAllowedModels(ctx context.Context, id string, models []model.ModelEntry) error
 }
 
 // AgentRepo manages agent records.

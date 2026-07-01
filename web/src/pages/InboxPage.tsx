@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Input, Label, Textarea } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
-import { parseOutput, timeAgo, taskStatusVariant, taskStatusLabel } from '@/lib/utils'
+import { parseOutput, timeAgo, taskStatusVariant, taskStatusLabel, getModelInfo } from '@/lib/utils'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { getErrorMessage } from '@/lib/errors'
@@ -49,9 +49,10 @@ function ReviseModal({ task, onDone, onClose }: { task: Task; onDone: () => void
 
 // ---- Task detail slide-over ----
 
-function TaskDetail({ task, agents, agentName, projectName, onRetry, onClose }: {
+function TaskDetail({ task, agents, providers, agentName, projectName, onRetry, onClose }: {
   task: Task
   agents: Agent[]
+  providers: Provider[]
   agentName: string
   projectName: string
   onRetry: () => void
@@ -59,6 +60,8 @@ function TaskDetail({ task, agents, agentName, projectName, onRetry, onClose }: 
 }) {
   const [editRetrying, setEditRetrying] = useState(false)
   const output = parseOutput(task.output)
+  const agent = agents.find(a => a.id === task.agent_id)
+  const modelInfo = getModelInfo(agent, providers)
 
   if (editRetrying) {
     return (
@@ -81,8 +84,28 @@ function TaskDetail({ task, agents, agentName, projectName, onRetry, onClose }: 
         </div>
         <div>
           <p className="text-slate-500 text-xs mb-0.5">Agent</p>
-          <p className="text-white">{agentName}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {task.task_type === 'orchestration' && (
+              <span className="text-[10px] font-medium text-violet-400 bg-violet-900/30 border border-violet-800/40 rounded px-1.5 py-0.5 leading-none">⚡ Orchestrator</span>
+            )}
+            {task.task_type === 'subtask' && (
+              <span className="text-[10px] font-medium text-sky-400 bg-sky-900/30 border border-sky-800/40 rounded px-1.5 py-0.5 leading-none">↳ Subtask</span>
+            )}
+            <p className="text-white">{agentName}</p>
+          </div>
         </div>
+        {modelInfo && (
+          <>
+            <div>
+              <p className="text-slate-500 text-xs mb-0.5">Provider</p>
+              <p className="text-slate-300">{modelInfo.providerName}</p>
+            </div>
+            <div>
+              <p className="text-slate-500 text-xs mb-0.5">Model</p>
+              <p className="text-slate-300 font-mono text-xs">{modelInfo.model}</p>
+            </div>
+          </>
+        )}
         <div>
           <p className="text-slate-500 text-xs mb-0.5">Status</p>
           <Badge variant={taskStatusVariant(task.status)}>{taskStatusLabel(task.status)}</Badge>
@@ -157,13 +180,16 @@ function EditTaskModal({ task, onDone, onClose }: { task: Task; onDone: () => vo
 
 // ---- Task card for inbox ----
 
-function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
+function InboxTaskCard({ task, agents, providers, agentName, projectName, onAction }: {
   task: Task
   agents: Agent[]
+  providers: Provider[]
   agentName: string
   projectName: string
   onAction: () => void
 }) {
+  const agent = agents.find(a => a.id === task.agent_id)
+  const modelInfo = getModelInfo(agent, providers)
   const [revising, setRevising] = useState(false)
   const [detail, setDetail] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -209,10 +235,17 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
               </div>
 
               {/* Meta */}
-              <div className="flex items-center gap-2 text-xs text-slate-500 mb-3 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-3 flex-wrap">
+                {task.task_type === 'orchestration' && (
+                  <span className="text-[10px] font-medium text-violet-400 bg-violet-900/30 border border-violet-800/40 rounded px-1.5 py-0.5 leading-none">⚡ Orchestrator</span>
+                )}
+                {task.task_type === 'subtask' && (
+                  <span className="text-[10px] font-medium text-sky-400 bg-sky-900/30 border border-sky-800/40 rounded px-1.5 py-0.5 leading-none">↳ Subtask</span>
+                )}
                 <Link to={`/projects/${task.project_id}`} className="text-violet-400 hover:underline">{projectName}</Link>
                 <span>·</span>
                 <span>{agentName}</span>
+                {modelInfo && <><span>·</span><span className="text-slate-600">{modelInfo.providerName} / {modelInfo.model}</span></>}
                 <span>·</span>
                 <span>{timeAgo(task.created_at)}</span>
               </div>
@@ -270,6 +303,7 @@ function InboxTaskCard({ task, agents, agentName, projectName, onAction }: {
           <TaskDetail
             task={task}
             agents={agents}
+            providers={providers}
             agentName={agentName}
             projectName={projectName}
             onRetry={() => { setDetail(false); retry() }}
@@ -471,9 +505,10 @@ function HireApprovalCard({ draft, providers, onAction }: {
 
 // ---- Completed task card ----
 
-function CompletedTaskCard({ task, agents, agentName, projectName, onAction }: {
+function CompletedTaskCard({ task, agents, providers, agentName, projectName, onAction }: {
   task: Task
   agents: Agent[]
+  providers: Provider[]
   agentName: string
   projectName: string
   onAction: () => void
@@ -552,6 +587,7 @@ function CompletedTaskCard({ task, agents, agentName, projectName, onAction }: {
           <TaskDetail
             task={task}
             agents={agents}
+            providers={providers}
             agentName={agentName}
             projectName={projectName}
             onRetry={() => setDetail(false)}
@@ -707,6 +743,7 @@ export function InboxPage() {
                     key={t.id}
                     task={t}
                     agents={agents}
+                    providers={providers}
                     agentName={agentName(t.agent_id)}
                     projectName={projectName(t.project_id)}
                     onAction={load}
@@ -727,6 +764,7 @@ export function InboxPage() {
                     key={t.id}
                     task={t}
                     agents={agents}
+                    providers={providers}
                     agentName={agentName(t.agent_id)}
                     projectName={projectName(t.project_id)}
                     onAction={load}
@@ -747,6 +785,7 @@ export function InboxPage() {
                     key={t.id}
                     task={t}
                     agents={agents}
+                    providers={providers}
                     agentName={agentName(t.agent_id)}
                     projectName={projectName(t.project_id)}
                     onAction={load}

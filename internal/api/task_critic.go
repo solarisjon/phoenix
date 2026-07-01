@@ -29,9 +29,7 @@ func (r createTaskRequest) validate() string {
 	if strings.TrimSpace(r.ProjectID) == "" {
 		return "project_id is required"
 	}
-	if strings.TrimSpace(r.AgentID) == "" {
-		return "agent_id is required"
-	}
+	// agent_id may be empty when dynamic orchestration will auto-assign.
 	if strings.TrimSpace(r.Title) == "" {
 		return "title is required"
 	}
