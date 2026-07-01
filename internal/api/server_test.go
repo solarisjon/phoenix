@@ -61,6 +61,7 @@ func testServer(t *testing.T) *Server {
 }
 
 type mockProv struct{}
+
 func (m *mockProv) Execute(_ context.Context, _ provider.TaskRequest) (provider.TaskResponse, error) {
 	return provider.TaskResponse{Output: "mock output", CostUSD: 0.001}, nil
 }
@@ -379,6 +380,93 @@ func waitForTaskStatus(t *testing.T, srv *Server, taskID string, want model.Task
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("task %s did not reach status %q within deadline", taskID, want)
+}
+
+// ---- Task estimate tests ----
+
+func seedProviderWithModel(t *testing.T, srv *Server, modelName string) string {
+	t.Helper()
+	w := postJSON(t, srv, "/api/providers", map[string]string{
+		"name": "Test LLM", "type": "llm",
+		"config": `{"endpoint":"http://mock.local","model":"` + modelName + `"}`,
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create provider: %d %s", w.Code, w.Body.String())
+	}
+	var p model.Provider
+	json.NewDecoder(w.Body).Decode(&p)
+	return p.ID
+}
+
+type estimateResponse struct {
+	Supported             bool               `json:"supported"`
+	PromptTokens          int                `json:"prompt_tokens"`
+	EstimatedOutputTokens map[string]int     `json:"estimated_output_tokens"`
+	EstimatedCostUSD      map[string]float64 `json:"estimated_cost_usd"`
+	Provider              map[string]string  `json:"provider"`
+}
+
+func TestEstimateTask_KnownModel_ReturnsCostRange(t *testing.T) {
+	srv := testServer(t)
+	provID := seedProviderWithModel(t, srv, "claude-3-5-sonnet")
+	agentID := seedAgent(t, srv, provID)
+
+	w := postJSON(t, srv, "/api/tasks/estimate", map[string]string{
+		"agent_id": agentID, "title": "Summarize the quarterly report", "description": "Focus on revenue trends.",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("estimate: %d %s", w.Code, w.Body.String())
+	}
+	var got estimateResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.Supported {
+		t.Fatalf("supported = false, want true for known model")
+	}
+	if got.PromptTokens <= 0 {
+		t.Errorf("prompt_tokens = %d, want > 0", got.PromptTokens)
+	}
+	if got.EstimatedCostUSD["low"] <= 0 || got.EstimatedCostUSD["high"] <= 0 {
+		t.Errorf("estimated_cost_usd = %v, want positive low/high", got.EstimatedCostUSD)
+	}
+	if got.EstimatedCostUSD["low"] > got.EstimatedCostUSD["high"] {
+		t.Errorf("cost low (%v) > high (%v)", got.EstimatedCostUSD["low"], got.EstimatedCostUSD["high"])
+	}
+	if got.Provider["model"] != "claude-3-5-sonnet" {
+		t.Errorf("provider.model = %q, want claude-3-5-sonnet", got.Provider["model"])
+	}
+}
+
+func TestEstimateTask_UnknownModel_NotSupported(t *testing.T) {
+	srv := testServer(t)
+	provID := seedProviderWithModel(t, srv, "some-unpriced-model")
+	agentID := seedAgent(t, srv, provID)
+
+	w := postJSON(t, srv, "/api/tasks/estimate", map[string]string{
+		"agent_id": agentID, "title": "Task title",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("estimate: %d %s", w.Code, w.Body.String())
+	}
+	var got estimateResponse
+	json.NewDecoder(w.Body).Decode(&got)
+	if got.Supported {
+		t.Errorf("supported = true, want false for unpriced model")
+	}
+	if got.EstimatedCostUSD["low"] != 0 || got.EstimatedCostUSD["high"] != 0 {
+		t.Errorf("estimated_cost_usd = %v, want zero when unsupported", got.EstimatedCostUSD)
+	}
+}
+
+func TestEstimateTask_AgentNotFound(t *testing.T) {
+	srv := testServer(t)
+	w := postJSON(t, srv, "/api/tasks/estimate", map[string]string{
+		"agent_id": "nonexistent", "title": "Task title",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("want 400, got %d %s", w.Code, w.Body.String())
+	}
 }
 
 // ---- Stats tests ----
