@@ -18,7 +18,6 @@ import (
 
 type createProjectRequest struct {
 	Name                 string   `json:"name"`
-	Description          string   `json:"description"`
 	Objective            string   `json:"objective"`
 	WorkingDir           string   `json:"working_dir"`
 	Kind                 string   `json:"kind"`
@@ -185,7 +184,6 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	p := &model.Project{
 		ID:                   uuid.New().String(),
 		Name:                 strings.TrimSpace(req.Name),
-		Description:          req.Description,
 		Objective:            req.Objective,
 		WorkingDir:           strings.TrimSpace(req.WorkingDir),
 		Kind:                 kind,
@@ -240,7 +238,6 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	existing.Name = strings.TrimSpace(req.Name)
-	existing.Description = req.Description
 	existing.Objective = req.Objective
 	existing.WorkingDir = strings.TrimSpace(req.WorkingDir)
 	existing.ScheduleInterval = req.ScheduleInterval

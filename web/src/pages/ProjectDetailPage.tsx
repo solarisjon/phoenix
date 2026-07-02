@@ -632,7 +632,7 @@ export function ProjectDetailPage() {
     try {
       const updated = await api.projects.update(project.id, {
         name: project.name,
-        description: project.description,
+        objective: project.objective,
         working_dir: project.working_dir,
         kind: project.kind,
         status: project.status,

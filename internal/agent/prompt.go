@@ -10,15 +10,16 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider"
 )
 
-// AssembleRequest builds a provider.TaskRequest from an agent and task.
+// AssembleRequest builds a provider.TaskRequest from an agent, task, and optional project.
 // The system prompt combines persona, instructions, and guardrails.
-// Prior conversation turns from the task input are included as context.
+// If the project has a non-empty Objective it is prepended to the user prompt so every
+// task runs with the project goal as context.
 // serverURL is the Phoenix API base URL injected into spawn/hire prompts;
 // an empty string falls back to %s.
-func AssembleRequest(a *model.Agent, t *model.Task, globalGuardrails, serverURL string) provider.TaskRequest {
+func AssembleRequest(a *model.Agent, t *model.Task, proj *model.Project, globalGuardrails, serverURL string) provider.TaskRequest {
 	return provider.TaskRequest{
 		SystemPrompt: assembleSystemPrompt(a, t, globalGuardrails, serverURL),
-		Prompt:       assembleUserPrompt(t),
+		Prompt:       assembleUserPrompt(t, proj),
 		Context:      nil, // Phase 1: single-turn. Multi-turn added in later phases.
 	}
 }
@@ -444,9 +445,17 @@ func extractOutputText(output string) string {
 	return output
 }
 
-// assembleUserPrompt builds the user-facing prompt from the task.
-func assembleUserPrompt(t *model.Task) string {
+// assembleUserPrompt builds the user-facing prompt from the task and its project.
+// If the project has a non-empty Objective it is injected before the task body
+// so the agent always has the project goal as context.
+func assembleUserPrompt(t *model.Task, proj *model.Project) string {
 	var b strings.Builder
+
+	if proj != nil && strings.TrimSpace(proj.Objective) != "" {
+		b.WriteString("## Project objective\n")
+		b.WriteString(strings.TrimSpace(proj.Objective))
+		b.WriteString("\n\n")
+	}
 
 	b.WriteString(fmt.Sprintf("# Task: %s\n\n", t.Title))
 

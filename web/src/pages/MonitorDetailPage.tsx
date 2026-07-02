@@ -323,7 +323,7 @@ export function MonitorDetailPage() {
         project_id: id,
         agent_id: primaryAgent.id,
         title: `Manual run — ${new Date().toLocaleString()}`,
-        description: monitor?.description ?? '',
+        description: monitor?.objective ?? '',
       })
       load()
     } catch (e: unknown) {
@@ -363,7 +363,7 @@ export function MonitorDetailPage() {
     setTriggering(true)
     setTriggerError('')
     try {
-      const base = monitor?.description ?? ''
+      const base = monitor?.objective ?? ''
       const extra = runExtraPrompt.trim()
       const combined = extra
         ? base
@@ -389,7 +389,7 @@ export function MonitorDetailPage() {
   const openEdit = () => {
     if (!monitor) return
     setEditName(monitor.name)
-    setEditDesc(monitor.description ?? '')
+    setEditDesc(monitor.objective ?? '')
     setEditMonitorModel(monitor.monitor_model ?? '')
     setEditWorkingDir(monitor.working_dir ?? '')
     setEditBudgetUSD(monitor.budget_usd > 0 ? String(monitor.budget_usd) : '')
@@ -412,7 +412,7 @@ export function MonitorDetailPage() {
     try {
       await api.projects.update(id, {
         name: editName.trim(),
-        description: editDesc,
+        objective: editDesc,
         working_dir: editWorkingDir.trim(),
         monitor_model: editMonitorModel.trim(),
         budget_usd: editBudgetUSD.trim() ? parseFloat(editBudgetUSD) : 0,
@@ -479,8 +479,8 @@ export function MonitorDetailPage() {
               <h1 className="text-xl font-bold text-white">{monitor.name}</h1>
               <Badge variant={monitor.status === 'active' ? 'success' : 'muted'}>{monitor.status}</Badge>
             </div>
-            {monitor.description && (
-              <p className="text-slate-400 text-sm ml-8">{monitor.description}</p>
+            {monitor.objective && (
+              <p className="text-slate-400 text-sm ml-8">{monitor.objective}</p>
             )}
           </div>
           <div className="flex gap-2 shrink-0">
@@ -812,10 +812,10 @@ export function MonitorDetailPage() {
             </p>
 
             {/* Base description (read-only preview) */}
-            {monitor?.description && (
+            {monitor?.objective && (
               <div className="rounded-lg border border-slate-700 bg-slate-950 p-3">
                 <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Base monitor instructions</p>
-                <p className="text-xs text-slate-400 leading-relaxed line-clamp-4">{monitor.description}</p>
+                <p className="text-xs text-slate-400 leading-relaxed line-clamp-4">{monitor.objective}</p>
               </div>
             )}
 

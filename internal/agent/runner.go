@@ -455,7 +455,7 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		}
 		req = BuildBuiltinCriticRequest(reviewed)
 	} else {
-		req = AssembleRequest(ec.agent, task, globalGuardrails, r.serverURL())
+		req = AssembleRequest(ec.agent, task, ec.proj, globalGuardrails, r.serverURL())
 
 		// If this agent is the global orchestrator, append decomposition instructions.
 		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration {

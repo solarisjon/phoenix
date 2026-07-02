@@ -293,7 +293,7 @@ export function TasksPage() {
                   <Link key={p.id} to={p.kind === 'monitor' ? `/monitors/${p.id}` : `/projects/${p.id}`} className="flex items-center gap-3 px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors">
                     <span className="text-slate-400">{p.kind === 'monitor' ? '⟳' : '◈'}</span>
                     <span className="text-white text-sm font-medium">{p.name}</span>
-                    <span className="text-slate-500 text-xs">{p.description.slice(0, 80)}{p.description.length > 80 ? '…' : ''}</span>
+                    <span className="text-slate-500 text-xs">{(p.objective ?? '').slice(0, 80)}{(p.objective ?? '').length > 80 ? '…' : ''}</span>
                   </Link>
                 ))}
               </div>

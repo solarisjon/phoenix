@@ -80,8 +80,7 @@ export interface Team {
 export interface Project {
   id: string
   name: string
-  description: string
-  objective: string          // high-level goal statement; empty string = not set
+  objective: string          // goal statement injected into every task prompt
   working_dir: string
   kind: 'project' | 'monitor'
   schedule_interval: number | null  // seconds; null = no schedule (monitors only)

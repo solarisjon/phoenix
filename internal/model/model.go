@@ -202,8 +202,7 @@ const (
 type Project struct {
 	ID               string        `json:"id"`
 	Name             string        `json:"name"`
-	Description      string        `json:"description"`
-	Objective        string        `json:"objective"`         // high-level goal statement for the project
+	Objective        string        `json:"objective"`         // goal statement injected into every task prompt
 	WorkingDir       string        `json:"working_dir"`       // optional: filesystem path passed to coding agents
 	Kind             ProjectKind   `json:"kind"`              // "project" | "monitor"
 	ScheduleInterval *int          `json:"schedule_interval"` // seconds; nil = no automatic schedule (monitors only)

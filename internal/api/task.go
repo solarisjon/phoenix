@@ -460,7 +460,7 @@ func (s *Server) ensureSandboxProject(ctx context.Context) error {
 	p := &model.Project{
 		ID:          sandboxProjectID,
 		Name:        "Quick Tasks",
-		Description: "One-off tasks not tied to a specific project.",
+		Objective: "One-off tasks not tied to a specific project.",
 		Owner:       user.ID,
 		Status:      model.ProjectStatusActive,
 		CreatedAt:   time.Now(),

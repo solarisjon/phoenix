@@ -1598,7 +1598,7 @@ type DirStatus = 'unknown' | 'exists' | 'missing' | 'not_dir' | 'creating' | 'er
 
 function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps) {
   const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
+  const [objective, setObjective] = useState('')
   const [workingDir, setWorkingDir] = useState('')
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -1658,7 +1658,7 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
     try {
       const project = await api.projects.create({
         name: name.trim(),
-        description: description.trim(),
+        objective: objective.trim(),
         working_dir: workingDir.trim(),
         kind: 'project',
       })
@@ -1691,11 +1691,11 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">Description <span className="text-slate-600">(optional)</span></label>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Objective <span className="text-slate-600">(optional — injected into every task)</span></label>
           <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="What is this project about?"
+            value={objective}
+            onChange={e => setObjective(e.target.value)}
+            placeholder="What is this project trying to achieve? e.g. 'Produce a weekly market intelligence briefing covering cloud infrastructure trends'"
             rows={3}
             className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-500"
           />
@@ -1804,7 +1804,7 @@ interface EditProjectFormProps {
 
 function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectFormProps) {
   const [name, setName] = useState(project.name)
-  const [description, setDescription] = useState(project.description ?? '')
+  const [objective, setObjective] = useState(project.objective ?? '')
   const [workingDir, setWorkingDir] = useState(project.working_dir ?? '')
   const [contextSummarisation, setContextSummarisation] = useState(project.context_summarisation ?? false)
   const [submitting, setSubmitting] = useState(false)
@@ -1818,7 +1818,7 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
     try {
       await api.projects.update(project.id, {
         name: name.trim(),
-        description: description.trim(),
+        objective: objective.trim(),
         working_dir: workingDir.trim(),
         context_summarisation: contextSummarisation,
       })
@@ -1873,13 +1873,13 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">Description <span className="text-slate-600">(optional)</span></label>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Objective <span className="text-slate-600">(optional — injected into every task)</span></label>
           <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            placeholder="What is this project about?"
+            value={objective}
+            onChange={e => setObjective(e.target.value)}
+            placeholder="What is this project trying to achieve?"
             rows={3}
-            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-500"
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-505"
           />
         </div>
 

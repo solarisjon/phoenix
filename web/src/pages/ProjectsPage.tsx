@@ -19,7 +19,7 @@ function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
   initial?: Project; providers: Provider[]; allTags: string[]; onSave: () => void; onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
-  const [description, setDescription] = useState(initial?.description ?? '')
+  const [description, setDescription] = useState(initial?.objective ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
   const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
   const [kind, setKind] = useState<'project' | 'monitor'>(initial?.kind ?? 'project')
@@ -81,8 +81,8 @@ function ProjectForm({ initial, providers, allTags, onSave, onClose }: {
     if (!name.trim()) { setError('Name is required'); return }
     setSaving(true)
     try {
-      if (initial) await api.projects.update(initial.id, { name, description, working_dir: workingDir, kind, tags })
-      else await api.projects.create({ name, description, working_dir: workingDir, kind, tags })
+      if (initial) await api.projects.update(initial.id, { name, objective: description, working_dir: workingDir, kind, tags })
+      else await api.projects.create({ name, objective: description, working_dir: workingDir, kind, tags })
       onSave()
     } catch (error: unknown) { setError(getErrorMessage(error)) }
     finally { setSaving(false) }
@@ -293,7 +293,7 @@ export function ProjectsPage() {
             <Badge variant={p.status === 'active' ? 'success' : 'muted'}>{p.status}</Badge>
             {p.tags?.map(t => <TagPill key={t} tag={t} />)}
           </div>
-          {p.description && <p className="text-sm text-slate-400 line-clamp-1">{p.description}</p>}
+          {p.objective && <p className="text-sm text-slate-400 line-clamp-1">{p.objective}</p>}
           {p.working_dir && (
             <p className="text-xs text-slate-500 font-mono mt-0.5 truncate" title={p.working_dir}>
               📁 {p.working_dir}

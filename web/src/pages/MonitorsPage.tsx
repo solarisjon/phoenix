@@ -33,7 +33,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   onClose: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
-  const [description, setDescription] = useState(initial?.description ?? '')
+  const [description, setDescription] = useState(initial?.objective ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
   const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
   const [schedule, setSchedule] = useState<ScheduleValue>(scheduleFromProject(initial))
@@ -56,7 +56,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
     try {
       const payload = {
         name: name.trim(),
-        description,
+        objective: description,
         working_dir: workingDir.trim(),
         kind: 'monitor' as const,
         ...schedulePayload(schedule),
@@ -237,9 +237,9 @@ function MonitorCard({ monitor, summary, agents, allAgents, providers, onPause, 
                 </div>
               )}
             </div>
-            {monitor.description && (
+            {monitor.objective && (
               <p className="text-sm text-slate-400 line-clamp-1 mt-1 ml-5">
-                {monitor.description}
+                {monitor.objective}
               </p>
             )}
             <div className="flex items-center gap-3 ml-5 mt-1.5 text-xs text-slate-500 flex-wrap">
