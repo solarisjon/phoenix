@@ -17,6 +17,8 @@ interface AgentsSectionProps {
   allAgents: Agent[]
   /** @deprecated — no longer used; kept for call-site compat */
   showHeartbeat?: boolean
+  /** When true and no agents assigned, show orchestrator fallback indicator */
+  orchestrationEnabled?: boolean
   onAdd: (agentId: string) => Promise<void>
   onRemove: (agentId: string) => Promise<void>
 }
@@ -24,6 +26,7 @@ interface AgentsSectionProps {
 export function AgentsSection({
   assigned,
   allAgents,
+  orchestrationEnabled = false,
   onAdd,
   onRemove,
 }: AgentsSectionProps) {
@@ -54,7 +57,14 @@ export function AgentsSection({
     <div className="space-y-2">
       {/* Assigned agents */}
       {assigned.length === 0 ? (
-        <p className="text-xs text-amber-500">No agents assigned</p>
+        orchestrationEnabled ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-violet-400 bg-violet-900/20 border border-violet-800/50 rounded-full px-2.5 py-1">
+            <span className="text-violet-300">⚡</span>
+            Via orchestrator
+          </span>
+        ) : (
+          <p className="text-xs text-amber-500">No agents assigned</p>
+        )
       ) : (
         <div className="flex flex-wrap gap-2">
           {assigned.map(a => (

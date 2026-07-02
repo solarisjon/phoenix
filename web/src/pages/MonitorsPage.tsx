@@ -170,12 +170,13 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
 
 // ---- Monitor card ----
 
-function MonitorCard({ monitor, summary, agents, allAgents, providers, onPause, onResume, onArchive, onDelete, onRefresh }: {
+function MonitorCard({ monitor, summary, agents, allAgents, providers, orchestrationEnabled, onPause, onResume, onArchive, onDelete, onRefresh }: {
   monitor: Project
   summary?: ProjectSummary
   agents: Agent[]
   allAgents: Agent[]
   providers: Provider[]
+  orchestrationEnabled: boolean
   onPause: () => void
   onResume: () => void
   onArchive: () => void
@@ -284,6 +285,7 @@ function MonitorCard({ monitor, summary, agents, allAgents, providers, onPause, 
             assigned={agents}
             allAgents={allAgents}
             showHeartbeat
+            orchestrationEnabled={orchestrationEnabled}
             onAdd={addAgent}
             onRemove={removeAgent}
           />
@@ -313,22 +315,25 @@ export function MonitorsPage() {
   const [summaries, setSummaries] = useState<Record<string, ProjectSummary>>({})
   const [allAgents, setAllAgents] = useState<Agent[]>([])
   const [providers, setProviders] = useState<Provider[]>([])
+  const [orchestrationEnabled, setOrchestrationEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [fs, setFs] = useState<FilterSortState>({ search: '', activeTags: [], sort: 'created-desc' })
 
   const load = useCallback(async () => {
     try {
-      const [mons, agents, provs, sums] = await Promise.all([
+      const [mons, agents, provs, sums, settings] = await Promise.all([
         api.projects.list('monitor'),
         api.agents.list(),
         api.providers.list(),
         api.projects.summaries().catch(() => ({})),
+        api.admin.getSettings().catch(() => null),
       ])
       setMonitors(mons)
       setAllAgents(agents)
       setProviders(provs)
       setSummaries(sums)
+      setOrchestrationEnabled(settings?.dynamic_orchestration_enabled ?? false)
       const agentMap: Record<string, Agent[]> = {}
       await Promise.all(mons.map(async m => {
         agentMap[m.id] = await api.projects.listAgents(m.id)
@@ -423,6 +428,7 @@ export function MonitorsPage() {
                         <MonitorCard key={m.id} monitor={m}
                           summary={summaries[m.id]}
                           agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
+                          orchestrationEnabled={orchestrationEnabled}
                           onPause={() => pauseMonitor(m.id)}
                           onResume={() => resumeMonitor(m.id)}
                           onArchive={() => archiveMonitor(m.id, m.name)}
@@ -439,6 +445,7 @@ export function MonitorsPage() {
                   <MonitorCard key={m.id} monitor={m}
                     summary={summaries[m.id]}
                     agents={agentsByMonitor[m.id] ?? []} allAgents={allAgents} providers={providers}
+                    orchestrationEnabled={orchestrationEnabled}
                     onPause={() => pauseMonitor(m.id)}
                     onResume={() => resumeMonitor(m.id)}
                     onArchive={() => archiveMonitor(m.id, m.name)}
