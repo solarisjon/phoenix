@@ -39,6 +39,7 @@ type Scheduler struct {
 	agents   store.AgentRepo
 	projects store.ProjectRepo
 	tasks    store.TaskRepo
+	settings store.SystemSettingsRepo
 	runner   TaskRunner
 
 	refreshInterval time.Duration
@@ -67,6 +68,7 @@ func New(
 	agents store.AgentRepo,
 	projects store.ProjectRepo,
 	tasks store.TaskRepo,
+	settings store.SystemSettingsRepo,
 	runner TaskRunner,
 	refreshInterval time.Duration,
 ) *Scheduler {
@@ -75,6 +77,7 @@ func New(
 		agents:              agents,
 		projects:            projects,
 		tasks:               tasks,
+		settings:            settings,
 		runner:              runner,
 		refreshInterval:     refreshInterval,
 		dailyPunctualWindow: refreshInterval + time.Minute,
@@ -112,9 +115,10 @@ func (s *Scheduler) loop() {
 
 // scheduleSpec describes a single monitor's schedule.
 type scheduleSpec struct {
-	monitor  *model.Project
-	agent    *model.Agent
-	interval time.Duration // interval kind only
+	monitor         *model.Project
+	agent           *model.Agent
+	useOrchestrator bool          // true when agent is the fallback orchestrator
+	interval        time.Duration // interval kind only
 
 	kind    string      // model.ScheduleKindInterval or ScheduleKindDaily
 	times   []timeOfDay // daily kind only
@@ -151,7 +155,7 @@ func (s *Scheduler) sync() {
 
 		// Collect active assigned agents and select via round-robin.
 		assigned, err := s.projects.ListAgents(ctx, proj.ID)
-		if err != nil || len(assigned) == 0 {
+		if err != nil {
 			continue
 		}
 		var activeAgents []*model.Agent
@@ -160,14 +164,26 @@ func (s *Scheduler) sync() {
 				activeAgents = append(activeAgents, a)
 			}
 		}
+
+		var execAgent *model.Agent
+		useOrchestrator := false
+
 		if len(activeAgents) == 0 {
-			continue
+			// No assigned agent — fall back to orchestrator if enabled.
+			orch := s.findOrchestratorAgent(ctx)
+			if orch == nil {
+				slog.Debug("scheduler: skipping monitor — no agent assigned and no orchestrator available", "monitor", proj.Name)
+				continue
+			}
+			execAgent = orch
+			useOrchestrator = true
+		} else {
+			s.mu.Lock()
+			idx := s.agentIndex[proj.ID] % len(activeAgents)
+			s.agentIndex[proj.ID] = idx + 1
+			s.mu.Unlock()
+			execAgent = activeAgents[idx]
 		}
-		s.mu.Lock()
-		idx := s.agentIndex[proj.ID] % len(activeAgents)
-		s.agentIndex[proj.ID] = idx + 1
-		s.mu.Unlock()
-		execAgent := activeAgents[idx]
 
 		kind := proj.ScheduleKind
 		if kind == "" {
@@ -181,21 +197,23 @@ func (s *Scheduler) sync() {
 				continue
 			}
 			dailySpecs = append(dailySpecs, scheduleSpec{
-				monitor: proj,
-				agent:   execAgent,
-				kind:    model.ScheduleKindDaily,
-				times:   times,
-				catchUp: proj.ScheduleCatchUp,
+				monitor:         proj,
+				agent:           execAgent,
+				useOrchestrator: useOrchestrator,
+				kind:            model.ScheduleKindDaily,
+				times:           times,
+				catchUp:         proj.ScheduleCatchUp,
 			})
 		default: // interval
 			if proj.ScheduleInterval == nil || *proj.ScheduleInterval <= 0 {
 				continue
 			}
 			desired[proj.ID] = scheduleSpec{
-				monitor:  proj,
-				agent:    execAgent,
-				interval: time.Duration(*proj.ScheduleInterval) * time.Second,
-				kind:     model.ScheduleKindInterval,
+				monitor:         proj,
+				agent:           execAgent,
+				useOrchestrator: useOrchestrator,
+				interval:        time.Duration(*proj.ScheduleInterval) * time.Second,
+				kind:            model.ScheduleKindInterval,
 			}
 		}
 	}
@@ -274,6 +292,10 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 	}
 
 	now := time.Now()
+	taskType := model.TaskTypeStandard
+	if spec.useOrchestrator {
+		taskType = model.TaskTypeOrchestration
+	}
 	task := &model.Task{
 		ID:          uuid.New().String(),
 		ProjectID:   spec.monitor.ID,
@@ -282,6 +304,7 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 		Description: spec.monitor.Objective,
 		Status:      model.TaskStatusPending,
 		Source:      "monitor",
+		TaskType:    taskType,
 		Input:       "{}",
 		Output:      "{}",
 		CreatedAt:   now,
@@ -326,6 +349,28 @@ func (s *Scheduler) evaluateDaily(ctx context.Context, spec scheduleSpec, now ti
 // count — a user clearing the inbox should not cause the monitor to re-fire.
 func (s *Scheduler) lastMonitorRun(ctx context.Context, projectID string) (*time.Time, error) {
 	return s.tasks.LastMonitorRunAt(ctx, projectID)
+}
+
+// findOrchestratorAgent returns the first active agent with IsOrchestrator=true,
+// or nil if orchestration is disabled in settings or no such agent exists.
+func (s *Scheduler) findOrchestratorAgent(ctx context.Context) *model.Agent {
+	if s.settings == nil {
+		return nil
+	}
+	cfg, err := s.settings.Get(ctx)
+	if err != nil || cfg == nil || !cfg.DynamicOrchestrationEnabled {
+		return nil
+	}
+	all, err := s.agents.List(ctx, "")
+	if err != nil {
+		return nil
+	}
+	for _, a := range all {
+		if a.IsOrchestrator && a.Status == model.AgentStatusActive {
+			return a
+		}
+	}
+	return nil
 }
 
 // parseTimes converts HH:MM strings into timeOfDay values, skipping invalid entries.

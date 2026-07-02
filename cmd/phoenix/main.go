@@ -236,7 +236,7 @@ func main() {
 
 	// Start the monitor scheduler. Scans monitors every SchedulerInterval and
 	// fires tasks for monitors with schedule_interval set.
-	sched := scheduler.New(agentRepo, projectRepo, taskRepo, runner, cfg.SchedulerInterval)
+	sched := scheduler.New(agentRepo, projectRepo, taskRepo, systemSettingsRepo, runner, cfg.SchedulerInterval)
 	sched.Start()
 	defer sched.Stop()
 	// Apply configurable task timeout.
