@@ -50,16 +50,6 @@ function TaskDetailModal({ task, agents, projects, onRefresh, onClose }: {
     try { await api.tasks.bump(task.id); onRefresh() } finally { setBumping(false) }
   }
 
-  if (editRetrying) {
-    return (
-      <EditRetryModal
-        task={task}
-        onDone={() => { setEditRetrying(false); onRefresh() }}
-        onClose={() => setEditRetrying(false)}
-      />
-    )
-  }
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -137,6 +127,13 @@ function TaskDetailModal({ task, agents, projects, onRefresh, onClose }: {
         )}
       </div>
       <FollowUpThread task={task} agents={agents} onSent={onRefresh} />
+      {editRetrying && (
+        <EditRetryModal
+          task={task}
+          onDone={() => { setEditRetrying(false); onRefresh() }}
+          onClose={() => setEditRetrying(false)}
+        />
+      )}
     </div>
   )
 }

@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/empty'
 import { ImportTeamWizard } from '@/components/ui/import-team-wizard'
 import { timeAgo } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errors'
+import { ProviderSelect } from '@/components/ui/provider-select'
 
 // ---- Team form ----
 
@@ -107,9 +108,12 @@ function TeamForm({ initial, allAgents, providers, onSave, onClose }: {
             {providers.length > 1 && (
               <div>
                 <Label htmlFor="ai-provider-team">Generate using</Label>
-                <Select id="ai-provider-team" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
-                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </Select>
+                <ProviderSelect
+                  id="ai-provider-team"
+                  value={aiProviderID}
+                  onChange={setAiProviderID}
+                  providers={providers}
+                />
               </div>
             )}
             <div>

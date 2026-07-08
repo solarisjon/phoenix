@@ -18,6 +18,7 @@ import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo, formatCost, g
 import { cn } from '@/lib/utils'
 import { phoenixWS } from '@/lib/ws'
 import { WorkingDirInput } from '@/components/ui/working-dir-input'
+import { TagInput } from '@/components/ui/tag-input'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,6 +151,7 @@ export function ProjectsWorkspace() {
         project={selectedProject}
         projectAgents={displayedProjectAgents}
         allAgents={allAgents}
+        allTags={projects.flatMap(p => p.tags ?? []).filter((t, i, a) => a.indexOf(t) === i).sort()}
         tasks={tasks}
         onClose={() => setRightPane({ type: 'empty' })}
         onTaskCreated={async () => {
@@ -972,6 +974,7 @@ interface RightPaneAreaProps {
   project: Project | null
   projectAgents: Agent[]
   allAgents: Agent[]
+  allTags: string[]
   tasks: Task[]
   onClose: () => void
   onTaskCreated: () => void
@@ -982,7 +985,7 @@ interface RightPaneAreaProps {
 }
 
 function RightPaneArea({
-  pane, project, projectAgents, allAgents, tasks, onClose, onTaskCreated, onProjectCreated, onProjectUpdated, onProjectRemoved, onTaskUpdated,
+  pane, project, projectAgents, allAgents, allTags, tasks, onClose, onTaskCreated, onProjectCreated, onProjectUpdated, onProjectRemoved, onTaskUpdated,
 }: RightPaneAreaProps) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-900">
@@ -1014,6 +1017,7 @@ function RightPaneArea({
       {pane.type === 'new-project' && (
         <NewProjectForm
           allAgents={allAgents}
+          allTags={allTags}
           onCreated={onProjectCreated}
           onCancel={onClose}
         />
@@ -1022,6 +1026,7 @@ function RightPaneArea({
       {pane.type === 'edit-project' && project && (
         <EditProjectForm
           project={project}
+          allTags={allTags}
           onSaved={onProjectUpdated}
           onRemoved={onProjectRemoved}
           onCancel={onClose}
@@ -1737,14 +1742,17 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
 
 interface NewProjectFormProps {
   allAgents: Agent[]
+  allTags?: string[]
   onCreated: (id: string) => void
   onCancel: () => void
 }
 
-function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps) {
+function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewProjectFormProps) {
   const [name, setName] = useState('')
   const [objective, setObjective] = useState('')
   const [workingDir, setWorkingDir] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+  const [criticMode, setCriticMode] = useState<'none' | 'builtin'>('none')
   const [contextSummarisation, setContextSummarisation] = useState(false)
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
@@ -1789,6 +1797,8 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
         working_dir: workingDir.trim(),
         kind: 'project',
         context_summarisation: contextSummarisation,
+        critic_mode: criticMode,
+        tags,
       })
       // Assign selected agents
       await Promise.all(selectedAgents.map(aid => api.projects.assignAgent(project.id, aid)))
@@ -1880,6 +1890,26 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
           />
         </div>
 
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Tags <span className="text-slate-600">(optional)</span></label>
+          <TagInput value={tags} onChange={setTags} suggestions={allTags} />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">
+            Devil's Advocate
+          </label>
+          <select
+            value={criticMode}
+            onChange={e => setCriticMode(e.target.value as 'none' | 'builtin')}
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
+          >
+            <option value="none">None — no critic review</option>
+            <option value="builtin">Built-in — ephemeral contrarian review</option>
+          </select>
+          <p className="text-xs text-slate-500 mt-1">Default critic mode for all tasks in this project. Can be overridden per task.</p>
+        </div>
+
         <div className="flex items-start gap-3">
           <input
             id="new-ctx-summ"
@@ -1943,15 +1973,18 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
 
 interface EditProjectFormProps {
   project: Project
+  allTags?: string[]
   onSaved: () => void
   onRemoved: () => void
   onCancel: () => void
 }
 
-function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectFormProps) {
+function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }: EditProjectFormProps) {
   const [name, setName] = useState(project.name)
   const [objective, setObjective] = useState(project.objective ?? '')
   const [workingDir, setWorkingDir] = useState(project.working_dir ?? '')
+  const [tags, setTags] = useState<string[]>(project.tags ?? [])
+  const [criticMode, setCriticMode] = useState(project.critic_mode ?? 'none')
   const [contextSummarisation, setContextSummarisation] = useState(project.context_summarisation ?? false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -1991,6 +2024,8 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
         objective: objective.trim(),
         working_dir: workingDir.trim(),
         context_summarisation: contextSummarisation,
+        critic_mode: criticMode,
+        tags,
       })
       onSaved()
     } catch (e: unknown) {
@@ -2103,6 +2138,25 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
             placeholder="/path/to/project"
             className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500 font-mono"
           />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Tags <span className="text-slate-600">(optional)</span></label>
+          <TagInput value={tags} onChange={setTags} suggestions={allTags} />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1">Devil's Advocate</label>
+          <select
+            value={criticMode}
+            onChange={e => setCriticMode(e.target.value)}
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
+          >
+            <option value="none">None — no critic review</option>
+            <option value="builtin">Built-in — ephemeral contrarian review</option>
+            {/* agent:<id> options could be added here when allAgents is available */}
+          </select>
+          <p className="text-xs text-slate-500 mt-1">Default critic mode for all tasks in this project. Can be overridden per task.</p>
         </div>
 
         <div className="flex items-start gap-3">

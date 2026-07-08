@@ -357,14 +357,13 @@ function TaskDetailModal({ task, agents, projects, onRetry, onClose }: {
           </>
         )}
       </div>
-      {editRetrying ? (
+      <FollowUpThread task={task} agents={agents} onSent={onRetry} />
+      {editRetrying && (
         <EditRetryModal
           task={task}
           onDone={() => { setEditRetrying(false); onRetry() }}
           onClose={() => setEditRetrying(false)}
         />
-      ) : (
-        <FollowUpThread task={task} agents={agents} onSent={onRetry} />
       )}
     </div>
   )

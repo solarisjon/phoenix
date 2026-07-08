@@ -9,6 +9,7 @@ import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { formatCost } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errors'
+import { ProviderSelect } from '@/components/ui/provider-select'
 
 function formatInterval(secs: number): string {
   if (secs < 60) return `${secs}s`
@@ -354,9 +355,12 @@ export function TeamDetailPage() {
                   {providers.length > 1 && (
                     <div>
                       <Label htmlFor="ai-provider-broadcast">Generate using</Label>
-                      <Select id="ai-provider-broadcast" value={broadcastAIProviderID} onChange={e => setBroadcastAIProviderID(e.target.value)}>
-                        {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </Select>
+                      <ProviderSelect
+                        id="ai-provider-broadcast"
+                        value={broadcastAIProviderID}
+                        onChange={setBroadcastAIProviderID}
+                        providers={providers}
+                      />
                     </div>
                   )}
                   <div>

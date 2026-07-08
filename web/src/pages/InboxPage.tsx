@@ -63,16 +63,6 @@ function TaskDetail({ task, agents, providers, agentName, projectName, onRetry, 
   const agent = agents.find(a => a.id === task.agent_id)
   const modelInfo = getModelInfo(agent, providers)
 
-  if (editRetrying) {
-    return (
-      <EditRetryModal
-        task={task}
-        onDone={() => { setEditRetrying(false); onRetry() }}
-        onClose={() => setEditRetrying(false)}
-      />
-    )
-  }
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -134,6 +124,13 @@ function TaskDetail({ task, agents, providers, agentName, projectName, onRetry, 
         </div>
       )}
       <FollowUpThread task={task} agents={agents} onSent={onRetry} />
+      {editRetrying && (
+        <EditRetryModal
+          task={task}
+          onDone={() => { setEditRetrying(false); onRetry() }}
+          onClose={() => setEditRetrying(false)}
+        />
+      )}
     </div>
   )
 }
@@ -323,13 +320,11 @@ function InboxTaskCard({ task, agents, providers, agentName, projectName, onActi
       )}
 
       {editRetrying && (
-        <Modal title="Edit & Retry" onClose={() => setEditRetrying(false)} className="max-w-xl">
-          <EditRetryModal
-            task={task}
-            onDone={() => { setEditRetrying(false); onAction() }}
-            onClose={() => setEditRetrying(false)}
-          />
-        </Modal>
+        <EditRetryModal
+          task={task}
+          onDone={() => { setEditRetrying(false); onAction() }}
+          onClose={() => setEditRetrying(false)}
+        />
       )}
     </>
   )

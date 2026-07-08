@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/modal'
 import { Input, Textarea, Select, Label } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty'
 import { ModelComboBox } from '@/components/ui/model-combo-box'
+import { ProviderSelect } from '@/components/ui/provider-select'
 import { getErrorMessage } from '@/lib/errors'
 
 // ---- Generate modal ----
@@ -116,10 +117,13 @@ function AgentForm({ initial, providers, onSave, onClose }: {
           </div>
           <div>
             <Label htmlFor="provider">Provider</Label>
-            <Select id="provider" value={providerID} onChange={e => setProviderID(e.target.value)}>
-              <option value="">Select provider…</option>
-              {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
+            <ProviderSelect
+              id="provider"
+              value={providerID}
+              onChange={setProviderID}
+              providers={providers}
+              placeholder="Select provider…"
+            />
           </div>
           <div>
             <Label htmlFor="status">Status</Label>
@@ -291,9 +295,12 @@ function AgentForm({ initial, providers, onSave, onClose }: {
               {providers.length > 1 && (
                 <div>
                   <Label htmlFor="gen-provider">Generate using</Label>
-                  <Select id="gen-provider" value={genProviderID} onChange={e => setGenProviderID(e.target.value)}>
-                    {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </Select>
+                  <ProviderSelect
+                    id="gen-provider"
+                    value={genProviderID}
+                    onChange={setGenProviderID}
+                    providers={providers}
+                  />
                 </div>
               )}
               <div>

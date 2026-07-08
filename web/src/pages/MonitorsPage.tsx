@@ -22,6 +22,7 @@ import {
 } from '@/components/monitor/schedule'
 import { timeAgo } from '@/lib/utils'
 import { WorkingDirInput } from '@/components/ui/working-dir-input'
+import { ProviderSelect } from '@/components/ui/provider-select'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errors'
 
@@ -118,9 +119,12 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
             {providers.length > 1 && (
               <div>
                 <Label htmlFor="ai-provider-mon">Generate using</Label>
-                <Select id="ai-provider-mon" value={aiProviderID} onChange={e => setAiProviderID(e.target.value)}>
-                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </Select>
+                <ProviderSelect
+                  id="ai-provider-mon"
+                  value={aiProviderID}
+                  onChange={setAiProviderID}
+                  providers={providers}
+                />
               </div>
             )}
             <div>
