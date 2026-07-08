@@ -1849,6 +1849,8 @@ function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewPro
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Name is required'); return }
+    const validCriticModes = ['none', 'builtin']
+    if (!validCriticModes.includes(criticMode)) { setError('Invalid critic mode'); return }
     setError('')
     setSubmitting(true)
     try {
@@ -1858,7 +1860,7 @@ function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewPro
         working_dir: workingDir.trim(),
         kind: 'project',
         context_summarisation: contextSummarisation,
-        critic_mode: criticMode,
+        critic_mode: criticMode || 'none',
         tags,
       })
       // Assign selected agents
@@ -2078,6 +2080,8 @@ function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Name is required'); return }
+    const validCriticModes = ['none', 'builtin']
+    if (!validCriticModes.includes(criticMode)) { setError('Invalid critic mode'); return }
     setError('')
     setSubmitting(true)
     try {
@@ -2086,7 +2090,7 @@ function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }
         objective: objective.trim(),
         working_dir: workingDir.trim(),
         context_summarisation: contextSummarisation,
-        critic_mode: criticMode,
+        critic_mode: criticMode || 'none',
         tags,
       })
       onSaved()
