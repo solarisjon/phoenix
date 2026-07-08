@@ -340,17 +340,18 @@ func (r *StatsRepo) AllProjectTaskSummaries(ctx context.Context) (map[string]*st
 	for actRows.Next() {
 		var projectID string
 		var cost float64
-		var lastActivity sql.NullTime
-		if err := actRows.Scan(&projectID, &cost, &lastActivity); err != nil {
+		var lastActivityStr sql.NullString
+		if err := actRows.Scan(&projectID, &cost, &lastActivityStr); err != nil {
 			return nil, fmt.Errorf("scan all project summaries cost: %w", err)
 		}
 		if _, ok := out[projectID]; !ok {
 			out[projectID] = &store.ProjectSummary{TasksByStatus: map[string]int{}}
 		}
 		out[projectID].TotalCostUSD = cost
-		if lastActivity.Valid {
-			t := lastActivity.Time
-			out[projectID].LastActivity = &t
+		if lastActivityStr.Valid {
+			if t := parseNullableTime(lastActivityStr.String); t != nil {
+				out[projectID].LastActivity = t
+			}
 		}
 	}
 	return out, actRows.Err()
@@ -382,17 +383,42 @@ func (r *StatsRepo) ProjectTaskSummary(ctx context.Context, projectID string) (*
 		return nil, err
 	}
 
-	var lastActivity sql.NullTime
+	var lastActivityStr sql.NullString
 	err = r.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(cost_usd), 0),
 		        MAX(COALESCE(completed_at, started_at, created_at))
 		 FROM tasks WHERE project_id = ?`,
-		projectID).Scan(&summary.TotalCostUSD, &lastActivity)
+		projectID).Scan(&summary.TotalCostUSD, &lastActivityStr)
 	if err != nil {
 		return nil, fmt.Errorf("project task summary cost: %w", err)
 	}
-	if lastActivity.Valid {
-		summary.LastActivity = &lastActivity.Time
+	if lastActivityStr.Valid {
+		summary.LastActivity = parseNullableTime(lastActivityStr.String)
 	}
 	return summary, nil
+}
+
+// parseNullableTime parses a datetime string returned by SQLite aggregate
+// expressions (e.g. MAX(COALESCE(...))). SQLite returns these as raw strings
+// rather than typed time values, so sql.NullTime cannot scan them directly.
+func parseNullableTime(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	// Try formats in order of likelihood: Go's default time.String() format,
+	// then RFC3339 variants, then plain SQLite datetime.
+	formats := []string{
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
