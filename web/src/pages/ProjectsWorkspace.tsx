@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider, type TaskTemplate } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { TaskDiffModal } from '@/components/task-diff-modal'
@@ -201,13 +202,9 @@ function LeftPane({ projects, summaries, selectedId, onSelect, onNewProject }: L
     <div className="flex flex-col w-64 shrink-0 border-r border-slate-800 bg-slate-950">
       <div className="flex items-center justify-between px-3 py-3 border-b border-slate-800">
         <span className="text-sm font-semibold text-slate-200">Projects</span>
-        <button
-          onClick={onNewProject}
-          className="text-xs text-violet-400 hover:text-violet-300 font-medium"
-          title="New project"
-        >
+        <Button size="sm" variant="ghost" onClick={onNewProject}>
           + New
-        </button>
+        </Button>
       </div>
 
       <div className="px-2 py-2">
@@ -583,22 +580,21 @@ function MiddlePane({
               placeholder="What is this project trying to accomplish?"
             />
             <div className="flex items-center gap-2 mt-1">
-              <button onClick={saveObjective} disabled={savingObjective}
-                className="text-[10px] px-2 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50">
+              <Button size="sm" onClick={saveObjective} disabled={savingObjective}>
                 {savingObjective ? 'Saving…' : 'Save'}
-              </button>
-              <button onClick={() => setEditingObjective(false)}
-                className="text-[10px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-300">
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditingObjective(false)}>
                 Cancel
-              </button>
+              </Button>
               <div className="flex-1" />
               {objectiveAIProviders.length > 0 && (
-                <button
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => setObjectiveAIOpen(v => !v)}
-                  className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors"
                 >
                   ✦ {objectiveAIOpen ? 'Hide AI' : 'Generate with AI'}
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -621,7 +617,7 @@ function MiddlePane({
         <div className="flex items-center gap-1.5 flex-wrap">
           {totalDone > 0 && (
             <button onClick={() => !collapsed['completed'] || toggleSection('completed')}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-400">
+              className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60 transition-colors">
               ✓ {totalDone}
             </button>
           )}
@@ -652,9 +648,9 @@ function MiddlePane({
               {a.name}
             </span>
           ))}
-          <button onClick={() => setAssignOpen(v => !v)} className="text-[10px] text-violet-400 hover:text-violet-300">
+          <Button size="sm" variant="ghost" onClick={() => setAssignOpen(v => !v)}>
             + Assign
-          </button>
+          </Button>
         </div>
 
         {/* Assign agent popover */}
@@ -667,10 +663,9 @@ function MiddlePane({
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
-            <button onClick={handleAssign} disabled={!assignAgentId || assigning}
-              className="text-xs bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-2 py-1">
+            <Button size="sm" onClick={handleAssign} disabled={!assignAgentId || assigning}>
               {assigning ? '…' : 'Add'}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -688,9 +683,9 @@ function MiddlePane({
         ))}
         <div className="flex-1" />
         {tab === 'tasks' && (
-          <button onClick={onCompose} className="text-xs text-violet-400 hover:text-violet-300 py-2">
+          <Button size="sm" variant="ghost" onClick={onCompose}>
             + Task
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1210,20 +1205,23 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
               className="w-full text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-300 resize-none focus:outline-none focus:border-amber-500"
             />
             <div className="flex gap-2">
-              <button
+              <Button
+                size="sm"
                 onClick={handleApprove}
                 disabled={approving}
-                className="flex-1 text-xs bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded px-3 py-1.5"
+                className="flex-1"
               >
                 ✓ Approve
-              </button>
-              <button
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
                 onClick={handleReject}
                 disabled={approving}
-                className="flex-1 text-xs bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-slate-200 rounded px-3 py-1.5"
+                className="flex-1"
               >
                 ✗ Reject
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -1240,67 +1238,74 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
       {/* Task action bar */}
       <div className="px-4 py-2 border-t border-slate-800 shrink-0 flex flex-wrap items-center gap-1.5">
         {(task.status === 'queued' || task.status === 'running') && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => handleAction('bump')}
             disabled={!!actioning}
-            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 disabled:opacity-40 transition-colors"
           >
             {actioning === 'bump' ? '…' : '⬆ Bump'}
-          </button>
+          </Button>
         )}
         {task.status === 'queued' && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => handleAction('cancel')}
             disabled={!!actioning}
-            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-700 disabled:opacity-40 transition-colors"
           >
             {actioning === 'cancel' ? '…' : '✕ Cancel'}
-          </button>
+          </Button>
         )}
         {task.status === 'running' && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => handleAction('force-reset')}
             disabled={!!actioning}
-            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-700 disabled:opacity-40 transition-colors"
           >
             {actioning === 'force-reset' ? '…' : '↺ Force Reset'}
-          </button>
+          </Button>
         )}
         {task.status === 'failed' && (
           <>
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => handleAction('retry')}
               disabled={!!actioning}
-              className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-emerald-300 hover:border-emerald-700 disabled:opacity-40 transition-colors"
             >
               {actioning === 'retry' ? '…' : '↻ Retry'}
-            </button>
-            <button
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => setShowEditRetry(true)}
               disabled={!!actioning}
-              className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-violet-300 hover:border-violet-700 disabled:opacity-40 transition-colors"
             >
               ✎ Edit &amp; Retry
-            </button>
+            </Button>
           </>
         )}
         {task.status === 'completed' && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={pinToBriefing}
             disabled={pinned || pinning}
-            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-violet-300 hover:border-violet-700 disabled:opacity-40 transition-colors"
           >
             {pinned ? '✓ Pinned' : pinning ? '…' : '📋 Pin'}
-          </button>
+          </Button>
         )}
         {(task.status === 'completed' || task.status === 'failed') && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => handleAction('dismiss')}
             disabled={!!actioning}
-            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 disabled:opacity-40 transition-colors"
           >
             {actioning === 'dismiss' ? '…' : 'Dismiss'}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1773,19 +1778,20 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
       </div>
 
       <div className="px-4 py-3 border-t border-slate-800 shrink-0 flex gap-2">
-        <button
+        <Button
+          variant="secondary"
+          className="flex-1"
           onClick={onCancel}
-          className="flex-1 text-sm border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-4 py-2"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
+          className="flex-1"
           onClick={handleSubmit}
           disabled={submitting || (projectAgents.length === 0 && !orchestrationEnabled)}
-          className="flex-1 text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-4 py-2"
         >
           {submitting ? 'Creating…' : 'Create Task'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -2004,19 +2010,20 @@ function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewPro
       </div>
 
       <div className="px-4 py-3 border-t border-slate-800 shrink-0 flex gap-2">
-        <button
+        <Button
+          variant="secondary"
+          className="flex-1"
           onClick={onCancel}
-          className="flex-1 text-sm border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-4 py-2"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
+          className="flex-1"
           onClick={handleSubmit}
           disabled={submitting}
-          className="flex-1 text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-4 py-2"
         >
           {submitting ? 'Creating…' : 'Create Project'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -2240,52 +2247,57 @@ function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }
             <div className="rounded border border-amber-800 bg-amber-950/40 p-3 space-y-2">
               <p className="text-xs text-amber-300">Archive this project? It will be hidden from the main list but can be restored later.</p>
               <div className="flex gap-2">
-                <button onClick={() => setConfirmAction(null)} className="flex-1 text-xs border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-3 py-1.5">Cancel</button>
-                <button onClick={handleArchive} disabled={submitting} className="flex-1 text-xs bg-amber-700 hover:bg-amber-600 disabled:opacity-40 text-white rounded px-3 py-1.5">Confirm Archive</button>
+                <Button size="sm" variant="secondary" className="flex-1" onClick={() => setConfirmAction(null)}>Cancel</Button>
+                <Button size="sm" className="flex-1" onClick={handleArchive} disabled={submitting}>Confirm Archive</Button>
               </div>
             </div>
           ) : (
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full justify-start"
               onClick={() => setConfirmAction('archive')}
-              className="w-full text-xs border border-slate-700 text-amber-500 hover:text-amber-300 hover:border-amber-700 rounded px-3 py-1.5 text-left"
             >
               Archive project…
-            </button>
+            </Button>
           )}
 
           {confirmAction === 'delete' ? (
             <div className="rounded border border-red-800 bg-red-950/40 p-3 space-y-2">
               <p className="text-xs text-red-300">Permanently delete <strong className="text-red-200">{project.name}</strong>? This cannot be undone.</p>
               <div className="flex gap-2">
-                <button onClick={() => setConfirmAction(null)} className="flex-1 text-xs border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-3 py-1.5">Cancel</button>
-                <button onClick={handleDelete} disabled={submitting} className="flex-1 text-xs bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white rounded px-3 py-1.5">Delete Forever</button>
+                <Button size="sm" variant="secondary" className="flex-1" onClick={() => setConfirmAction(null)}>Cancel</Button>
+                <Button size="sm" variant="danger" className="flex-1" onClick={handleDelete} disabled={submitting}>Delete Forever</Button>
               </div>
             </div>
           ) : (
-            <button
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full justify-start"
               onClick={() => setConfirmAction('delete')}
-              className="w-full text-xs border border-slate-700 text-red-500 hover:text-red-300 hover:border-red-700 rounded px-3 py-1.5 text-left"
             >
               Delete project…
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       <div className="px-4 py-3 border-t border-slate-800 shrink-0 flex gap-2">
-        <button
+        <Button
+          variant="secondary"
+          className="flex-1"
           onClick={onCancel}
-          className="flex-1 text-sm border border-slate-700 text-slate-400 hover:text-slate-200 rounded px-4 py-2"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
+          className="flex-1"
           onClick={handleSubmit}
           disabled={submitting}
-          className="flex-1 text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-4 py-2"
         >
           {submitting ? 'Saving…' : 'Save Changes'}
-        </button>
+        </Button>
       </div>
     </div>
   )
