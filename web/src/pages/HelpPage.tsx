@@ -198,7 +198,110 @@ const FEATURES: FeatureSection[] = [
       },
       {
         title: 'Themes',
-        body: 'Switch the UI colour theme from the picker at the bottom of the sidebar. Themes are stored in the browser and apply immediately.',
+        body: 'Switch the UI colour theme from the picker at the bottom of the sidebar. Built-in themes (dark and light variants) are listed first; community themes load from enabled Theme plugins. Themes apply immediately and are stored in the DB.',
+      },
+      {
+        title: 'Provider health checks',
+        body: 'Phoenix pings each configured provider on a background interval. A coloured dot on the Providers page and in provider pickers shows status: 🟢 healthy, 🔴 unreachable, ◦ unknown. Use the Test button to trigger an immediate check.',
+      },
+    ],
+  },
+  {
+    heading: 'Obsidian integration',
+    icon: '💾',
+    features: [
+      {
+        title: 'Vault configuration',
+        body: 'Connect one or more Obsidian vaults in Settings → Obsidian. Each vault has a path and an optional context description injected into agent prompts so agents know what the vault contains.',
+        tip: 'Use ✦ Generate with AI on the context field — Phoenix reads the vault directory and writes the description for you.',
+      },
+      {
+        title: 'Auto-write after task completion',
+        body: 'Enable “Auto-write to Obsidian” in Settings to have Phoenix generate and save a structured note for every completed task. Notes land in the configured vault automatically.',
+      },
+      {
+        title: 'Agent-directed writes',
+        body: 'Agents can embed ARTIFACT_START / Type: obsidian / ARTIFACT_END blocks in their output to explicitly write to a named vault. The runner extracts and saves the note on task completion.',
+      },
+      {
+        title: 'Manual save',
+        body: 'Click “Save to Obsidian” on any completed task card to trigger a one-off vault write without enabling auto-write globally.',
+      },
+    ],
+  },
+  {
+    heading: 'Cost & performance',
+    icon: '💰',
+    features: [
+      {
+        title: 'Cost Insights',
+        body: 'The Cost Insights page shows spend over time broken down by provider, agent, and project. Trend analysis flags anomalous spikes. Accessible from the sidebar.',
+      },
+      {
+        title: 'Pre-run cost estimate',
+        body: 'Before creating a task, click ≈ Estimate cost in the compose panel. Phoenix calculates prompt tokens and estimates output cost based on your provider’s configured pricing.',
+      },
+      {
+        title: 'Max cost per run',
+        body: 'Set a hard cost ceiling on an agent (Settings → Agents → Edit). When the prompt would exceed the budget, older context turns are dropped. If it still doesn’t fit, a configured fallback model is used instead.',
+      },
+      {
+        title: 'Context summarisation',
+        body: 'Enable on a project (Edit Project) to summarise older follow-up turns when a chain grows beyond ~8 000 chars. Typically reduces input token costs by 50–80% on long threads.',
+      },
+    ],
+  },
+  {
+    heading: 'Dynamic orchestration',
+    icon: '★',
+    features: [
+      {
+        title: 'What is it?',
+        body: 'When enabled (Settings → Orchestration), an orchestrator agent receives each new task, analyses it, selects the best model or agent, and optionally splits it into subtasks. Enable by toggling Dynamic Orchestration and selecting an orchestrator agent.',
+      },
+      {
+        title: 'Model pools',
+        body: 'Configure a pool of models in Settings → Orchestration. The orchestrator picks the most appropriate model for each task based on the configured selection strategy (e.g. cheapest, most capable, least busy).',
+      },
+      {
+        title: 'Orchestration tasks',
+        body: 'Tasks routed by the orchestrator show an ⚡ Orchestrator badge in the task detail view. Subtasks it creates show a ↓ Subtask badge.',
+      },
+    ],
+  },
+  {
+    heading: 'Plugins',
+    icon: '🧩',
+    features: [
+      {
+        title: 'Notifiers',
+        body: 'Send task events (completed, failed, awaiting approval, etc.) to external systems. Built-in: Telegram bot and generic Webhook (HMAC-SHA256 signed). Configure notification rules per plugin — choose which events trigger a notification.',
+      },
+      {
+        title: 'Memory (Hindsight)',
+        body: 'The Hindsight memory plugin stores observations from each completed task and injects recalled memories into future tasks for the same agent. Enable in Plugins → Memory. Clear an agent’s memory from the agent edit form.',
+      },
+      {
+        title: 'Community themes',
+        body: 'Install a Custom Theme plugin by pasting a CSS snippet. Phoenix scopes it to the --ph-* CSS variable set. Themes appear in the sidebar picker immediately after enabling.',
+      },
+    ],
+  },
+  {
+    heading: 'Task templates & priority',
+    icon: '⊡',
+    features: [
+      {
+        title: 'Task templates',
+        body: 'Save a task title + description as a reusable template from the compose panel. Templates can be global (available in all projects) or scoped to a specific project. Pick a template from the dropdown at the top of the compose form. Templates support {{date}} and {{project_name}} placeholders.',
+      },
+      {
+        title: 'Task priority & bump',
+        body: 'Tasks run in creation order by default. Click ⬆ Bump on any queued task to increment its priority score — higher priority tasks run first. Priority is shown as a P+N badge on task cards in the /tasks view.',
+      },
+      {
+        title: 'Task dependency chains',
+        body: 'In the compose panel, expand “Run after” to select tasks that must complete before this one is queued. The scheduler holds the task until all dependencies are in a completed state.',
       },
     ],
   },

@@ -9,6 +9,7 @@ const nav = [
   { label: 'Projects', href: '/projects', icon: '⊞' },
   { label: 'Monitors', href: '/monitors', icon: '⟳' },
   { label: 'Tasks', href: '/tasks', icon: '✦' },
+  { label: 'Live Feed', href: '/feed', icon: '⊙' },
   { label: 'Teams', href: '/teams', icon: '⬡⬡' },
   { label: 'Plugins',  href: '/plugins',  icon: '🧩' },
   { label: 'Cost Insights', href: '/cost-insights', icon: '💰' },
