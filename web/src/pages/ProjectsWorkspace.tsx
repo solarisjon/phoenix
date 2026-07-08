@@ -1062,6 +1062,8 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
   const [providers, setProviders] = useState<Provider[]>([])
   const [actioning, setActioning] = useState<string | null>(null)
   const [showEditRetry, setShowEditRetry] = useState(false)
+  const [pinning, setPinning] = useState(false)
+  const [pinned, setPinned] = useState(false)
   const output = parseOutput(task.output)
   const agent = agents.find(a => a.id === task.agent_id)
   const modelInfo = getModelInfo(agent, providers)
@@ -1069,6 +1071,25 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
   useEffect(() => {
     api.providers.list().then(setProviders).catch(() => {})
   }, [])
+
+  const pinToBriefing = async () => {
+    if (pinned || pinning) return
+    setPinning(true)
+    try {
+      await api.memos.create({
+        project_id: task.project_id,
+        task_id: task.id,
+        agent_id: task.agent_id,
+        agent_name: agent?.name ?? '',
+        title: task.title,
+        body: output || task.description || '(no output)',
+        priority: 'normal',
+      })
+      setPinned(true)
+    } catch { /* ignore */ } finally {
+      setPinning(false)
+    }
+  }
 
   const handleApprove = async () => {
     setApproving(true)
@@ -1132,6 +1153,21 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        {/* Source provenance */}
+        {task.source && (
+          <p className="text-[11px] text-slate-500">
+            {task.source.startsWith('heartbeat:') ? `⟳ Monitor: ${task.source.replace('heartbeat:', '')}` : `↓ ${task.source}`}
+          </p>
+        )}
+
+        {/* Guardrail triggered */}
+        {task.guardrail_reason && (
+          <div className="rounded border border-amber-600/30 bg-amber-900/20 px-3 py-2">
+            <p className="text-xs font-semibold text-amber-400 mb-0.5">⚠ Hard guardrail triggered</p>
+            <p className="text-xs text-amber-200">{task.guardrail_reason}</p>
+          </div>
+        )}
+
         {/* Task description */}
         {task.description && (
           <div>
@@ -1150,6 +1186,16 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
 
         {task.status === 'running' && !output && (
           <p className="text-xs text-slate-500 italic">Task is running…</p>
+        )}
+
+        {/* Cost & tokens */}
+        {(task.cost_usd > 0 || task.tokens_in > 0) && (
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            {task.cost_usd > 0 && <span>{formatCost(task.cost_usd)}</span>}
+            {(task.tokens_in > 0 || task.tokens_out > 0) && (
+              <span className="font-mono">↑{task.tokens_in.toLocaleString()} ↓{task.tokens_out.toLocaleString()}</span>
+            )}
+          </div>
         )}
 
         {/* Approval panel */}
@@ -1237,6 +1283,15 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
               ✎ Edit &amp; Retry
             </button>
           </>
+        )}
+        {task.status === 'completed' && (
+          <button
+            onClick={pinToBriefing}
+            disabled={pinned || pinning}
+            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-violet-300 hover:border-violet-700 disabled:opacity-40 transition-colors"
+          >
+            {pinned ? '✓ Pinned' : pinning ? '…' : '📋 Pin'}
+          </button>
         )}
         {(task.status === 'completed' || task.status === 'failed') && (
           <button

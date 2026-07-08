@@ -19,6 +19,35 @@ import { EditRetryModal } from '@/components/edit-retry-modal'
 function ReviseModal({ task, onDone, onClose }: { task: Task; onDone: () => void; onClose: () => void }) {
   const [feedback, setFeedback] = useState('')
   const [saving, setSaving] = useState(false)
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [showAI, setShowAI] = useState(false)
+  const [aiHint, setAiHint] = useState('')
+  const [aiProviderID, setAiProviderID] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError] = useState('')
+
+  useEffect(() => {
+    api.providers.list().then(list => {
+      setProviders(list)
+      setAiProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
+    }).catch(() => {})
+  }, [])
+
+  const generateFeedback = async () => {
+    if (!feedback.trim() && !aiHint.trim()) { setAiError('Enter your feedback or a hint first'); return }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const result = await api.tasks.generateDescription(feedback.trim() || aiHint.trim(), aiHint.trim(), aiProviderID)
+      setFeedback(result.description)
+      setShowAI(false)
+      setAiHint('')
+    } catch (e: unknown) {
+      setAiError(getErrorMessage(e))
+    } finally {
+      setAiGenerating(false)
+    }
+  }
 
   const submit = async () => {
     if (!feedback.trim()) return
@@ -35,7 +64,45 @@ function ReviseModal({ task, onDone, onClose }: { task: Task; onDone: () => void
         <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono max-h-40 overflow-y-auto">{parseOutput(task.output)}</pre>
       </div>
       <div>
-        <Label htmlFor="feedback">Revision Feedback</Label>
+        <div className="flex items-center justify-between mb-1">
+          <Label htmlFor="feedback">Revision Feedback</Label>
+          {providers.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setShowAI(v => !v); setAiError('') }}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              ✦ {showAI ? 'Hide AI assist' : 'Expand with AI'}
+            </button>
+          )}
+        </div>
+        {showAI && (
+          <div className="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-2">
+            <p className="text-xs text-slate-400">AI will expand your feedback into detailed revision instructions.</p>
+            {providers.length > 1 && (
+              <select
+                value={aiProviderID}
+                onChange={e => setAiProviderID(e.target.value)}
+                className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-violet-500"
+              >
+                {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            <textarea
+              value={aiHint}
+              onChange={e => setAiHint(e.target.value)}
+              rows={2}
+              placeholder="Additional context (optional)…"
+              className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-violet-500"
+            />
+            {aiError && <p className="text-xs text-red-400">{aiError}</p>}
+            <div className="flex justify-end">
+              <Button size="sm" onClick={generateFeedback} disabled={aiGenerating}>
+                {aiGenerating ? 'Generating…' : '✦ Expand'}
+              </Button>
+            </div>
+          </div>
+        )}
         <Textarea id="feedback" value={feedback} onChange={e => setFeedback(e.target.value)} rows={4}
           placeholder="Tell the agent what to change or improve…" />
       </div>

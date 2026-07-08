@@ -76,7 +76,7 @@ export function Sidebar({ inboxCount, activeCount, memoCount }: {
       {/* Footer */}
       <div className="px-3 py-3 border-t border-slate-800 space-y-2">
         <ThemePicker />
-        <p className="text-xs text-slate-600 px-2">Phoenix v0.1</p>
+        <p className="text-xs text-slate-600 px-2">Phoenix v0.7</p>
       </div>
     </aside>
   )

@@ -38,6 +38,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   const [description, setDescription] = useState(initial?.objective ?? '')
   const [workingDir, setWorkingDir] = useState(initial?.working_dir ?? '')
   const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
+  const [criticMode, setCriticMode] = useState(initial?.critic_mode ?? 'none')
   const [schedule, setSchedule] = useState<ScheduleValue>(scheduleFromProject(initial))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -62,6 +63,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
         working_dir: workingDir.trim(),
         kind: 'monitor' as const,
         ...schedulePayload(schedule),
+        critic_mode: criticMode,
         tags,
       }
       if (initial) {
@@ -165,6 +167,14 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
           onChange={setWorkingDir}
           placeholder="/path/to/project"
         />
+      </div>
+      <div>
+        <Label>Devil's Advocate</Label>
+        <Select value={criticMode} onChange={e => setCriticMode(e.target.value)}>
+          <option value="none">None — no critic review</option>
+          <option value="builtin">Built-in — ephemeral contrarian review</option>
+        </Select>
+        <p className="text-xs text-slate-500 mt-1">Default critic mode applied to each monitor run. Can be overridden per task.</p>
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3 justify-end pt-2">
