@@ -12,63 +12,6 @@ import { getErrorMessage } from '@/lib/errors'
 
 // ---- Generate modal ----
 
-function GenerateModal({ providers, onApply, onClose }: {
-  providers: Provider[]
-  onApply: (behaviour: string, guardrails: string, hardGuardrails: string) => void
-  onClose: () => void
-}) {
-  const [description, setDescription] = useState('')
-  const [providerId, setProviderId] = useState(
-    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
-  )
-  const [generating, setGenerating] = useState(false)
-  const [error, setError] = useState('')
-
-  const generate = async () => {
-    if (!description.trim()) return
-    setError('')
-    setGenerating(true)
-    try {
-      const result = await api.agents.generate(description, providerId)
-      onApply(
-        result.behaviour || [result.persona, result.instructions].filter(Boolean).join('\n\n'),
-        result.guardrails,
-        result.hard_guardrails ?? ''
-      )
-    } catch (error: unknown) {
-      setError(getErrorMessage(error))
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-slate-400">
-        Describe what you want this agent to do and an AI will generate its behaviour and guardrails.
-      </p>
-      <div>
-        <Label htmlFor="gen-provider">Generate using</Label>
-        <Select id="gen-provider" value={providerId} onChange={e => setProviderId(e.target.value)}>
-          {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </Select>
-      </div>
-      <div>
-        <Label htmlFor="gen-desc">Agent description</Label>
-        <Textarea id="gen-desc" value={description} onChange={e => setDescription(e.target.value)} rows={5}
-          placeholder="e.g. A senior software engineer who reviews pull requests, focuses on security and performance, writes concise actionable feedback, and escalates critical issues immediately." />
-      </div>
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      <div className="flex gap-3 justify-end">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={generate} disabled={generating || !description.trim()}>
-          {generating ? 'Generating…' : '✦ Generate'}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
 // ---- Agent form ----
 
 function AgentForm({ initial, providers, onSave, onClose }: {
@@ -95,6 +38,12 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
+  const [genHint, setGenHint] = useState('')
+  const [genProviderID, setGenProviderID] = useState(
+    providers.find(p => p.type === 'llm')?.id ?? providers[0]?.id ?? ''
+  )
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState('')
   const [memoryEnabled, setMemoryEnabled] = useState(false)
   const [clearingMemory, setClearingMemory] = useState(false)
   const [memoryCleared, setMemoryCleared] = useState(false)
@@ -139,11 +88,22 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     }
   }
 
-  const applyGenerated = (b: string, g: string, hg: string) => {
-    setBehaviour(b)
-    setGuardrails(g)
-    setHardGuardrails(hg)
-    setShowGenerate(false)
+  const generate = async () => {
+    if (!genHint.trim()) return
+    setGenError('')
+    setGenerating(true)
+    try {
+      const result = await api.agents.generate(genHint, genProviderID)
+      setBehaviour(result.behaviour || [result.persona, result.instructions].filter(Boolean).join('\n\n'))
+      setGuardrails(result.guardrails)
+      setHardGuardrails(result.hard_guardrails ?? '')
+      setShowGenerate(false)
+      setGenHint('')
+    } catch (e: unknown) {
+      setGenError(getErrorMessage(e))
+    } finally {
+      setGenerating(false)
+    }
   }
 
   return (
@@ -318,12 +278,38 @@ function AgentForm({ initial, providers, onSave, onClose }: {
 
         {/* Persona / Instructions / Guardrails with generate button */}
         <div className="border-t border-slate-800 pt-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Agent Configuration</p>
-            <Button variant="ghost" size="sm" onClick={() => setShowGenerate(true)}>
-              ✦ Generate with AI
+            <Button variant="ghost" size="sm" onClick={() => { setShowGenerate(v => !v); setGenError('') }}>
+              ✦ {showGenerate ? 'Hide AI assist' : 'Generate with AI'}
             </Button>
           </div>
+
+          {showGenerate && (
+            <div className="mb-4 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-3">
+              <p className="text-sm text-slate-400">Describe what you want this agent to do and AI will generate its behaviour and guardrails.</p>
+              {providers.length > 1 && (
+                <div>
+                  <Label htmlFor="gen-provider">Generate using</Label>
+                  <Select id="gen-provider" value={genProviderID} onChange={e => setGenProviderID(e.target.value)}>
+                    {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </Select>
+                </div>
+              )}
+              <div>
+                <Label htmlFor="gen-hint">Agent description</Label>
+                <Textarea id="gen-hint" value={genHint} onChange={e => setGenHint(e.target.value)} rows={4}
+                  placeholder="e.g. A senior software engineer who reviews pull requests, focuses on security and performance, writes concise actionable feedback, and escalates critical issues immediately." />
+              </div>
+              {genError && <p className="text-sm text-red-400">{genError}</p>}
+              <div className="flex gap-3 justify-end">
+                <Button variant="secondary" size="sm" onClick={() => setShowGenerate(false)}>Cancel</Button>
+                <Button size="sm" onClick={generate} disabled={generating || !genHint.trim()}>
+                  {generating ? 'Generating…' : '✦ Generate'}
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-4">
             <div>
@@ -380,15 +366,6 @@ function AgentForm({ initial, providers, onSave, onClose }: {
         </div>
       </div>
 
-      {showGenerate && (
-        <Modal title="Generate Agent Configuration" onClose={() => setShowGenerate(false)} className="max-w-xl">
-          <GenerateModal
-            providers={providers}
-            onApply={applyGenerated}
-            onClose={() => setShowGenerate(false)}
-          />
-        </Modal>
-      )}
     </>
   )
 }

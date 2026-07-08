@@ -13,9 +13,11 @@ import { Badge } from '@/components/ui/badge'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
 import { FollowUpThread } from '@/components/ui/follow-up-thread'
 import { TaskDiffModal } from '@/components/task-diff-modal'
+import { EditRetryModal } from '@/components/edit-retry-modal'
 import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo, formatCost, getModelInfo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { phoenixWS } from '@/lib/ws'
+import { WorkingDirInput } from '@/components/ui/working-dir-input'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -334,6 +336,11 @@ function MiddlePane({
   const [objectiveDraft, setObjectiveDraft] = useState('')
   const [savingObjective, setSavingObjective] = useState(false)
   const objectiveRef = useRef<HTMLTextAreaElement>(null)
+  const [objectiveAIOpen, setObjectiveAIOpen] = useState(false)
+  const [objectiveAIHint, setObjectiveAIHint] = useState('')
+  const [objectiveAIProviders, setObjectiveAIProviders] = useState<Provider[]>([])
+  const [objectiveAIProviderID, setObjectiveAIProviderID] = useState('')
+  const [objectiveAIGenerating, setObjectiveAIGenerating] = useState(false)
 
   // Collapsed sections — completed collapsed by default; others expanded
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
@@ -432,7 +439,27 @@ function MiddlePane({
   const startEditObjective = () => {
     setObjectiveDraft(project?.objective ?? '')
     setEditingObjective(true)
+    setObjectiveAIOpen(false)
+    if (objectiveAIProviders.length === 0) {
+      api.providers.list().then(list => {
+        setObjectiveAIProviders(list)
+        setObjectiveAIProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
+      }).catch(() => {})
+    }
     setTimeout(() => objectiveRef.current?.focus(), 0)
+  }
+
+  const generateObjective = async () => {
+    if (!project) return
+    setObjectiveAIGenerating(true)
+    try {
+      const result = await api.projects.generateDescription(project.name, objectiveAIHint, objectiveAIProviderID)
+      setObjectiveDraft(result.description)
+      setObjectiveAIOpen(false)
+      setObjectiveAIHint('')
+    } catch { /* ignore */ } finally {
+      setObjectiveAIGenerating(false)
+    }
   }
 
   const saveObjective = async () => {
@@ -515,6 +542,35 @@ function MiddlePane({
         {/* Inline-editable objective */}
         {editingObjective ? (
           <div className="mb-2">
+            {objectiveAIOpen && (
+              <div className="mb-2 rounded border border-violet-800/50 bg-violet-950/30 p-2 space-y-1.5">
+                {objectiveAIProviders.length > 1 && (
+                  <select
+                    value={objectiveAIProviderID}
+                    onChange={e => setObjectiveAIProviderID(e.target.value)}
+                    className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1 focus:outline-none focus:border-violet-500"
+                  >
+                    {objectiveAIProviders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
+                <textarea
+                  value={objectiveAIHint}
+                  onChange={e => setObjectiveAIHint(e.target.value)}
+                  rows={2}
+                  placeholder="Additional context (optional)…"
+                  className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1 resize-none focus:outline-none focus:border-violet-500"
+                />
+                <div className="flex justify-end">
+                  <button
+                    onClick={generateObjective}
+                    disabled={objectiveAIGenerating}
+                    className="text-[10px] bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-2 py-1"
+                  >
+                    {objectiveAIGenerating ? 'Generating…' : '✦ Generate'}
+                  </button>
+                </div>
+              </div>
+            )}
             <textarea
               ref={objectiveRef}
               value={objectiveDraft}
@@ -524,7 +580,7 @@ function MiddlePane({
               className="w-full text-xs bg-slate-800 border border-violet-500/50 text-slate-200 rounded px-2 py-1.5 resize-none focus:outline-none"
               placeholder="What is this project trying to accomplish?"
             />
-            <div className="flex gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1">
               <button onClick={saveObjective} disabled={savingObjective}
                 className="text-[10px] px-2 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50">
                 {savingObjective ? 'Saving…' : 'Save'}
@@ -533,6 +589,15 @@ function MiddlePane({
                 className="text-[10px] px-2 py-0.5 rounded text-slate-500 hover:text-slate-300">
                 Cancel
               </button>
+              <div className="flex-1" />
+              {objectiveAIProviders.length > 0 && (
+                <button
+                  onClick={() => setObjectiveAIOpen(v => !v)}
+                  className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors"
+                >
+                  ✦ {objectiveAIOpen ? 'Hide AI' : 'Generate with AI'}
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -990,6 +1055,8 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
   const [approving, setApproving] = useState(false)
   const [approvalNote, setApprovalNote] = useState('')
   const [providers, setProviders] = useState<Provider[]>([])
+  const [actioning, setActioning] = useState<string | null>(null)
+  const [showEditRetry, setShowEditRetry] = useState(false)
   const output = parseOutput(task.output)
   const agent = agents.find(a => a.id === task.agent_id)
   const modelInfo = getModelInfo(agent, providers)
@@ -1015,6 +1082,20 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
       onUpdated()
     } finally {
       setApproving(false)
+    }
+  }
+
+  const handleAction = async (action: 'retry' | 'bump' | 'cancel' | 'force-reset' | 'dismiss') => {
+    setActioning(action)
+    try {
+      if (action === 'retry') await api.tasks.retry(task.id)
+      else if (action === 'bump') await api.tasks.bump(task.id)
+      else if (action === 'cancel') await api.tasks.cancel(task.id)
+      else if (action === 'force-reset') await api.tasks.forceReset(task.id)
+      else if (action === 'dismiss') await api.tasks.dismiss(task.id)
+      onUpdated()
+    } catch { /* ignore */ } finally {
+      setActioning(null)
     }
   }
 
@@ -1104,6 +1185,72 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
           </div>
         )}
       </div>
+
+      {/* Task action bar */}
+      <div className="px-4 py-2 border-t border-slate-800 shrink-0 flex flex-wrap items-center gap-1.5">
+        {(task.status === 'queued' || task.status === 'running') && (
+          <button
+            onClick={() => handleAction('bump')}
+            disabled={!!actioning}
+            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 disabled:opacity-40 transition-colors"
+          >
+            {actioning === 'bump' ? '…' : '⬆ Bump'}
+          </button>
+        )}
+        {task.status === 'queued' && (
+          <button
+            onClick={() => handleAction('cancel')}
+            disabled={!!actioning}
+            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-700 disabled:opacity-40 transition-colors"
+          >
+            {actioning === 'cancel' ? '…' : '✕ Cancel'}
+          </button>
+        )}
+        {task.status === 'running' && (
+          <button
+            onClick={() => handleAction('force-reset')}
+            disabled={!!actioning}
+            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-700 disabled:opacity-40 transition-colors"
+          >
+            {actioning === 'force-reset' ? '…' : '↺ Force Reset'}
+          </button>
+        )}
+        {task.status === 'failed' && (
+          <>
+            <button
+              onClick={() => handleAction('retry')}
+              disabled={!!actioning}
+              className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-emerald-300 hover:border-emerald-700 disabled:opacity-40 transition-colors"
+            >
+              {actioning === 'retry' ? '…' : '↻ Retry'}
+            </button>
+            <button
+              onClick={() => setShowEditRetry(true)}
+              disabled={!!actioning}
+              className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-violet-300 hover:border-violet-700 disabled:opacity-40 transition-colors"
+            >
+              ✎ Edit &amp; Retry
+            </button>
+          </>
+        )}
+        {(task.status === 'completed' || task.status === 'failed') && (
+          <button
+            onClick={() => handleAction('dismiss')}
+            disabled={!!actioning}
+            className="text-[11px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 disabled:opacity-40 transition-colors"
+          >
+            {actioning === 'dismiss' ? '…' : 'Dismiss'}
+          </button>
+        )}
+      </div>
+
+      {showEditRetry && (
+        <EditRetryModal
+          task={task}
+          onClose={() => setShowEditRetry(false)}
+          onDone={() => { setShowEditRetry(false); onUpdated() }}
+        />
+      )}
     </div>
   )
 }
@@ -1594,57 +1741,37 @@ interface NewProjectFormProps {
   onCancel: () => void
 }
 
-type DirStatus = 'unknown' | 'exists' | 'missing' | 'not_dir' | 'creating' | 'error'
-
 function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps) {
   const [name, setName] = useState('')
   const [objective, setObjective] = useState('')
   const [workingDir, setWorkingDir] = useState('')
+  const [contextSummarisation, setContextSummarisation] = useState(false)
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [dirStatus, setDirStatus] = useState<DirStatus>('unknown')
-  const [dirStatusMsg, setDirStatusMsg] = useState('')
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [showObjAI, setShowObjAI] = useState(false)
+  const [objAIHint, setObjAIHint] = useState('')
+  const [objAIProviderID, setObjAIProviderID] = useState('')
+  const [objAIGenerating, setObjAIGenerating] = useState(false)
 
-  const checkDir = useCallback(async (path: string) => {
-    const trimmed = path.trim()
-    if (!trimmed) { setDirStatus('unknown'); return }
-    try {
-      const res = await api.fs.stat(trimmed)
-      if (res.exists) {
-        setDirStatus(res.is_dir ? 'exists' : 'not_dir')
-      } else {
-        setDirStatus('missing')
-      }
-      setDirStatusMsg('')
-    } catch (e: unknown) {
-      setDirStatus('error')
-      setDirStatusMsg(e instanceof Error ? e.message : 'Could not check path')
-    }
+  useEffect(() => {
+    api.providers.list().then(list => {
+      setProviders(list)
+      setObjAIProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
+    }).catch(() => {})
   }, [])
 
-  const handleWorkingDirChange = (val: string) => {
-    setWorkingDir(val)
-    setDirStatus('unknown')
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => checkDir(val), 600)
-  }
-
-  const handleWorkingDirBlur = () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    checkDir(workingDir)
-  }
-
-  const handleCreateDir = async () => {
-    setDirStatus('creating')
+  const generateObjective = async () => {
+    if (!name.trim()) return
+    setObjAIGenerating(true)
     try {
-      await api.fs.mkdir(workingDir.trim())
-      setDirStatus('exists')
-      setDirStatusMsg('Created')
-    } catch (e: unknown) {
-      setDirStatus('error')
-      setDirStatusMsg(e instanceof Error ? e.message : 'Failed to create directory')
+      const result = await api.projects.generateDescription(name, objAIHint, objAIProviderID)
+      setObjective(result.description)
+      setShowObjAI(false)
+      setObjAIHint('')
+    } catch { /* ignore */ } finally {
+      setObjAIGenerating(false)
     }
   }
 
@@ -1661,6 +1788,7 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
         objective: objective.trim(),
         working_dir: workingDir.trim(),
         kind: 'project',
+        context_summarisation: contextSummarisation,
       })
       // Assign selected agents
       await Promise.all(selectedAgents.map(aid => api.projects.assignAgent(project.id, aid)))
@@ -1691,7 +1819,48 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">Objective <span className="text-slate-600">(optional — injected into every task)</span></label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-slate-400">Objective <span className="text-slate-600">(optional — injected into every task)</span></label>
+            {providers.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { setShowObjAI(v => !v) }}
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                ✦ {showObjAI ? 'Hide AI assist' : 'Generate with AI'}
+              </button>
+            )}
+          </div>
+          {showObjAI && (
+            <div className="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-2">
+              <p className="text-xs text-slate-400">Describe what you want this project to accomplish and AI will write the objective.</p>
+              {providers.length > 1 && (
+                <select
+                  value={objAIProviderID}
+                  onChange={e => setObjAIProviderID(e.target.value)}
+                  className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-violet-500"
+                >
+                  {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
+              <textarea
+                value={objAIHint}
+                onChange={e => setObjAIHint(e.target.value)}
+                rows={2}
+                placeholder="Additional context (optional)…"
+                className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-violet-500"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={generateObjective}
+                  disabled={objAIGenerating || !name.trim()}
+                  className="text-xs bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-3 py-1.5"
+                >
+                  {objAIGenerating ? 'Generating…' : '✦ Generate'}
+                </button>
+              </div>
+            </div>
+          )}
           <textarea
             value={objective}
             onChange={e => setObjective(e.target.value)}
@@ -1703,51 +1872,28 @@ function NewProjectForm({ allAgents, onCreated, onCancel }: NewProjectFormProps)
 
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1">Working directory <span className="text-slate-600">(optional)</span></label>
-          <input
-            type="text"
+          <WorkingDirInput
+            id="new-proj-wdir"
             value={workingDir}
-            onChange={e => handleWorkingDirChange(e.target.value)}
-            onBlur={handleWorkingDirBlur}
+            onChange={setWorkingDir}
             placeholder="/path/to/project"
-            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500 font-mono"
           />
-          {dirStatus === 'exists' && (
-            <p className="mt-1 text-xs text-emerald-400 flex items-center gap-1">
-              <span>✓</span>
-              <span>{dirStatusMsg || 'Directory exists'}</span>
+        </div>
+
+        <div className="flex items-start gap-3">
+          <input
+            id="new-ctx-summ"
+            type="checkbox"
+            checked={contextSummarisation}
+            onChange={e => setContextSummarisation(e.target.checked)}
+            className="mt-0.5 accent-violet-500"
+          />
+          <label htmlFor="new-ctx-summ" className="cursor-pointer">
+            <span className="text-xs font-medium text-slate-300">Context summarisation</span>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Summarise older follow-up turns when a chain exceeds 2 messages and ~8 000 chars, reducing input token costs by 50–80%.
             </p>
-          )}
-          {dirStatus === 'missing' && (
-            <p className="mt-1 text-xs text-amber-400 flex items-center gap-1.5">
-              <span>●</span>
-              <span>Does not exist</span>
-              <button
-                type="button"
-                onClick={handleCreateDir}
-                className="ml-1 px-1.5 py-0.5 text-xs bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded border border-amber-500/30"
-              >
-                Create
-              </button>
-            </p>
-          )}
-          {dirStatus === 'not_dir' && (
-            <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-              <span>●</span>
-              <span>Path exists but is not a directory</span>
-            </p>
-          )}
-          {dirStatus === 'creating' && (
-            <p className="mt-1 text-xs text-slate-400 flex items-center gap-1">
-              <span className="animate-spin inline-block">⟳</span>
-              <span>Creating…</span>
-            </p>
-          )}
-          {dirStatus === 'error' && (
-            <p className="mt-1 text-xs text-red-400 flex items-center gap-1">
-              <span>●</span>
-              <span>{dirStatusMsg || 'Error checking path'}</span>
-            </p>
-          )}
+          </label>
         </div>
 
         {allAgents.length > 0 && (
@@ -1810,6 +1956,30 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [confirmAction, setConfirmAction] = useState<'archive' | 'delete' | null>(null)
+  const [editProviders, setEditProviders] = useState<Provider[]>([])
+  const [showObjAI, setShowObjAI] = useState(false)
+  const [objAIHint, setObjAIHint] = useState('')
+  const [objAIProviderID, setObjAIProviderID] = useState('')
+  const [objAIGenerating, setObjAIGenerating] = useState(false)
+
+  useEffect(() => {
+    api.providers.list().then(list => {
+      setEditProviders(list)
+      setObjAIProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
+    }).catch(() => {})
+  }, [])
+
+  const generateObjective = async () => {
+    setObjAIGenerating(true)
+    try {
+      const result = await api.projects.generateDescription(name || project.name, objAIHint, objAIProviderID)
+      setObjective(result.description)
+      setShowObjAI(false)
+      setObjAIHint('')
+    } catch { /* ignore */ } finally {
+      setObjAIGenerating(false)
+    }
+  }
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError('Name is required'); return }
@@ -1873,13 +2043,54 @@ function EditProjectForm({ project, onSaved, onRemoved, onCancel }: EditProjectF
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1">Objective <span className="text-slate-600">(optional — injected into every task)</span></label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-slate-400">Objective <span className="text-slate-600">(optional — injected into every task)</span></label>
+            {editProviders.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowObjAI(v => !v)}
+                className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                ✦ {showObjAI ? 'Hide AI assist' : 'Generate with AI'}
+              </button>
+            )}
+          </div>
+          {showObjAI && (
+            <div className="mb-2 rounded-lg border border-violet-800/50 bg-violet-950/30 p-3 space-y-2">
+              <p className="text-xs text-slate-400">Describe what you want this project to accomplish and AI will write the objective.</p>
+              {editProviders.length > 1 && (
+                <select
+                  value={objAIProviderID}
+                  onChange={e => setObjAIProviderID(e.target.value)}
+                  className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 focus:outline-none focus:border-violet-500"
+                >
+                  {editProviders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
+              <textarea
+                value={objAIHint}
+                onChange={e => setObjAIHint(e.target.value)}
+                rows={2}
+                placeholder="Additional context (optional)…"
+                className="w-full text-xs bg-slate-800 border border-slate-700 text-slate-300 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-violet-500"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={generateObjective}
+                  disabled={objAIGenerating}
+                  className="text-xs bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white rounded px-3 py-1.5"
+                >
+                  {objAIGenerating ? 'Generating…' : '✦ Generate'}
+                </button>
+              </div>
+            </div>
+          )}
           <textarea
             value={objective}
             onChange={e => setObjective(e.target.value)}
             placeholder="What is this project trying to achieve?"
             rows={3}
-            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-505"
+            className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 resize-none focus:outline-none focus:border-violet-500"
           />
         </div>
 

@@ -1244,7 +1244,7 @@ function VaultCard({ vault, generatingContext, onContextChange, onGenerateContex
             disabled={generatingContext}
             className="text-xs text-[var(--ph-accent)] hover:opacity-80 disabled:opacity-50 transition-colors"
           >
-            {generatingContext ? 'Generating…' : '✨ Generate with AI'}
+            {generatingContext ? 'Generating…' : '✦ Generate with AI'}
           </button>
         </div>
         <textarea

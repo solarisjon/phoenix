@@ -21,6 +21,7 @@ import {
   type ScheduleValue,
 } from '@/components/monitor/schedule'
 import { timeAgo } from '@/lib/utils'
+import { WorkingDirInput } from '@/components/ui/working-dir-input'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errors'
 
@@ -100,7 +101,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
       </div>
       <div>
         <div className="flex items-center justify-between mb-1">
-          <Label htmlFor="mon-desc">Description — what should this monitor check and do?</Label>
+          <Label htmlFor="mon-desc">Objective — what should this monitor check and do?</Label>
           {providers.length > 0 && (
             <button
               type="button"
@@ -141,7 +142,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
           </div>
         )}
         <Textarea id="mon-desc" value={description} onChange={e => setDescription(e.target.value)} rows={4}
-          placeholder="What does this monitor watch and do?" />
+          placeholder="What is this monitor's goal? e.g. Watch for critical Jira tickets and alert if queue exceeds 10" />
       </div>
       <div>
         <ScheduleEditor value={schedule} onChange={setSchedule} idPrefix="mon" />
@@ -154,8 +155,12 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
         <Label htmlFor="mon-wdir">
           Working Directory <span className="text-slate-500 font-normal">(optional)</span>
         </Label>
-        <Input id="mon-wdir" value={workingDir} onChange={e => setWorkingDir(e.target.value)}
-          placeholder="/path/to/project" />
+        <WorkingDirInput
+          id="mon-wdir"
+          value={workingDir}
+          onChange={setWorkingDir}
+          placeholder="/path/to/project"
+        />
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3 justify-end pt-2">
