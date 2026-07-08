@@ -54,6 +54,9 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
     if (!name.trim()) { setError('Name is required'); return }
     const schedErr = scheduleError(schedule)
     if (schedErr) { setError(schedErr); return }
+    // Validate criticMode
+    const validCriticModes = ['none', 'builtin']
+    if (!validCriticModes.includes(criticMode)) { setError('Invalid critic mode'); return }
     setSaving(true)
     setError('')
     try {
@@ -63,7 +66,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
         working_dir: workingDir.trim(),
         kind: 'monitor' as const,
         ...schedulePayload(schedule),
-        critic_mode: criticMode,
+        critic_mode: criticMode || 'none',
         tags,
       }
       if (initial) {
