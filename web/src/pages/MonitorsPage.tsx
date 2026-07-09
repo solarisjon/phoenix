@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Project, type Agent, type Provider, type ProjectSummary } from '@/lib/api'
+import { api, type Project, type Agent, type Provider, type ProjectSummary, type Skill } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Modal } from '@/components/ui/modal'
@@ -40,6 +40,8 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
   const [criticMode, setCriticMode] = useState(initial?.critic_mode ?? 'none')
   const [schedule, setSchedule] = useState<ScheduleValue>(scheduleFromProject(initial))
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [skillId, setSkillId] = useState(initial?.default_skill_id ?? '')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [showAI, setShowAI] = useState(false)
@@ -49,6 +51,10 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
   )
   const [aiGenerating, setAiGenerating] = useState(false)
   const [aiError, setAiError] = useState('')
+
+  useEffect(() => {
+    api.skills.list().then(setSkills).catch(() => setSkills([]))
+  }, [])
 
   const save = async () => {
     if (!name.trim()) { setError('Name is required'); return }
@@ -68,6 +74,7 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
         ...schedulePayload(schedule),
         critic_mode: criticMode || 'none',
         tags,
+        default_skill_id: skillId || null,
       }
       if (initial) {
         await api.projects.update(initial.id, payload)
@@ -179,6 +186,22 @@ function MonitorForm({ initial, providers, allTags, onSave, onClose }: {
         </Select>
         <p className="text-xs text-slate-500 mt-1">Default critic mode applied to each monitor run. Can be overridden per task.</p>
       </div>
+      {skills.length > 0 && (
+        <div>
+          <Label>Default Skill <span className="text-slate-500 font-normal">(optional)</span></Label>
+          <Select value={skillId} onChange={e => setSkillId(e.target.value)}>
+            <option value="">None</option>
+            {skills.map(sk => (
+              <option key={sk.id} value={sk.id}>{sk.name}</option>
+            ))}
+          </Select>
+          <p className="text-xs text-slate-500 mt-1">
+            Injected into every run of this monitor. You can also mention a skill's slug directly in the
+            objective above (e.g. "execute the morning_coffee skill") to invoke it ad hoc. Manage skills
+            under Plugins → Skills.
+          </p>
+        </div>
+      )}
       {error && <p className="text-sm text-red-400">{error}</p>}
       <div className="flex gap-3 justify-end pt-2">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>

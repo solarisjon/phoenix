@@ -107,6 +107,7 @@ export interface Project {
   // ReAct loop (projects)
   react_mode: boolean
   max_iterations: number            // 0 = use server default (10)
+  default_skill_id: string | null   // skill auto-injected into every task for this project
   created_at: string
 }
 
@@ -236,6 +237,19 @@ export interface ObsidianWriteResult {
   vault: string
   path: string
   filename: string
+}
+
+// A reusable, named instruction set. Bind one to a project as its default, or
+// invoke ad hoc by mentioning its slug in a task/project's description
+// (e.g. "execute the morning_coffee skill").
+export interface Skill {
+  id: string
+  name: string
+  slug: string
+  description: string
+  instructions: string
+  enabled: boolean
+  created_at: string
 }
 
 export interface PluginRecord {
@@ -671,6 +685,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ vault_id: vaultId ?? '', provider_id: providerId ?? '' }),
       }),
+  },
+  skills: {
+    list: () => request<Skill[]>('/skills'),
+    get: (id: string) => request<Skill>(`/skills/${id}`),
+    create: (sk: Partial<Skill>) =>
+      request<Skill>('/skills', { method: 'POST', body: JSON.stringify(sk) }),
+    update: (id: string, sk: Partial<Skill>) =>
+      request<Skill>(`/skills/${id}`, { method: 'PUT', body: JSON.stringify(sk) }),
+    delete: (id: string) =>
+      request<{ status: string }>(`/skills/${id}`, { method: 'DELETE' }),
   },
   taskTemplates: {
     list: (projectId?: string) =>

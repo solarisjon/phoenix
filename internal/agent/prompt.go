@@ -413,6 +413,56 @@ Do not emit both signals — pick exactly one.`,
 	return req
 }
 
+// InjectSkills appends the instructions for any skill that is relevant to this
+// task: either bound as the project's default (proj.DefaultSkillID), or
+// mentioned by slug in the task's title/description or the project's
+// objective (e.g. "execute the morning_coffee skill"). Skills are a
+// Phoenix-native mechanism, so they work identically no matter which
+// provider/CLI actually executes the task.
+func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task, proj *model.Project) provider.TaskRequest {
+	haystack := strings.ToLower(t.Title + " " + t.Description)
+	if proj != nil {
+		haystack += " " + strings.ToLower(proj.Objective)
+	}
+
+	seen := make(map[string]bool)
+	var matched []*model.Skill
+	add := func(sk *model.Skill) {
+		if !seen[sk.ID] {
+			seen[sk.ID] = true
+			matched = append(matched, sk)
+		}
+	}
+	for _, sk := range skills {
+		if proj != nil && proj.DefaultSkillID != nil && *proj.DefaultSkillID == sk.ID {
+			add(sk)
+			continue
+		}
+		if sk.Slug != "" && strings.Contains(haystack, strings.ToLower(sk.Slug)) {
+			add(sk)
+		}
+	}
+	if len(matched) == 0 {
+		return req
+	}
+
+	var b strings.Builder
+	b.WriteString(req.SystemPrompt)
+	b.WriteString("\n\n## Skills\n")
+	b.WriteString("The following skills apply to this task — follow their instructions as part of completing your work:\n\n")
+	for _, sk := range matched {
+		b.WriteString(fmt.Sprintf("### Skill: %s\n", sk.Name))
+		if sk.Description != "" {
+			b.WriteString(sk.Description)
+			b.WriteString("\n\n")
+		}
+		b.WriteString(sk.Instructions)
+		b.WriteString("\n\n")
+	}
+	req.SystemPrompt = strings.TrimRight(b.String(), "\n")
+	return req
+}
+
 // InjectMemories appends a ## Persistent Memory section to the system prompt
 // when recalled memories are non-empty. The section is informational context
 // and is placed after all other prompt sections, including global guardrails.

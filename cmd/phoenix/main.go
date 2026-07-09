@@ -81,6 +81,7 @@ func main() {
 	pluginRepo := sqlite.NewPluginRepo(db)
 	notificationRuleRepo := sqlite.NewNotificationRuleRepo(db)
 	obsidianVaultRepo := sqlite.NewObsidianVaultRepo(db)
+	skillRepo := sqlite.NewSkillRepo(db)
 	taskTemplateRepo := sqlite.NewTaskTemplateRepo(db)
 
 	// Seed users from PHOENIX_SEED_USERS when auth is enabled.
@@ -133,7 +134,7 @@ func main() {
 		taskRepo, statsRepo, userRepo, sessionRepo, teamRepo,
 		agentDraftRepo, systemSettingsRepo,
 		memoRepo,
-		pluginRepo, notificationRuleRepo, obsidianVaultRepo, taskTemplateRepo, pluginManager,
+		pluginRepo, notificationRuleRepo, obsidianVaultRepo, skillRepo, taskTemplateRepo, pluginManager,
 		runner, reg, pricingReg,
 		adminRepo,
 		cfg.HTTPTimeout,
@@ -142,6 +143,9 @@ func main() {
 
 	// Wire Obsidian vault repo into runner for prompt injection and auto-write.
 	runner.SetObsidianVaultRepo(obsidianVaultRepo)
+
+	// Wire skill repo into runner for prompt injection.
+	runner.SetSkillRepo(skillRepo)
 
 	// Wire memory client into runner (nil if plugin is disabled).
 	runner.SetMemoryClient(pluginManager.MemoryClient())

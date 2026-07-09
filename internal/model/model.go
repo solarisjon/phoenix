@@ -234,6 +234,8 @@ type Project struct {
 	ReactMode     bool `json:"react_mode"`     // enable autonomous NEXT_ACTION iteration
 	MaxIterations int  `json:"max_iterations"` // safety cap; 0 = use default (10)
 
+	DefaultSkillID *string `json:"default_skill_id"` // skill (migration 053) auto-injected into every task for this project; nil = none
+
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -319,6 +321,21 @@ type ObsidianVault struct {
 	Enabled   bool      `json:"enabled"`
 	SortOrder int       `json:"sort_order"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Skill is a reusable, named instruction set. A skill can be bound to a
+// project as its default (Project.DefaultSkillID), or invoked ad hoc by
+// mentioning its Slug in a task's title/description or a project's objective.
+// Skills are injected into the system prompt at prompt-assembly time, so they
+// work identically regardless of which provider/CLI executes the task.
+type Skill struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"` // lowercase token matched against task text, e.g. "morning_coffee"
+	Description  string    `json:"description"`
+	Instructions string    `json:"instructions"`
+	Enabled      bool      `json:"enabled"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // AgentDraftStatus represents the lifecycle of a pending agent hire.

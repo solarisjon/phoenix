@@ -38,6 +38,7 @@ type Server struct {
 	pluginRepo     store.PluginRepo
 	ruleRepo       store.NotificationRuleRepo
 	obsidianVaults store.ObsidianVaultRepo
+	skills         store.SkillRepo
 	taskTemplates  store.TaskTemplateRepo
 	pluginManager  *plugin.Manager
 	runner         *agent.Runner
@@ -68,6 +69,7 @@ func New(
 	pluginRepo store.PluginRepo,
 	ruleRepo store.NotificationRuleRepo,
 	obsidianVaults store.ObsidianVaultRepo,
+	skills store.SkillRepo,
 	taskTemplates store.TaskTemplateRepo,
 	pluginManager *plugin.Manager,
 	runner *agent.Runner,
@@ -95,6 +97,7 @@ func New(
 		pluginRepo:     pluginRepo,
 		ruleRepo:       ruleRepo,
 		obsidianVaults: obsidianVaults,
+		skills:         skills,
 		taskTemplates:  taskTemplates,
 		pluginManager:  pluginManager,
 		runner:         runner,
@@ -281,6 +284,14 @@ func (s *Server) buildRouter() http.Handler {
 			r.Put("/vaults/{id}", s.updateObsidianVault)
 			r.Delete("/vaults/{id}", s.deleteObsidianVault)
 		})
+
+		// Skills — reusable named instruction sets agents can be told to run
+		// (e.g. "execute the morning_coffee skill").
+		r.Get("/skills", s.listSkills)
+		r.Post("/skills", s.createSkill)
+		r.Get("/skills/{id}", s.getSkill)
+		r.Put("/skills/{id}", s.updateSkill)
+		r.Delete("/skills/{id}", s.deleteSkill)
 
 		// Themes
 		r.Get("/themes", s.listThemes)

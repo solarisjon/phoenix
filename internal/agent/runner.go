@@ -38,6 +38,7 @@ type Runner struct {
 	memos          store.MemoRepo
 	providers      store.ProviderRepo   // nil before SetProviderRepo is called
 	obsidianVaults store.ObsidianVaultRepo // nil = disabled
+	skills         store.SkillRepo         // nil = disabled
 	registry       *registry.Registry
 	orchestrator   *Orchestrator        // nil until SetOrchestrator is called
 	onEvent        EventHandler
@@ -104,6 +105,14 @@ func (r *Runner) SetObsidianVaultRepo(repo store.ObsidianVaultRepo) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.obsidianVaults = repo
+}
+
+// SetSkillRepo wires in the skill store so the runner can inject skill
+// instructions into prompts (see InjectSkills).
+func (r *Runner) SetSkillRepo(repo store.SkillRepo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.skills = repo
 }
 
 // SetMemoryClient sets the memory backend used for recall/retain.
@@ -528,6 +537,14 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 			} else if len(vaults) > 0 {
 				req = InjectObsidianVaults(req, vaults)
 			}
+		}
+	}
+
+	if r.skills != nil && !task.IsCriticReview {
+		if allSkills, err := r.skills.ListEnabled(r.bgCtx); err != nil {
+			slog.Warn("runner: skill list failed", "task_id", task.ID, "error", err)
+		} else if len(allSkills) > 0 {
+			req = InjectSkills(req, allSkills, task, ec.proj)
 		}
 	}
 

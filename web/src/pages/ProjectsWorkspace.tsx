@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider, type TaskTemplate } from '@/lib/api'
+import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider, type TaskTemplate, type Skill } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
@@ -1823,12 +1823,15 @@ function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewPro
   const [objAIHint, setObjAIHint] = useState('')
   const [objAIProviderID, setObjAIProviderID] = useState('')
   const [objAIGenerating, setObjAIGenerating] = useState(false)
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [skillId, setSkillId] = useState('')
 
   useEffect(() => {
     api.providers.list().then(list => {
       setProviders(list)
       setObjAIProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
     }).catch(() => {})
+    api.skills.list().then(setSkills).catch(() => setSkills([]))
   }, [])
 
   const generateObjective = async () => {
@@ -1862,6 +1865,7 @@ function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewPro
         context_summarisation: contextSummarisation,
         critic_mode: criticMode || 'none',
         tags,
+        default_skill_id: skillId || null,
       })
       // Assign selected agents
       await Promise.all(selectedAgents.map(aid => api.projects.assignAgent(project.id, aid)))
@@ -1973,6 +1977,27 @@ function NewProjectForm({ allAgents, allTags = [], onCreated, onCancel }: NewPro
           <p className="text-xs text-slate-500 mt-1">Default critic mode for all tasks in this project. Can be overridden per task.</p>
         </div>
 
+        {skills.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Default Skill <span className="text-slate-600">(optional)</span></label>
+            <select
+              value={skillId}
+              onChange={e => setSkillId(e.target.value)}
+              className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
+            >
+              <option value="">None</option>
+              {skills.map(sk => (
+                <option key={sk.id} value={sk.id}>{sk.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              Injected into every task in this project. You can also mention a skill's slug directly in the
+              objective (e.g. "execute the morning_coffee skill") to invoke it ad hoc. Manage skills under
+              Plugins → Skills.
+            </p>
+          </div>
+        )}
+
         <div className="flex items-start gap-3">
           <input
             id="new-ctx-summ"
@@ -2058,12 +2083,15 @@ function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }
   const [objAIHint, setObjAIHint] = useState('')
   const [objAIProviderID, setObjAIProviderID] = useState('')
   const [objAIGenerating, setObjAIGenerating] = useState(false)
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [skillId, setSkillId] = useState(project.default_skill_id ?? '')
 
   useEffect(() => {
     api.providers.list().then(list => {
       setEditProviders(list)
       setObjAIProviderID(list.find(p => p.type === 'llm')?.id ?? list[0]?.id ?? '')
     }).catch(() => {})
+    api.skills.list().then(setSkills).catch(() => setSkills([]))
   }, [])
 
   const generateObjective = async () => {
@@ -2092,6 +2120,7 @@ function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }
         context_summarisation: contextSummarisation,
         critic_mode: criticMode || 'none',
         tags,
+        default_skill_id: skillId || null,
       })
       onSaved()
     } catch (e: unknown) {
@@ -2224,6 +2253,27 @@ function EditProjectForm({ project, allTags = [], onSaved, onRemoved, onCancel }
           </select>
           <p className="text-xs text-slate-500 mt-1">Default critic mode for all tasks in this project. Can be overridden per task.</p>
         </div>
+
+        {skills.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1">Default Skill <span className="text-slate-600">(optional)</span></label>
+            <select
+              value={skillId}
+              onChange={e => setSkillId(e.target.value)}
+              className="w-full text-sm bg-slate-800 border border-slate-700 text-slate-300 rounded px-3 py-2 focus:outline-none focus:border-violet-500"
+            >
+              <option value="">None</option>
+              {skills.map(sk => (
+                <option key={sk.id} value={sk.id}>{sk.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              Injected into every task in this project. You can also mention a skill's slug directly in the
+              objective (e.g. "execute the morning_coffee skill") to invoke it ad hoc. Manage skills under
+              Plugins → Skills.
+            </p>
+          </div>
+        )}
 
         <div className="flex items-start gap-3">
           <input

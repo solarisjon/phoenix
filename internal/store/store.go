@@ -295,6 +295,17 @@ type ObsidianVaultRepo interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// SkillRepo manages reusable named skill definitions.
+type SkillRepo interface {
+	List(ctx context.Context) ([]*model.Skill, error)
+	ListEnabled(ctx context.Context) ([]*model.Skill, error)
+	Get(ctx context.Context, id string) (*model.Skill, error)
+	GetBySlug(ctx context.Context, slug string) (*model.Skill, error)
+	Create(ctx context.Context, sk *model.Skill) error
+	Update(ctx context.Context, sk *model.Skill) error
+	Delete(ctx context.Context, id string) error
+}
+
 // InsightRow holds aggregated cost data for a single agent, provider, or project.
 type InsightRow struct {
 	ID           string  `json:"id"`

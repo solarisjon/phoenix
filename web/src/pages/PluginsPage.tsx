@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat, ObsidianVault, ObsidianDiscoveredVault } from '@/lib/api'
+import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat, ObsidianVault, ObsidianDiscoveredVault, Skill } from '@/lib/api'
 import { injectCommunityThemes, getTheme, setTheme } from '@/lib/theme'
 import { getErrorMessage } from '@/lib/errors'
 
 export function PluginsPage() {
-  const [tab, setTab] = useState<'notifiers' | 'themes' | 'memory' | 'obsidian'>('notifiers')
+  const [tab, setTab] = useState<'notifiers' | 'themes' | 'memory' | 'obsidian' | 'skills'>('notifiers')
   const [plugins, setPlugins] = useState<PluginRecord[]>([])
   const [settings, setSettings] = useState<SystemSettings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -50,14 +50,14 @@ export function PluginsPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-[var(--ph-border)]">
-        {(['notifiers', 'themes', 'memory', 'obsidian'] as const).map(t => (
+        {(['notifiers', 'themes', 'memory', 'obsidian', 'skills'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t
                 ? 'border-[var(--ph-accent)] text-[var(--ph-accent)]'
                 : 'border-transparent text-[var(--ph-text-muted)] hover:text-[var(--ph-text)]'
             }`}>
-            {t === 'notifiers' ? 'Notifiers' : t === 'themes' ? 'Themes' : t === 'memory' ? 'Memory' : 'Obsidian'}
+            {t === 'notifiers' ? 'Notifiers' : t === 'themes' ? 'Themes' : t === 'memory' ? 'Memory' : t === 'obsidian' ? 'Obsidian' : 'Skills'}
           </button>
         ))}
       </div>
@@ -66,6 +66,7 @@ export function PluginsPage() {
       {tab === 'themes' && <ThemesTab plugins={themes} communityEnabled={settings?.community_plugins_enabled ?? false} onRefresh={load} />}
       {tab === 'memory' && <MemoryTab plugins={memoryPlugins} coreEnabled={settings?.core_plugins_enabled ?? false} onRefresh={load} />}
       {tab === 'obsidian' && <ObsidianTab />}
+      {tab === 'skills' && <SkillsTab />}
     </div>
   )
 }
@@ -1256,6 +1257,252 @@ function VaultCard({ vault, generatingContext, onContextChange, onGenerateContex
           className="w-full bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] resize-none focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
         />
       </div>
+    </div>
+  )
+}
+
+// ---- Skills ----
+// A skill is a reusable, named instruction set. Bind one to a project as its
+// default, or mention its slug (e.g. "morning_coffee") in any task/project
+// description — Phoenix injects the skill's instructions into the agent's
+// prompt automatically, regardless of which provider runs it.
+
+function SkillsTab() {
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
+
+  const load = () =>
+    api.skills.list()
+      .then(setSkills)
+      .catch((e: unknown) => setError(getErrorMessage(e)))
+      .finally(() => setLoading(false))
+
+  useEffect(() => { load() }, [])
+
+  const createSkill = async (data: { name: string; slug: string; description: string; instructions: string }) => {
+    try {
+      const sk = await api.skills.create(data)
+      setSkills(prev => [...prev, sk].sort((a, b) => a.name.localeCompare(b.name)))
+      setCreating(false)
+      setError(null)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  const updateSkill = async (skill: Skill, patch: { name: string; slug: string; description: string; instructions: string; enabled: boolean }) => {
+    try {
+      const updated = await api.skills.update(skill.id, patch)
+      setSkills(prev => prev.map(s => s.id === skill.id ? updated : s))
+      setError(null)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  const toggleSkill = async (skill: Skill) => {
+    try {
+      const updated = await api.skills.update(skill.id, { ...skill, enabled: !skill.enabled })
+      setSkills(prev => prev.map(s => s.id === skill.id ? updated : s))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  const deleteSkill = async (skill: Skill) => {
+    if (!confirm(`Delete skill "${skill.name}"? Any project bound to it as a default will lose that binding.`)) return
+    try {
+      await api.skills.delete(skill.id)
+      setSkills(prev => prev.filter(s => s.id !== skill.id))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  if (loading) return <div className="text-[var(--ph-text-muted)] text-sm">Loading…</div>
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4">
+        <p className="text-xs text-[var(--ph-text-muted)]">
+          A skill is a reusable instruction set. Bind one to a project as its default (in the project's
+          settings), or just mention its slug — e.g. "execute the morning_coffee skill" — in any task or
+          project description. Phoenix injects the matching skill's instructions into the agent's prompt
+          automatically, regardless of which provider runs it.
+        </p>
+      </div>
+
+      {error && (
+        <div className="bg-red-900/20 border border-red-700/50 rounded-lg px-4 py-3 text-sm text-red-400">{error}</div>
+      )}
+
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-semibold text-[var(--ph-text)]">Skills</h3>
+        {!creating && (
+          <button
+            onClick={() => setCreating(true)}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--ph-accent)] hover:opacity-90 text-[var(--ph-accent-text)] transition-colors"
+          >
+            + New Skill
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <SkillForm onSave={createSkill} onCancel={() => setCreating(false)} />
+      )}
+
+      {skills.length === 0 && !creating && (
+        <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-8 text-center">
+          <p className="text-[var(--ph-text-muted)] text-sm">No skills defined yet.</p>
+          <p className="text-[var(--ph-text-faint)] text-xs mt-1">Click "+ New Skill" to create one, e.g. "morning_coffee".</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {skills.map(sk => (
+          <SkillCard
+            key={sk.id}
+            skill={sk}
+            onSave={patch => updateSkill(sk, patch)}
+            onToggle={() => toggleSkill(sk)}
+            onDelete={() => deleteSkill(sk)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+interface SkillFormValues {
+  name: string
+  slug: string
+  description: string
+  instructions: string
+}
+
+function SkillForm({ initial, onSave, onCancel }: {
+  initial?: SkillFormValues
+  onSave: (data: SkillFormValues) => void | Promise<void>
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [slug, setSlug] = useState(initial?.slug ?? '')
+  const [description, setDescription] = useState(initial?.description ?? '')
+  const [instructions, setInstructions] = useState(initial?.instructions ?? '')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!name.trim() || !instructions.trim()) return
+    setSaving(true)
+    try {
+      await onSave({ name: name.trim(), slug: slug.trim(), description: description.trim(), instructions: instructions.trim() })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+      <div>
+        <label className="text-xs font-medium text-[var(--ph-text-muted)]">Name</label>
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Morning Coffee"
+          className="w-full mt-1 bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-[var(--ph-text-muted)]">Slug (matched in task/project text, e.g. "execute the &lt;slug&gt; skill")</label>
+        <input
+          type="text"
+          value={slug}
+          onChange={e => setSlug(e.target.value)}
+          placeholder="auto-generated from name if left blank, e.g. morning_coffee"
+          className="w-full mt-1 bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] font-mono focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-[var(--ph-text-muted)]">Description</label>
+        <input
+          type="text"
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+          placeholder="One line summarising what this skill does"
+          className="w-full mt-1 bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-[var(--ph-text-muted)]">Instructions</label>
+        <textarea
+          rows={6}
+          value={instructions}
+          onChange={e => setInstructions(e.target.value)}
+          placeholder="Full instructions the agent should follow when this skill applies, e.g. check the calendar and weather, then summarise the top 3 priorities for the day…"
+          className="w-full mt-1 bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] resize-y focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)]"
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--ph-border)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)] transition-colors">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={saving || !name.trim() || !instructions.trim()}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--ph-accent)] hover:opacity-90 disabled:opacity-50 text-[var(--ph-accent-text)] transition-colors"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SkillCard({ skill, onSave, onToggle, onDelete }: {
+  skill: Skill
+  onSave: (data: SkillFormValues & { enabled: boolean }) => void | Promise<void>
+  onToggle: () => void
+  onDelete: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+
+  if (editing) {
+    return (
+      <SkillForm
+        initial={{ name: skill.name, slug: skill.slug, description: skill.description, instructions: skill.instructions }}
+        onSave={async data => { await onSave({ ...data, enabled: skill.enabled }); setEditing(false) }}
+        onCancel={() => setEditing(false)}
+      />
+    )
+  }
+
+  return (
+    <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-2 transition-opacity ${skill.enabled ? '' : 'opacity-60'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-[var(--ph-text)]">{skill.name}</p>
+          <p className="text-xs text-[var(--ph-text-muted)] font-mono">{skill.slug}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onToggle}
+            className={`text-xs px-2 py-1 rounded border transition-colors ${
+              skill.enabled
+                ? 'border-emerald-600/40 text-emerald-400 hover:bg-emerald-600/10'
+                : 'border-[var(--ph-border)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]'
+            }`}
+          >
+            {skill.enabled ? 'Enabled' : 'Disabled'}
+          </button>
+          <button onClick={() => setEditing(true)} className="text-xs text-[var(--ph-text-muted)] hover:text-[var(--ph-text)] transition-colors px-1">Edit</button>
+          <button onClick={onDelete} className="text-xs text-[var(--ph-text-faint)] hover:text-red-400 transition-colors px-1">✕</button>
+        </div>
+      </div>
+      {skill.description && <p className="text-xs text-[var(--ph-text-muted)]">{skill.description}</p>}
     </div>
   )
 }

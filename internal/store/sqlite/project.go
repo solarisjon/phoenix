@@ -20,6 +20,7 @@ const projectSelectCols = `id, name, objective, working_dir, kind, schedule_inte
 	heartbeat_on_attention, heartbeat_on_failed, linked_project_id, heartbeat_consecutive_bad, heartbeat_last_signal, heartbeat_escalate_after,
 	monitor_cache_ttl,
 	react_mode, max_iterations,
+	default_skill_id,
 	created_at`
 
 // ListByKind returns projects filtered by kind and userID, active only.
@@ -88,8 +89,9 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 		 owner, status, critic_agent_id, critic_mode, monitor_model, budget_usd, budget_period, context_summarisation, tags,
 		 heartbeat_on_attention, heartbeat_on_failed, linked_project_id, heartbeat_consecutive_bad, heartbeat_last_signal, heartbeat_escalate_after,
 		 monitor_cache_ttl,
-		 react_mode, max_iterations)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 react_mode, max_iterations,
+		 default_skill_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Objective, p.WorkingDir, kind, p.ScheduleInterval,
 		scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
 		p.Owner, string(p.Status), nullString(p.CriticAgentID), p.CriticMode, p.MonitorModel,
@@ -97,7 +99,8 @@ func (r *ProjectRepo) Create(ctx context.Context, p *model.Project) error {
 		p.HeartbeatOnAttention, p.HeartbeatOnFailed, nullString(p.LinkedProjectID),
 		p.HeartbeatConsecutiveBad, p.HeartbeatLastSignal, p.HeartbeatEscalateAfter,
 		p.MonitorCacheTTL,
-		boolToInt(p.ReactMode), p.MaxIterations)
+		boolToInt(p.ReactMode), p.MaxIterations,
+		nullString(p.DefaultSkillID))
 	if err != nil {
 		return fmt.Errorf("create project: %w", err)
 	}
@@ -122,7 +125,8 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 		 budget_usd = ?, budget_period = ?, context_summarisation = ?, tags = ?,
 		 heartbeat_on_attention = ?, heartbeat_on_failed = ?, linked_project_id = ?, heartbeat_escalate_after = ?,
 		 monitor_cache_ttl = ?,
-		 react_mode = ?, max_iterations = ?
+		 react_mode = ?, max_iterations = ?,
+		 default_skill_id = ?
 		 WHERE id = ?`,
 		p.Name, p.Objective, p.WorkingDir, kind,
 		p.ScheduleInterval, scheduleKind, timesJSON, boolToInt(p.ScheduleCatchUp),
@@ -131,6 +135,7 @@ func (r *ProjectRepo) Update(ctx context.Context, p *model.Project) error {
 		p.HeartbeatOnAttention, p.HeartbeatOnFailed, nullString(p.LinkedProjectID), p.HeartbeatEscalateAfter,
 		p.MonitorCacheTTL,
 		boolToInt(p.ReactMode), p.MaxIterations,
+		nullString(p.DefaultSkillID),
 		p.ID)
 	if err != nil {
 		return fmt.Errorf("update project: %w", err)
@@ -256,7 +261,7 @@ func scanProjectRow(dest *model.Project, scanFn func(...any) error) error {
 	var status, kind, tagsJSON string
 	var scheduleKind, timesJSON string
 	var catchUp, ctxSumm, reactMode int
-	var criticAgentID, linkedProjectID sql.NullString
+	var criticAgentID, linkedProjectID, defaultSkillID sql.NullString
 	err := scanFn(
 		&dest.ID, &dest.Name, &dest.Objective, &dest.WorkingDir, &kind, &dest.ScheduleInterval,
 		&scheduleKind, &timesJSON, &catchUp,
@@ -266,6 +271,7 @@ func scanProjectRow(dest *model.Project, scanFn func(...any) error) error {
 		&dest.HeartbeatConsecutiveBad, &dest.HeartbeatLastSignal, &dest.HeartbeatEscalateAfter,
 		&dest.MonitorCacheTTL,
 		&reactMode, &dest.MaxIterations,
+		&defaultSkillID,
 		&dest.CreatedAt,
 	)
 	if err != nil {
@@ -278,6 +284,9 @@ func scanProjectRow(dest *model.Project, scanFn func(...any) error) error {
 	}
 	if linkedProjectID.Valid {
 		dest.LinkedProjectID = &linkedProjectID.String
+	}
+	if defaultSkillID.Valid {
+		dest.DefaultSkillID = &defaultSkillID.String
 	}
 	if dest.Kind == "" {
 		dest.Kind = model.ProjectKindProject
