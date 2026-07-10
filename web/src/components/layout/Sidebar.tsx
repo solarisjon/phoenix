@@ -17,10 +17,11 @@ const nav = [
   { label: 'Help', href: '/help', icon: '?' },
 ]
 
-export function Sidebar({ inboxCount, activeCount, memoCount }: {
+export function Sidebar({ inboxCount, activeCount, memoCount, unhealthyProviderCount }: {
   inboxCount: number
   activeCount: number
   memoCount: number
+  unhealthyProviderCount: number
 }) {
   return (
     <aside className="w-56 flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col">
@@ -68,6 +69,13 @@ export function Sidebar({ inboxCount, activeCount, memoCount }: {
             {label === 'Briefing' && memoCount > 0 && (
               <span className="bg-violet-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none">
                 {memoCount > 99 ? '99+' : memoCount}
+              </span>
+            )}
+            {label === 'Settings' && unhealthyProviderCount > 0 && (
+              <span title={`${unhealthyProviderCount} provider${unhealthyProviderCount !== 1 ? 's' : ''} unhealthy`}
+                className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
               </span>
             )}
           </NavLink>

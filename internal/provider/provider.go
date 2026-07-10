@@ -58,6 +58,14 @@ type ModelLister interface {
 	ListModels(ctx context.Context) ([]string, error)
 }
 
+// Pinger is an optional interface for providers that support a lightweight
+// connectivity check without running a full inference request. When a provider
+// implements Pinger the health checker calls Ping instead of Execute, avoiding
+// expensive model warm-up or long thinking-model response times.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 // Provider is the common interface implemented by all provider adapters.
 type Provider interface {
 	// Execute runs a task to completion and returns the full response.

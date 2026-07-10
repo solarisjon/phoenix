@@ -140,6 +140,26 @@ func (a *Adapter) EstimateCost(_ provider.TaskRequest) provider.CostEstimate {
 	return provider.CostEstimate{}
 }
 
+// Ping checks that the Ollama server is reachable by calling GET /api/tags.
+// This avoids triggering a full model inference during health checks, which is
+// especially important for thinking models (e.g. qwen3.5) that take 30–60s to
+// respond even to trivial prompts.
+func (a *Adapter) Ping(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.BaseURL+"/api/tags", nil)
+	if err != nil {
+		return fmt.Errorf("ollama: ping request: %w", err)
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ollama: ping: %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ollama: ping returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // ListModels queries the Ollama server for installed models.
 // Implements provider.ModelLister.
 func (a *Adapter) ListModels(ctx context.Context) ([]string, error) {

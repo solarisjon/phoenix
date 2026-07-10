@@ -102,23 +102,31 @@ func (c *Checker) probe(ctx context.Context, rec *model.Provider) {
 			// latencyMs stays nil — no network round-trip occurred
 		} else {
 			start := time.Now()
-			tctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			resp, testErr := prov.Execute(tctx, provider.TaskRequest{
-				Prompt: "Reply with exactly one word: ok",
-			})
-			cancel()
+			var probeErr error
+			if pinger, ok := prov.(provider.Pinger); ok {
+				// Lightweight connectivity check — no model inference required.
+				tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				probeErr = pinger.Ping(tctx)
+				cancel()
+			} else {
+				tctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+				resp, execErr := prov.Execute(tctx, provider.TaskRequest{
+					Prompt: "Reply with exactly one word: ok",
+				})
+				cancel()
+				if execErr == nil && strings.TrimSpace(resp.Output) == "" {
+					execErr = errors.New("provider returned empty response")
+				}
+				probeErr = execErr
+			}
 			ms := time.Since(start).Milliseconds()
 			latencyMs = &ms
-			if testErr != nil {
-				if errors.Is(testErr, context.Canceled) {
+			if probeErr != nil {
+				if errors.Is(probeErr, context.Canceled) {
 					return // parent context cancelled (shutdown); don't overwrite health state
 				}
 				status = "error"
-				errMsg = testErr.Error()
-				c.registry.Invalidate(rec.ID)
-			} else if !strings.EqualFold(strings.TrimSpace(resp.Output), "ok") {
-				status = "error"
-				errMsg = "unexpected response: " + resp.Output
+				errMsg = probeErr.Error()
 				c.registry.Invalidate(rec.ID)
 			} else {
 				status = "ok"
