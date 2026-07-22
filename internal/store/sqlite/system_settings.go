@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -65,6 +66,11 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		}
 	}
 
+	skillImportDirs := []string{}
+	if raw := kv["skill_import_dirs"]; raw != "" {
+		_ = json.Unmarshal([]byte(raw), &skillImportDirs)
+	}
+
 	s := &model.SystemSettings{
 		GlobalGuardrailsEnabled: kv["global_guardrails_enabled"] == "1",
 		GlobalGuardrails:        kv["global_guardrails"],
@@ -80,6 +86,7 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		MaxSubtaskDepth:                 maxDepth,
 		MaxSubtasksPerLevel:             maxPerLevel,
 		OrchestratorConfidenceThreshold: confidenceThreshold,
+		SkillImportDirs:                 skillImportDirs,
 	}
 	return s, nil
 }
@@ -192,6 +199,14 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 		threshold = 0.75
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "orchestrator_confidence_threshold", fmt.Sprintf("%g", threshold), now); err != nil {
+		return err
+	}
+
+	skillImportDirs, err := json.Marshal(s.SkillImportDirs)
+	if err != nil {
+		return fmt.Errorf("marshal skill_import_dirs: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "skill_import_dirs", string(skillImportDirs), now); err != nil {
 		return err
 	}
 

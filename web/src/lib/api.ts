@@ -215,6 +215,7 @@ export interface SystemSettings {
   max_subtask_depth: number
   max_subtasks_per_level: number
   orchestrator_confidence_threshold: number
+  skill_import_dirs: string[]
 }
 
 export interface ObsidianVault {
@@ -250,6 +251,32 @@ export interface Skill {
   instructions: string
   enabled: boolean
   created_at: string
+}
+
+export interface SkillImportResult {
+  imported: number
+  updated: number
+  skipped: number
+  skills: Skill[]
+  errors?: string[]
+}
+
+export interface SkillScanResult {
+  discovered: number
+  skills: ScannedSkill[]
+}
+
+export interface ScannedSkill {
+  slug: string
+  name: string
+  description: string
+  source_path: string
+  already_imported: boolean
+}
+
+export interface SkillBulkDeleteResult {
+  deleted: number
+  errors?: string[]
 }
 
 export interface PluginRecord {
@@ -695,6 +722,26 @@ export const api = {
       request<Skill>(`/skills/${id}`, { method: 'PUT', body: JSON.stringify(sk) }),
     delete: (id: string) =>
       request<{ status: string }>(`/skills/${id}`, { method: 'DELETE' }),
+    scan: (dirs?: string[]) =>
+      request<SkillScanResult>('/skills/import', {
+        method: 'POST',
+        body: JSON.stringify({ dirs: dirs ?? [], dry_run: true }),
+      }),
+    importFromDirs: (opts?: { dirs?: string[]; slugs?: string[]; overwrite?: boolean }) =>
+      request<SkillImportResult>('/skills/import', {
+        method: 'POST',
+        body: JSON.stringify({
+          dirs: opts?.dirs ?? [],
+          slugs: opts?.slugs ?? [],
+          overwrite: opts?.overwrite ?? false,
+          dry_run: false,
+        }),
+      }),
+    bulkDelete: (ids: string[]) =>
+      request<SkillBulkDeleteResult>('/skills/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
   },
   taskTemplates: {
     list: (projectId?: string) =>

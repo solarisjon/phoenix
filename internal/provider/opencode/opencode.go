@@ -218,6 +218,19 @@ func (a *Adapter) buildArgs(prompt string) []string {
 	return args
 }
 
+// sanitisedPlaceholder is the string opencode injects when Claude returns a
+// tool-use-only assistant turn with no text content. It satisfies the
+// Anthropic protocol requirement that every assistant message have non-empty
+// content, but it is an implementation detail of opencode's message history
+// and should never appear in Phoenix task output.
+const sanitisedPlaceholder = "[System: Empty message content sanitised to satisfy protocol]"
+
+// stripSanitisedPlaceholders removes all occurrences of the opencode empty-
+// message placeholder from text output before it is forwarded to Phoenix.
+func stripSanitisedPlaceholders(s string) string {
+	return strings.ReplaceAll(s, sanitisedPlaceholder, "")
+}
+
 // ---- JSON event parsing ----
 
 // opencodeEvent is the envelope for all opencode JSON output lines.
@@ -278,8 +291,11 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			// Non-JSON line — pass through as plain text.
 			if line != "" {
-				ch <- provider.StreamChunk{Content: line + "\n"}
-				gotOutput = true
+				clean := stripSanitisedPlaceholders(line)
+				if clean != "" {
+					ch <- provider.StreamChunk{Content: clean + "\n"}
+					gotOutput = true
+				}
 			}
 			continue
 		}
@@ -288,8 +304,11 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		case "text":
 			var p textPart
 			if err := json.Unmarshal(ev.Part, &p); err == nil && p.Text != "" {
-				ch <- provider.StreamChunk{Content: p.Text}
-				gotOutput = true
+				clean := stripSanitisedPlaceholders(p.Text)
+				if clean != "" {
+					ch <- provider.StreamChunk{Content: clean}
+					gotOutput = true
+				}
 			}
 
 		case "step_finish":

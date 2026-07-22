@@ -292,6 +292,8 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/skills/{id}", s.getSkill)
 		r.Put("/skills/{id}", s.updateSkill)
 		r.Delete("/skills/{id}", s.deleteSkill)
+		r.Post("/skills/import", s.importSkills)
+		r.Post("/skills/bulk-delete", s.bulkDeleteSkills)
 
 		// Themes
 		r.Get("/themes", s.listThemes)

@@ -1,13 +1,14 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/model"
 )
 
@@ -42,14 +43,10 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
 	respond(w, http.StatusOK, sk)
 }
 
-var skillSlugInvalidChars = regexp.MustCompile(`[^a-z0-9]+`)
-
 // skillSlugify normalises a name into a lowercase, underscore-separated
 // token, e.g. "Morning Coffee" -> "morning_coffee".
 func skillSlugify(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = skillSlugInvalidChars.ReplaceAllString(s, "_")
-	return strings.Trim(s, "_")
+	return agent.NormalizeSkillSlug(s)
 }
 
 func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
@@ -139,4 +136,89 @@ func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) importSkills(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dirs      []string `json:"dirs"`
+		Slugs     []string `json:"slugs"`
+		Overwrite bool     `json:"overwrite"`
+		DryRun    bool     `json:"dry_run"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if !decode(w, r, &req) {
+			return
+		}
+	}
+
+	dirs := req.Dirs
+	if len(dirs) == 0 {
+		settings, err := s.systemSettings.Get(r.Context())
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if settings != nil {
+			dirs = settings.SkillImportDirs
+		}
+	}
+	if len(dirs) == 0 {
+		respondErr(w, http.StatusBadRequest, "no skill import directories configured — add paths in Settings → Plugins → Skills")
+		return
+	}
+
+	if req.DryRun {
+		scanned, err := agent.ScanFilesystemSkills(r.Context(), s.skills, dirs)
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		respond(w, http.StatusOK, map[string]any{
+			"discovered": len(scanned),
+			"skills":     scanned,
+		})
+		return
+	}
+
+	if len(req.Slugs) == 0 {
+		respondErr(w, http.StatusBadRequest, "select at least one skill to import")
+		return
+	}
+
+	result, err := agent.ImportFilesystemSkills(r.Context(), s.skills, dirs, req.Slugs, req.Overwrite)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	respond(w, http.StatusOK, result)
+}
+
+func (s *Server) bulkDeleteSkills(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if len(req.IDs) == 0 {
+		respondErr(w, http.StatusBadRequest, "ids is required")
+		return
+	}
+	deleted := 0
+	var errors []string
+	for _, id := range req.IDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if err := s.skills.Delete(r.Context(), id); err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		deleted++
+	}
+	respond(w, http.StatusOK, map[string]any{
+		"deleted": deleted,
+		"errors":  errors,
+	})
 }

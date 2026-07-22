@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
-import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat, ObsidianVault, ObsidianDiscoveredVault, Skill } from '@/lib/api'
+import type { PluginRecord, NotificationRule, SystemSettings, Agent, Project, PluginConfigSchema, PluginChat, ObsidianVault, ObsidianDiscoveredVault, Skill, ScannedSkill } from '@/lib/api'
 import { injectCommunityThemes, getTheme, setTheme } from '@/lib/theme'
 import { getErrorMessage } from '@/lib/errors'
 
@@ -994,6 +994,7 @@ function ObsidianTab() {
     obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '',
     dynamic_orchestration_enabled: false, orchestrator_agent_id: '',
     max_subtask_depth: 2, max_subtasks_per_level: 5, orchestrator_confidence_threshold: 0.75,
+    skill_import_dirs: [],
   })
   const [vaults, setVaults] = useState<ObsidianVault[]>([])
   const [discovered, setDiscovered] = useState<ObsidianDiscoveredVault[]>([])
@@ -1269,6 +1270,16 @@ function VaultCard({ vault, generatingContext, onContextChange, onGenerateContex
 
 function SkillsTab() {
   const [skills, setSkills] = useState<Skill[]>([])
+  const [importDirs, setImportDirs] = useState('')
+  const [overwriteOnImport, setOverwriteOnImport] = useState(false)
+  const [importStatus, setImportStatus] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [scanResults, setScanResults] = useState<ScannedSkill[]>([])
+  const [selectedScanSlugs, setSelectedScanSlugs] = useState<Set<string>>(new Set())
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
+  const [savingDirs, setSavingDirs] = useState(false)
+  const [deletingSelected, setDeletingSelected] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -1279,7 +1290,12 @@ function SkillsTab() {
       .catch((e: unknown) => setError(getErrorMessage(e)))
       .finally(() => setLoading(false))
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    api.admin.getSettings()
+      .then(s => setImportDirs((s.skill_import_dirs ?? []).join('\n')))
+      .catch(() => {})
+  }, [])
 
   const createSkill = async (data: { name: string; slug: string; description: string; instructions: string }) => {
     try {
@@ -1316,8 +1332,138 @@ function SkillsTab() {
     try {
       await api.skills.delete(skill.id)
       setSkills(prev => prev.filter(s => s.id !== skill.id))
+      setSelectedSkillIds(prev => {
+        const next = new Set(prev)
+        next.delete(skill.id)
+        return next
+      })
     } catch (e: unknown) {
       setError(getErrorMessage(e))
+    }
+  }
+
+  const saveImportDirs = async () => {
+    setSavingDirs(true)
+    setError(null)
+    try {
+      const settings = await api.admin.getSettings()
+      const dirs = importDirs
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean)
+      await api.admin.saveSettings({ ...settings, skill_import_dirs: dirs })
+      setImportStatus('Import directories saved.')
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setSavingDirs(false)
+    }
+  }
+
+  const parseImportDirs = () =>
+    importDirs
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+
+  const scanSkills = async () => {
+    setScanning(true)
+    setError(null)
+    setImportStatus(null)
+    try {
+      const dirs = parseImportDirs()
+      if (dirs.length > 0) {
+        const settings = await api.admin.getSettings()
+        await api.admin.saveSettings({ ...settings, skill_import_dirs: dirs })
+      }
+      const result = await api.skills.scan(dirs)
+      setScanResults(result.skills)
+      const defaults = new Set(
+        result.skills.filter(sk => !sk.already_imported).map(sk => sk.slug),
+      )
+      setSelectedScanSlugs(defaults)
+      setImportStatus(`Found ${result.discovered} skill${result.discovered === 1 ? '' : 's'}. Select which to import.`)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const toggleScanSlug = (slug: string) => {
+    setSelectedScanSlugs(prev => {
+      const next = new Set(prev)
+      if (next.has(slug)) next.delete(slug)
+      else next.add(slug)
+      return next
+    })
+  }
+
+  const importSelectedSkills = async () => {
+    if (selectedScanSlugs.size === 0) {
+      setError('Select at least one skill to import.')
+      return
+    }
+    setImporting(true)
+    setError(null)
+    setImportStatus(null)
+    try {
+      const dirs = parseImportDirs()
+      const result = await api.skills.importFromDirs({
+        dirs,
+        slugs: [...selectedScanSlugs],
+        overwrite: overwriteOnImport,
+      })
+      await load()
+      setScanResults([])
+      setSelectedScanSlugs(new Set())
+      const parts = [
+        `${result.imported} imported`,
+        `${result.updated} updated`,
+        `${result.skipped} skipped`,
+      ]
+      if (result.errors?.length) {
+        parts.push(`${result.errors.length} errors`)
+      }
+      setImportStatus(parts.join(', '))
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const toggleSkillSelection = (id: string) => {
+    setSelectedSkillIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAllSkills = () => {
+    if (selectedSkillIds.size === skills.length) {
+      setSelectedSkillIds(new Set())
+    } else {
+      setSelectedSkillIds(new Set(skills.map(sk => sk.id)))
+    }
+  }
+
+  const deleteSelectedSkills = async () => {
+    if (selectedSkillIds.size === 0) return
+    if (!confirm(`Delete ${selectedSkillIds.size} selected skill${selectedSkillIds.size === 1 ? '' : 's'}? Projects using them as defaults will lose that binding.`)) return
+    setDeletingSelected(true)
+    setError(null)
+    try {
+      const result = await api.skills.bulkDelete([...selectedSkillIds])
+      setSelectedSkillIds(new Set())
+      await load()
+      setImportStatus(`${result.deleted} skill${result.deleted === 1 ? '' : 's'} deleted.`)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally {
+      setDeletingSelected(false)
     }
   }
 
@@ -1338,8 +1484,147 @@ function SkillsTab() {
         <div className="bg-red-900/20 border border-red-700/50 rounded-lg px-4 py-3 text-sm text-red-400">{error}</div>
       )}
 
-      <div className="flex justify-between items-center">
-        <h3 className="text-sm font-semibold text-[var(--ph-text)]">Skills</h3>
+      <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--ph-text)]">Import from directories</h3>
+          <p className="text-xs text-[var(--ph-text-muted)] mt-1">
+            One path per line. Each path may be a skills container (subdirectories with SKILL.md) or a single skill directory.
+            Supports <code className="text-[var(--ph-text-faint)]">~</code> and <code className="text-[var(--ph-text-faint)]">${'${ENV}'}</code> expansion.
+            Default locations (<code className="text-[var(--ph-text-faint)]">~/.agents/skills</code>, etc.) are always scanned at runtime too.
+          </p>
+        </div>
+        <textarea
+          value={importDirs}
+          onChange={e => setImportDirs(e.target.value)}
+          rows={4}
+          placeholder={'~/.agents/skills\n~/.cursor/skills-cursor'}
+          className="w-full bg-[var(--ph-input)] border border-[var(--ph-border)] rounded-lg px-3 py-2 text-sm text-[var(--ph-text)] placeholder-[var(--ph-text-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--ph-accent)] font-mono"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-[var(--ph-text-muted)]">
+            <input
+              type="checkbox"
+              checked={overwriteOnImport}
+              onChange={e => setOverwriteOnImport(e.target.checked)}
+              className="rounded border-[var(--ph-border)]"
+            />
+            Overwrite existing skills with the same slug
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={saveImportDirs}
+            disabled={savingDirs}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--ph-border)] text-[var(--ph-text)] hover:bg-[var(--ph-hover)] disabled:opacity-50"
+          >
+            {savingDirs ? 'Saving…' : 'Save directories'}
+          </button>
+          <button
+            onClick={scanSkills}
+            disabled={scanning}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--ph-border)] text-[var(--ph-text)] hover:bg-[var(--ph-hover)] disabled:opacity-50"
+          >
+            {scanning ? 'Scanning…' : 'Scan directories'}
+          </button>
+        </div>
+        {importStatus && (
+          <p className="text-xs text-[var(--ph-text-muted)]">{importStatus}</p>
+        )}
+      </div>
+
+      {scanResults.length > 0 && (
+        <div className="bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-[var(--ph-text)]">
+              Found {scanResults.length} skill{scanResults.length === 1 ? '' : 's'}
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setSelectedScanSlugs(new Set(scanResults.filter(sk => !sk.already_imported).map(sk => sk.slug)))}
+                className="px-2 py-1 text-xs rounded border border-[var(--ph-border)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]"
+              >
+                Select new
+              </button>
+              <button
+                onClick={() => setSelectedScanSlugs(new Set(scanResults.map(sk => sk.slug)))}
+                className="px-2 py-1 text-xs rounded border border-[var(--ph-border)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]"
+              >
+                Select all
+              </button>
+              <button
+                onClick={() => setSelectedScanSlugs(new Set())}
+                className="px-2 py-1 text-xs rounded border border-[var(--ph-border)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)]"
+              >
+                Clear
+              </button>
+              <button
+                onClick={importSelectedSkills}
+                disabled={importing || selectedScanSlugs.size === 0}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--ph-accent)] hover:opacity-90 text-[var(--ph-accent-text)] disabled:opacity-50"
+              >
+                {importing ? 'Importing…' : `Import selected (${selectedScanSlugs.size})`}
+              </button>
+            </div>
+          </div>
+          <div className="max-h-80 overflow-y-auto space-y-2">
+            {scanResults.map(sk => (
+              <label
+                key={sk.slug}
+                className="flex items-start gap-3 p-3 rounded-lg border border-[var(--ph-border)] hover:bg-[var(--ph-hover)] cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedScanSlugs.has(sk.slug)}
+                  onChange={() => toggleScanSlug(sk.slug)}
+                  className="mt-1 rounded border-[var(--ph-border)]"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--ph-text)]">{sk.name}</span>
+                    <span className="text-xs font-mono text-[var(--ph-text-muted)]">{sk.slug}</span>
+                    {sk.already_imported && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-300 border border-amber-700/40">
+                        already imported
+                      </span>
+                    )}
+                  </div>
+                  {sk.description && (
+                    <p className="text-xs text-[var(--ph-text-muted)] mt-1">{sk.description}</p>
+                  )}
+                  <p className="text-[10px] text-[var(--ph-text-faint)] font-mono mt-1 truncate">{sk.source_path}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-between items-center gap-3">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-semibold text-[var(--ph-text)]">Skills</h3>
+          {skills.length > 0 && (
+            <>
+              <label className="flex items-center gap-1.5 text-xs text-[var(--ph-text-muted)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={skills.length > 0 && selectedSkillIds.size === skills.length}
+                  onChange={toggleAllSkills}
+                  className="rounded border-[var(--ph-border)]"
+                />
+                Select all
+              </label>
+              {selectedSkillIds.size > 0 && (
+                <button
+                  onClick={deleteSelectedSkills}
+                  disabled={deletingSelected}
+                  className="px-2 py-1 text-xs rounded border border-red-700/50 text-red-400 hover:bg-red-900/20 disabled:opacity-50"
+                >
+                  {deletingSelected ? 'Deleting…' : `Delete selected (${selectedSkillIds.size})`}
+                </button>
+              )}
+            </>
+          )}
+        </div>
         {!creating && (
           <button
             onClick={() => setCreating(true)}
@@ -1366,6 +1651,8 @@ function SkillsTab() {
           <SkillCard
             key={sk.id}
             skill={sk}
+            selected={selectedSkillIds.has(sk.id)}
+            onSelect={() => toggleSkillSelection(sk.id)}
             onSave={patch => updateSkill(sk, patch)}
             onToggle={() => toggleSkill(sk)}
             onDelete={() => deleteSkill(sk)}
@@ -1462,8 +1749,10 @@ function SkillForm({ initial, onSave, onCancel }: {
   )
 }
 
-function SkillCard({ skill, onSave, onToggle, onDelete }: {
+function SkillCard({ skill, selected, onSelect, onSave, onToggle, onDelete }: {
   skill: Skill
+  selected?: boolean
+  onSelect?: () => void
   onSave: (data: SkillFormValues & { enabled: boolean }) => void | Promise<void>
   onToggle: () => void
   onDelete: () => void
@@ -1483,6 +1772,14 @@ function SkillCard({ skill, onSave, onToggle, onDelete }: {
   return (
     <div className={`bg-[var(--ph-card)] border border-[var(--ph-card-border)] rounded-lg p-4 space-y-2 transition-opacity ${skill.enabled ? '' : 'opacity-60'}`}>
       <div className="flex items-start justify-between gap-3">
+        {onSelect && (
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={onSelect}
+            className="mt-1 rounded border-[var(--ph-border)]"
+          />
+        )}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-[var(--ph-text)]">{skill.name}</p>
           <p className="text-xs text-[var(--ph-text-muted)] font-mono">{skill.slug}</p>

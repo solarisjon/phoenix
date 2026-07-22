@@ -72,7 +72,7 @@ function SystemInfoSection() {
 }
 
 function GlobalGuardrailsSection() {
-  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '', dynamic_orchestration_enabled: false, orchestrator_agent_id: '', max_subtask_depth: 2, max_subtasks_per_level: 5, orchestrator_confidence_threshold: 0.75 })
+  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '', dynamic_orchestration_enabled: false, orchestrator_agent_id: '', max_subtask_depth: 2, max_subtasks_per_level: 5, orchestrator_confidence_threshold: 0.75, skill_import_dirs: [] })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)

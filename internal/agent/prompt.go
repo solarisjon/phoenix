@@ -420,28 +420,7 @@ Do not emit both signals — pick exactly one.`,
 // Phoenix-native mechanism, so they work identically no matter which
 // provider/CLI actually executes the task.
 func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task, proj *model.Project) provider.TaskRequest {
-	haystack := strings.ToLower(t.Title + " " + t.Description)
-	if proj != nil {
-		haystack += " " + strings.ToLower(proj.Objective)
-	}
-
-	seen := make(map[string]bool)
-	var matched []*model.Skill
-	add := func(sk *model.Skill) {
-		if !seen[sk.ID] {
-			seen[sk.ID] = true
-			matched = append(matched, sk)
-		}
-	}
-	for _, sk := range skills {
-		if proj != nil && proj.DefaultSkillID != nil && *proj.DefaultSkillID == sk.ID {
-			add(sk)
-			continue
-		}
-		if sk.Slug != "" && strings.Contains(haystack, strings.ToLower(sk.Slug)) {
-			add(sk)
-		}
-	}
+	matched := MatchSkills(skills, t, proj)
 	if len(matched) == 0 {
 		return req
 	}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/store"
 )
@@ -40,6 +41,7 @@ type Scheduler struct {
 	projects store.ProjectRepo
 	tasks    store.TaskRepo
 	settings store.SystemSettingsRepo
+	skills   store.SkillRepo
 	runner   TaskRunner
 
 	refreshInterval time.Duration
@@ -69,6 +71,7 @@ func New(
 	projects store.ProjectRepo,
 	tasks store.TaskRepo,
 	settings store.SystemSettingsRepo,
+	skills store.SkillRepo,
 	runner TaskRunner,
 	refreshInterval time.Duration,
 ) *Scheduler {
@@ -78,6 +81,7 @@ func New(
 		projects:            projects,
 		tasks:               tasks,
 		settings:            settings,
+		skills:              skills,
 		runner:              runner,
 		refreshInterval:     refreshInterval,
 		dailyPunctualWindow: refreshInterval + time.Minute,
@@ -293,7 +297,17 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 
 	now := time.Now()
 	taskType := model.TaskTypeStandard
-	if spec.useOrchestrator {
+	probeTask := &model.Task{
+		Title:       fmt.Sprintf("Scheduled run — %s", now.Format("2006-01-02 15:04")),
+		Description: spec.monitor.Objective,
+	}
+	importDirs := []string{}
+	if s.settings != nil {
+		if cfg, err := s.settings.Get(ctx); err == nil && cfg != nil {
+			importDirs = cfg.SkillImportDirs
+		}
+	}
+	if spec.useOrchestrator && !agent.TaskRequestsSkillExecution(ctx, s.skills, importDirs, spec.monitor.WorkingDir, probeTask, spec.monitor) {
 		taskType = model.TaskTypeOrchestration
 	}
 	task := &model.Task{

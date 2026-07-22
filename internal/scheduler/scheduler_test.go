@@ -370,7 +370,7 @@ func TestFire_SkipsWhenActiveTaskExists(t *testing.T) {
 	}
 	runner := &countingRunner{}
 
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Hour)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Hour)
 
 	spec := scheduleSpec{
 		monitor:  proj,
@@ -405,7 +405,7 @@ func TestFire_CreatesTaskWhenIdle(t *testing.T) {
 	taskRepo := &fakeTaskRepo{} // no pre-existing tasks
 	runner := &countingRunner{}
 
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Hour)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Hour)
 
 	spec := scheduleSpec{
 		monitor:  proj,
@@ -448,7 +448,7 @@ func TestSync_RestartsOnIntervalChange(t *testing.T) {
 	taskRepo := &fakeTaskRepo{}
 	runner := &countingRunner{}
 
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Hour)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Hour)
 
 	// First sync: should create one schedule entry at 60s interval.
 	s.sync()
@@ -507,7 +507,7 @@ func TestSync_StopsRemovedMonitor(t *testing.T) {
 	taskRepo := &fakeTaskRepo{}
 	runner := &countingRunner{}
 
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Hour)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Hour)
 
 	s.sync()
 	s.mu.Lock()
@@ -600,7 +600,7 @@ func TestEvaluateDaily_PunctualFire(t *testing.T) {
 	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-1": {agent}})
 	taskRepo := &fakeTaskRepo{}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	now := at(time.Now(), 7, 0).Add(30 * time.Second) // 07:00:30
 	s.evaluateDaily(context.Background(), dailySpecFor(proj, agent), now)
@@ -618,7 +618,7 @@ func TestEvaluateDaily_PunctualSkipsStale(t *testing.T) {
 	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-2": {agent}})
 	taskRepo := &fakeTaskRepo{}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	now := at(time.Now(), 9, 0) // two hours after 07:00, outside punctual window
 	s.evaluateDaily(context.Background(), dailySpecFor(proj, agent), now)
@@ -636,7 +636,7 @@ func TestEvaluateDaily_CatchUpFiresMissed(t *testing.T) {
 	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-3": {agent}})
 	taskRepo := &fakeTaskRepo{}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	now := at(time.Now(), 8, 30) // laptop woke at 08:30, missed 07:00
 	s.evaluateDaily(context.Background(), dailySpecFor(proj, agent), now)
@@ -654,7 +654,7 @@ func TestEvaluateDaily_DedupSameOccurrence(t *testing.T) {
 	projectRepo := newFakeProjectRepo([]*model.Project{proj}, map[string][]*model.Agent{"daily-4": {agent}})
 	taskRepo := &fakeTaskRepo{}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	spec := dailySpecFor(proj, agent)
 	now := at(time.Now(), 8, 0)
@@ -678,7 +678,7 @@ func TestEvaluateDaily_MultiDayOffSingleRun(t *testing.T) {
 		{ID: "old", ProjectID: "daily-5", Source: "monitor", Status: model.TaskStatusCompleted, CreatedAt: time.Now().Add(-72 * time.Hour)},
 	}}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	spec := dailySpecFor(proj, agent)
 	now := at(time.Now(), 9, 0)
@@ -701,7 +701,7 @@ func TestEvaluateDaily_MultipleTimesPicksLatest(t *testing.T) {
 		{ID: "ran-06", ProjectID: "daily-6", Source: "monitor", Status: model.TaskStatusCompleted, CreatedAt: at(time.Now(), 6, 5)},
 	}}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	spec := dailySpecFor(proj, agent)
 	// At 12:30 the 12:00 occurrence is due and has not run yet.
@@ -732,7 +732,7 @@ func TestEvaluateDaily_DismissedRunStillCounts(t *testing.T) {
 	}
 	taskRepo := &fakeTaskRepo{tasks: []*model.Task{dismissedRun}}
 	runner := &countingRunner{}
-	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, runner, time.Minute)
+	s := New(&fakeAgentRepo{}, projectRepo, taskRepo, nil, nil, runner, time.Minute)
 
 	spec := dailySpecFor(proj, agent)
 	s.evaluateDaily(context.Background(), spec, now)

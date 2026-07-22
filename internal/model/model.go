@@ -309,6 +309,10 @@ type SystemSettings struct {
 	MaxSubtaskDepth                int     `json:"max_subtask_depth"`               // default 2
 	MaxSubtasksPerLevel            int     `json:"max_subtasks_per_level"`          // default 5
 	OrchestratorConfidenceThreshold float64 `json:"orchestrator_confidence_threshold"` // default 0.75; below = approval required
+
+	// SkillImportDirs lists filesystem paths scanned for SKILL.md files. Each path
+	// may be a skills container (subdirs with SKILL.md) or a single skill directory.
+	SkillImportDirs []string `json:"skill_import_dirs"`
 }
 
 // ObsidianVault represents a single Obsidian vault directory with user-provided context

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/model"
 )
 
@@ -249,6 +250,20 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 					"agent is not assigned to this project — call POST /projects/{id}/agents first")
 				return
 			}
+		}
+	}
+
+	probeTask := &model.Task{
+		Title:       strings.TrimSpace(req.Title),
+		Description: req.Description,
+	}
+	if taskType == model.TaskTypeOrchestration {
+		importDirs := []string{}
+		if sysSettings, err := s.systemSettings.Get(r.Context()); err == nil && sysSettings != nil {
+			importDirs = sysSettings.SkillImportDirs
+		}
+		if agent.TaskRequestsSkillExecution(r.Context(), s.skills, importDirs, proj.WorkingDir, probeTask, proj) {
+			taskType = model.TaskTypeStandard
 		}
 	}
 

@@ -453,10 +453,35 @@ func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*e
 	return &ec, nil
 }
 
+// resolveSkillContext loads DB and filesystem skills and determines whether this
+// task should execute in skill mode.
+func (r *Runner) resolveSkillContext(ctx context.Context, task *model.Task, proj *model.Project, workingDir string) ([]*model.Skill, []*model.Skill, bool) {
+	importDirs := []string{}
+	if settings, err := r.settings.Get(ctx); err == nil && settings != nil {
+		importDirs = settings.SkillImportDirs
+	}
+	var allSkills []*model.Skill
+	if r.skills != nil {
+		if dbSkills, err := r.skills.ListEnabled(ctx); err != nil {
+			slog.Warn("runner: skill list failed", "task_id", task.ID, "error", err)
+		} else {
+			allSkills = MergeSkills(dbSkills, DiscoverFilesystemSkills(importDirs, workingDir))
+		}
+	} else {
+		allSkills = DiscoverFilesystemSkills(importDirs, workingDir)
+	}
+	matched := MatchSkills(allSkills, task, proj)
+	return allSkills, matched, TaskHasSkillIntent(allSkills, task, proj)
+}
+
 // buildTaskRequest assembles the full provider.TaskRequest for a task, including
 // follow-up chain context, Obsidian vault routing, and memory recall injection.
 func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *executionContext, globalGuardrails string) (provider.TaskRequest, error) {
 	var req provider.TaskRequest
+	var matchedSkills []*model.Skill
+	var allSkills []*model.Skill
+	var skillIntent bool
+
 	if task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil {
 		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
 		if err != nil || reviewed == nil {
@@ -464,10 +489,13 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		}
 		req = BuildBuiltinCriticRequest(reviewed)
 	} else {
+		allSkills, matchedSkills, skillIntent = r.resolveSkillContext(ctx, task, ec.proj, ec.workingDir)
+
 		req = AssembleRequest(ec.agent, task, ec.proj, globalGuardrails, r.serverURL())
 
-		// If this agent is the global orchestrator, append decomposition instructions.
-		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration {
+		// If this agent is the global orchestrator, append decomposition instructions
+		// unless this task is a direct skill execution.
+		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration && !skillIntent {
 			allAgents, _ := r.agents.List(ctx, "")
 			r.mu.Lock()
 			provRepo := r.providers
@@ -540,12 +568,12 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		}
 	}
 
-	if r.skills != nil && !task.IsCriticReview {
-		if allSkills, err := r.skills.ListEnabled(r.bgCtx); err != nil {
-			slog.Warn("runner: skill list failed", "task_id", task.ID, "error", err)
-		} else if len(allSkills) > 0 {
-			req = InjectSkills(req, allSkills, task, ec.proj)
-		}
+	if !task.IsCriticReview && len(allSkills) > 0 {
+		req = InjectSkills(req, allSkills, task, ec.proj)
+	}
+
+	if skillIntent && !task.IsCriticReview {
+		req = InjectSkillExecutionMode(req, matchedSkills, SkillHaystack(task, ec.proj))
 	}
 
 	r.mu.Lock()
@@ -711,7 +739,9 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	}
 
 	// If this is an orchestration task, process the plan asynchronously.
-	if task.TaskType == model.TaskTypeOrchestration {
+	// Skill executions must not be decomposed even when routed through the orchestrator agent.
+	_, _, skillIntent := r.resolveSkillContext(r.bgCtx, task, ec.proj, ec.workingDir)
+	if task.TaskType == model.TaskTypeOrchestration && !skillIntent {
 		r.mu.Lock()
 		orch := r.orchestrator
 		r.mu.Unlock()
