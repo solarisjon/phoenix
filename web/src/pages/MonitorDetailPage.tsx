@@ -22,6 +22,7 @@ import {
 } from '@/components/monitor/schedule'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/errors'
+import { WorkflowRunPanel, healthBadgeClass, healthBadgeLabel } from '@/components/workflow/WorkflowRunPanel'
 
 // ---- Countdown clock ----
 
@@ -153,16 +154,17 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
       <div className="flex items-center gap-4 px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            {task.health_signal && (
-              <span className={
-                task.health_signal === 'all_clear' ? 'text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-800' :
-                task.health_signal === 'needs_attention' ? 'text-xs font-medium px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-400 border border-amber-800' :
-                'text-xs font-medium px-2 py-0.5 rounded-full bg-red-900/40 text-red-400 border border-red-800'
-              }>
-                {task.health_signal === 'all_clear' ? '✓ All clear' :
-                 task.health_signal === 'needs_attention' ? '⚠ Needs attention' :
-                 '✗ Failed'}
+            {(task.derived_health || task.health_signal) && (
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${healthBadgeClass(task.derived_health || task.health_signal || '')}`}>
+                {healthBadgeLabel(task.derived_health || task.health_signal || '')}
+                {task.derived_health ? '' : ''}
               </span>
+            )}
+            {task.task_type === 'orchestration' && (
+              <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-900/40 text-violet-300">orchestration</span>
+            )}
+            {task.task_type === 'subtask' && (
+              <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">subtask</span>
             )}
             <Badge variant={variant}>{taskStatusLabel(task.status)}</Badge>
             <span className="text-sm text-slate-300">{task.title}</span>
@@ -204,6 +206,9 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
       {task.status !== 'running' && expanded && output && (
         <div ref={streamRef} className="border-t border-slate-800 px-4 py-3 bg-slate-950 max-h-96 overflow-y-auto">
           <MarkdownOutput content={output} />
+          {(task.task_type === 'orchestration' || task.derived_health) && (
+            <WorkflowRunPanel taskId={task.id} expanded={expanded} />
+          )}
         </div>
       )}
     </div>
@@ -453,9 +458,11 @@ export function MonitorDetailPage() {
     } catch { setDeleting(false) }
   }
 
-  const sortedTasks = [...tasks].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  )
+  const sortedTasks = [...tasks]
+    .filter(t => !t.parent_task_id)
+    .sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
   const agentById = Object.fromEntries(agents.map(a => [a.id, a]))
 
   if (loading) return <div className="text-slate-500 text-sm">Loading…</div>

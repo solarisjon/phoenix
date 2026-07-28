@@ -72,7 +72,7 @@ function SystemInfoSection() {
 }
 
 function GlobalGuardrailsSection() {
-  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '', dynamic_orchestration_enabled: false, orchestrator_agent_id: '', max_subtask_depth: 2, max_subtasks_per_level: 5, orchestrator_confidence_threshold: 0.75, skill_import_dirs: [] })
+  const [settings, setSettings] = useState<SystemSettings>({ global_guardrails_enabled: false, global_guardrails: '', core_plugins_enabled: false, community_plugins_enabled: false, obsidian_enabled: false, obsidian_root: '', obsidian_auto_write: false, theme: '', dynamic_orchestration_enabled: false, orchestrator_agent_id: '', default_worker_agent_id: '', max_subtask_depth: 2, max_subtasks_per_level: 5, orchestrator_confidence_threshold: 0.75, skill_import_dirs: [] })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -922,6 +922,23 @@ function OrchestrationTab() {
                 <option key={a.id} value={a.id}>
                   {a.name}{a.is_orchestrator ? ' ★' : ''}
                 </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-200 block mb-1.5">Default Worker Agent</label>
+            <p className="text-xs text-slate-500 mb-2">
+              Coding agent used for orchestrated skill subtasks and workflow wizard auto-wiring.
+            </p>
+            <select
+              value={settings.default_worker_agent_id ?? ''}
+              onChange={e => setSettings(s => s ? { ...s, default_worker_agent_id: e.target.value } : s)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="">— Auto-select by domain —</option>
+              {agents.filter(a => !a.is_orchestrator).map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
           </div>

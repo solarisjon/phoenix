@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -455,23 +456,12 @@ func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*e
 
 // resolveSkillContext loads DB and filesystem skills and determines whether this
 // task should execute in skill mode.
-func (r *Runner) resolveSkillContext(ctx context.Context, task *model.Task, proj *model.Project, workingDir string) ([]*model.Skill, []*model.Skill, bool) {
+func (r *Runner) resolveSkillContext(ctx context.Context, task *model.Task, proj *model.Project, workingDir string) SkillContext {
 	importDirs := []string{}
 	if settings, err := r.settings.Get(ctx); err == nil && settings != nil {
 		importDirs = settings.SkillImportDirs
 	}
-	var allSkills []*model.Skill
-	if r.skills != nil {
-		if dbSkills, err := r.skills.ListEnabled(ctx); err != nil {
-			slog.Warn("runner: skill list failed", "task_id", task.ID, "error", err)
-		} else {
-			allSkills = MergeSkills(dbSkills, DiscoverFilesystemSkills(importDirs, workingDir))
-		}
-	} else {
-		allSkills = DiscoverFilesystemSkills(importDirs, workingDir)
-	}
-	matched := MatchSkills(allSkills, task, proj)
-	return allSkills, matched, TaskHasSkillIntent(allSkills, task, proj)
+	return ResolveSkillContext(ctx, r.skills, importDirs, workingDir, task, proj)
 }
 
 // buildTaskRequest assembles the full provider.TaskRequest for a task, including
@@ -480,7 +470,7 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 	var req provider.TaskRequest
 	var matchedSkills []*model.Skill
 	var allSkills []*model.Skill
-	var skillIntent bool
+	var skillCtx SkillContext
 
 	if task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil {
 		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
@@ -489,13 +479,15 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		}
 		req = BuildBuiltinCriticRequest(reviewed)
 	} else {
-		allSkills, matchedSkills, skillIntent = r.resolveSkillContext(ctx, task, ec.proj, ec.workingDir)
+		skillCtx = r.resolveSkillContext(ctx, task, ec.proj, ec.workingDir)
+		allSkills = skillCtx.AllSkills
+		matchedSkills = skillCtx.Matched
 
 		req = AssembleRequest(ec.agent, task, ec.proj, globalGuardrails, r.serverURL())
 
 		// If this agent is the global orchestrator, append decomposition instructions
-		// unless this task is a direct skill execution.
-		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration && !skillIntent {
+		// for orchestration tasks except direct skill execution.
+		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration && skillCtx.Strategy != SkillStrategyDirect {
 			allAgents, _ := r.agents.List(ctx, "")
 			r.mu.Lock()
 			provRepo := r.providers
@@ -572,8 +564,13 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		req = InjectSkills(req, allSkills, task, ec.proj)
 	}
 
-	if skillIntent && !task.IsCriticReview {
-		req = InjectSkillExecutionMode(req, matchedSkills, SkillHaystack(task, ec.proj))
+	if skillCtx.Strategy != SkillStrategyNone && !task.IsCriticReview {
+		strategy := skillCtx.Strategy
+		if strategy == SkillStrategyDirect {
+			req = InjectSkillExecutionMode(req, matchedSkills, SkillHaystack(task, ec.proj))
+		} else if strategy == SkillStrategyOrchestrate && ec.agent.IsOrchestrator {
+			req = InjectSkillOrchestrationMode(req, PrimaryMatchedSkill(matchedSkills))
+		}
 	}
 
 	r.mu.Lock()
@@ -721,7 +718,7 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 		return
 	}
 
-	if task.Source == "monitor" {
+	if task.Source == "monitor" && task.ParentTaskID == nil {
 		sig := deriveHealthSignal(out.fullText)
 		task.HealthSignal = &sig
 		if ec.proj != nil {
@@ -739,9 +736,9 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	}
 
 	// If this is an orchestration task, process the plan asynchronously.
-	// Skill executions must not be decomposed even when routed through the orchestrator agent.
-	_, _, skillIntent := r.resolveSkillContext(r.bgCtx, task, ec.proj, ec.workingDir)
-	if task.TaskType == model.TaskTypeOrchestration && !skillIntent {
+	// Direct skill executions must not be decomposed.
+	skillCtx := r.resolveSkillContext(r.bgCtx, task, ec.proj, ec.workingDir)
+	if task.TaskType == model.TaskTypeOrchestration && skillCtx.Strategy != SkillStrategyDirect {
 		r.mu.Lock()
 		orch := r.orchestrator
 		r.mu.Unlock()
@@ -749,7 +746,12 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 			go func() {
 				orchCtx, cancel := context.WithTimeout(r.bgCtx, 5*time.Minute)
 				defer cancel()
-				orch.HandleOrchestrationComplete(orchCtx, task, out.fullText)
+				skill := PrimaryMatchedSkill(skillCtx.Matched)
+				importDirs := []string{}
+				if settings, err := r.settings.Get(orchCtx); err == nil && settings != nil {
+					importDirs = settings.SkillImportDirs
+				}
+				orch.HandleOrchestrationComplete(orchCtx, task, out.fullText, skill, ec.workingDir, importDirs)
 			}()
 		}
 	}
@@ -769,6 +771,10 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 		if !posted && !task.IsCriticReview {
 			r.autoMemo(task, ec.agent, out.fullText)
 		}
+	}
+
+	if task.ParentTaskID != nil {
+		r.refreshWorkflowRunHealth(r.bgCtx, *task.ParentTaskID, ec.workingDir)
 	}
 
 	r.mu.Lock()
@@ -803,6 +809,14 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	if err != nil {
 		r.failTask(ctx, task, err)
 		return
+	}
+
+	skillCtx := r.resolveSkillContext(ctx, task, ec.proj, ec.workingDir)
+	if task.TaskType == model.TaskTypeOrchestration && skillCtx.Strategy == SkillStrategyOrchestrate {
+		if skill := PrimaryMatchedSkill(skillCtx.Matched); skill != nil && len(skill.Steps) > 0 {
+			r.executeSkillOrchestration(ctx, task, ec, skill)
+			return
+		}
 	}
 
 	// Transition to Running.
@@ -926,6 +940,142 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 	r.finaliseTask(ctx, task, out, ec)
 }
 
+func (r *Runner) executeSkillOrchestration(ctx context.Context, task *model.Task, ec *executionContext, skill *model.Skill) {
+	now := time.Now()
+	task.StartedAt = &now
+	timeoutAt := now.Add(r.taskTimeout)
+	task.TimeoutAt = &timeoutAt
+	if err := r.setStatus(ctx, task, model.TaskStatusRunning, nil); err != nil {
+		slog.Error("runner: set running status", "error", err)
+		return
+	}
+
+	importDirs := []string{}
+	if settings, err := r.settings.Get(ctx); err == nil && settings != nil {
+		importDirs = settings.SkillImportDirs
+	}
+
+	r.mu.Lock()
+	orch := r.orchestrator
+	r.mu.Unlock()
+	if orch == nil {
+		r.failTask(ctx, task, fmt.Errorf("skill orchestration requires orchestrator"))
+		return
+	}
+
+	plan, skipped := BuildSkillOrchestrationPlan(skill, ec.workingDir)
+	planJSON, _ := json.Marshal(plan)
+	task.OrchestrationPlan = string(planJSON)
+	outputJSON, _ := json.Marshal(map[string]interface{}{
+		"text":       fmt.Sprintf("Skill orchestration plan for %q (%d steps, %d skipped checkpoints)", skill.Name, len(plan.Subtasks), len(skipped)),
+		"tokens_in":  0,
+		"tokens_out": 0,
+		"run_id":     uuid.New().String(),
+	})
+	completedAt := time.Now()
+	task.Output = string(outputJSON)
+	task.CompletedAt = &completedAt
+	task.RunnerPID = 0
+	task.DerivedHealth = "needs_attention"
+
+	if err := orch.SpawnSkillOrchestrationPlan(ctx, task, skill, ec.workingDir, importDirs); err != nil {
+		r.failTask(ctx, task, err)
+		return
+	}
+
+	if err := r.setStatus(ctx, task, model.TaskStatusCompleted, &completedAt); err != nil {
+		slog.Error("runner: set skill orchestration completed", "error", err)
+		return
+	}
+
+	r.emit(StreamEvent{
+		TaskID:     task.ID,
+		AgentID:    task.AgentID,
+		StatusDone: func() *model.TaskStatus { s := model.TaskStatusCompleted; return &s }(),
+	})
+}
+
+func (r *Runner) refreshWorkflowRunHealth(ctx context.Context, rootTaskID, workingDir string) {
+	root, err := r.tasks.Get(ctx, rootTaskID)
+	if err != nil || root == nil {
+		return
+	}
+	subtasks, err := r.tasks.ListByParentTaskID(ctx, rootTaskID)
+	if err != nil {
+		return
+	}
+
+	proj, _ := r.projects.Get(ctx, root.ProjectID)
+	if workingDir == "" && proj != nil {
+		workingDir = proj.WorkingDir
+	}
+	skillCtx := r.resolveSkillContext(ctx, root, proj, workingDir)
+	skill := PrimaryMatchedSkill(skillCtx.Matched)
+	steps := []model.SkillStep{}
+	if skill != nil {
+		steps = skill.Steps
+	}
+
+	deliverables := VerifyDeliverables(steps, workingDir, root.StartedAt)
+	agentSignal := ""
+	if root.HealthSignal != nil {
+		agentSignal = *root.HealthSignal
+	}
+	derived := DeriveWorkflowHealth(root, subtasks, deliverables, agentSignal)
+
+	root.DerivedHealth = derived
+	root.DeliverablesJSON = MarshalDeliverables(deliverables)
+
+	if root.Source == "monitor" {
+		root.HealthSignal = &derived
+		if proj, err := r.projects.Get(ctx, root.ProjectID); err == nil && proj != nil {
+			consecutiveBad := r.updateHeartbeatSignal(proj, derived)
+			if derived != "all_clear" {
+				r.maybeReactToHealthSignal(root, proj, derived, consecutiveBad)
+			}
+		}
+	}
+
+	if err := r.tasks.Update(ctx, root); err != nil {
+		slog.Error("runner: refresh workflow health", "task_id", rootTaskID, "error", err)
+	}
+
+	// Auto-memo verified deliverables for briefing transparency.
+	if r.memos != nil && derived == "all_clear" {
+		for _, d := range deliverables {
+			if !d.Verified {
+				continue
+			}
+			title := d.Title
+			if title == "" {
+				title = filepath.Base(d.Path)
+			}
+			body := fmt.Sprintf("Deliverable verified: %s", d.Path)
+			r.saveDeliverableMemo(root, title, body, d.Path)
+		}
+	}
+}
+
+func (r *Runner) saveDeliverableMemo(task *model.Task, title, body, path string) {
+	if r.memos == nil {
+		return
+	}
+	memo := &model.Memo{
+		ID:           uuid.New().String(),
+		TaskID:       task.ID,
+		ProjectID:    task.ProjectID,
+		Title:        title,
+		Body:         body,
+		Priority:     model.MemoPriorityNormal,
+		Status:       model.MemoStatusUnread,
+		ArtifactPath: path,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := r.memos.Create(r.bgCtx, memo); err != nil {
+		slog.Warn("runner: save deliverable memo", "task_id", task.ID, "error", err)
+	}
+}
+
 // failTask marks a task as failed and emits an error event.
 // It always uses the runner's long-lived background context for DB operations
 // so that a cancelled task context (e.g. user cancellation) doesn't prevent
@@ -957,6 +1107,14 @@ func (r *Runner) failTask(ctx context.Context, task *model.Task, err error) {
 	}
 	if setErr := r.setStatus(dbCtx, task, status, nil); setErr != nil {
 		slog.Error("runner: set failed status", "error", setErr)
+	}
+
+	if task.ParentTaskID != nil {
+		workingDir := ""
+		if proj, err := r.projects.Get(dbCtx, task.ProjectID); err == nil && proj != nil {
+			workingDir = proj.WorkingDir
+		}
+		r.refreshWorkflowRunHealth(dbCtx, *task.ParentTaskID, workingDir)
 	}
 
 	r.emit(StreamEvent{

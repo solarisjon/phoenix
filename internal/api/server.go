@@ -215,6 +215,7 @@ func (s *Server) buildRouter() http.Handler {
 		// Tasks
 		r.Get("/tasks", s.listTasks)
 		r.Post("/tasks", s.createTask)
+		r.Post("/workflows", s.createWorkflow)
 		r.Post("/tasks/quick", s.quickTask)
 		r.Get("/search", s.search)
 		r.Get("/tasks/search", s.searchTasks)
@@ -223,6 +224,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Get("/tasks/running", s.listRunningTasks)
 		r.Get("/tasks/attention", s.listAttentionTasks)
 		r.Get("/tasks/{id}", s.getTask)
+		r.Get("/tasks/{id}/run", s.getTaskRun)
 		r.Put("/tasks/{id}", s.updateTask)
 		r.Delete("/tasks/{id}", s.deleteTask)
 		r.Post("/tasks/{id}/retry", s.retryTask)

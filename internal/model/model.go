@@ -277,6 +277,9 @@ type Task struct {
 	SummaryCache         string     `json:"summary_cache"`        // cached summary of older follow-up turns (stored on the root task)
 	TaskType             TaskType   `json:"task_type"`            // "standard" | "orchestration" | "subtask"
 	OrchestrationPlan    string     `json:"orchestration_plan"`   // JSON blob: plan produced by orchestrator
+	StepSlug             string     `json:"step_slug"`            // orchestrated skill step identifier
+	DeliverablesJSON     string     `json:"deliverables_json"`    // JSON: []WorkflowDeliverable
+	DerivedHealth        string     `json:"derived_health"`       // computed workflow health
 	CreatedAt            time.Time  `json:"created_at"`
 	StartedAt            *time.Time `json:"started_at"`
 	CompletedAt          *time.Time `json:"completed_at"`
@@ -313,6 +316,10 @@ type SystemSettings struct {
 	// SkillImportDirs lists filesystem paths scanned for SKILL.md files. Each path
 	// may be a skills container (subdirs with SKILL.md) or a single skill directory.
 	SkillImportDirs []string `json:"skill_import_dirs"`
+
+	// DefaultWorkerAgentID is the coding agent used for orchestrated skill subtasks
+	// when the workflow wizard auto-wires execution agents.
+	DefaultWorkerAgentID string `json:"default_worker_agent_id"`
 }
 
 // ObsidianVault represents a single Obsidian vault directory with user-provided context
@@ -327,19 +334,59 @@ type ObsidianVault struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// SkillExecutionMode controls whether a matched skill runs directly on the
+// assigned agent or is decomposed into orchestrated subtasks.
+type SkillExecutionMode string
+
+const (
+	SkillExecutionDirect      SkillExecutionMode = "direct"
+	SkillExecutionOrchestrate SkillExecutionMode = "orchestrate"
+)
+
+// SkillStep is one ordered step in an orchestrate-mode skill.
+type SkillStep struct {
+	Slug    string   `json:"slug"`
+	Title   string   `json:"title"`
+	Outputs []string `json:"outputs,omitempty"`
+}
+
 // Skill is a reusable, named instruction set. A skill can be bound to a
 // project as its default (Project.DefaultSkillID), or invoked ad hoc by
 // mentioning its Slug in a task's title/description or a project's objective.
 // Skills are injected into the system prompt at prompt-assembly time, so they
 // work identically regardless of which provider/CLI executes the task.
 type Skill struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Slug         string    `json:"slug"` // lowercase token matched against task text, e.g. "morning_coffee"
-	Description  string    `json:"description"`
-	Instructions string    `json:"instructions"`
-	Enabled      bool      `json:"enabled"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            string             `json:"id"`
+	Name          string             `json:"name"`
+	Slug          string             `json:"slug"` // lowercase token matched against task text, e.g. "morning_coffee"
+	Description   string             `json:"description"`
+	Instructions  string             `json:"instructions"`
+	ExecutionMode SkillExecutionMode `json:"execution_mode"`
+	Steps         []SkillStep        `json:"steps,omitempty"`
+	Enabled       bool               `json:"enabled"`
+	CreatedAt     time.Time          `json:"created_at"`
+}
+
+// WorkflowDeliverable is a verified or expected output from a workflow run.
+type WorkflowDeliverable struct {
+	Path     string `json:"path"`
+	Title    string `json:"title,omitempty"`
+	StepSlug string `json:"step_slug,omitempty"`
+	Verified bool   `json:"verified"`
+	Kind     string `json:"kind,omitempty"` // file | url
+}
+
+// WorkflowRun aggregates a root task, its subtasks, deliverables, and derived health.
+type WorkflowRun struct {
+	RootTask      *Task                 `json:"root_task"`
+	Subtasks      []*Task               `json:"subtasks"`
+	Plan          string                `json:"plan,omitempty"`
+	DerivedHealth string                `json:"derived_health"`
+	Deliverables  []WorkflowDeliverable `json:"deliverables"`
+	TotalCost     float64               `json:"total_cost"`
+	DurationSec   int                   `json:"duration_sec,omitempty"`
+	StepsComplete int                   `json:"steps_complete"`
+	StepsTotal    int                   `json:"steps_total"`
 }
 
 // AgentDraftStatus represents the lifecycle of a pending agent hire.

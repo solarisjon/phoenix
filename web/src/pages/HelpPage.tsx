@@ -252,6 +252,24 @@ const FEATURES: FeatureSection[] = [
     ],
   },
   {
+    heading: 'Workflows & skills',
+    icon: '⟳',
+    features: [
+      {
+        title: 'Create Workflow wizard',
+        body: 'Monitors → Create Workflow walks you through binding a skill to a scheduled monitor or project. Orchestrate-mode skills automatically decompose into steps executed by worker agents.',
+      },
+      {
+        title: 'Derived health & deliverables',
+        body: 'Workflow runs compute health from step outcomes and verified outputs (files/URLs declared in skill steps). Expand a monitor run to see the step timeline and deliverable checklist.',
+      },
+      {
+        title: 'Skill modes',
+        body: 'Skills can be direct (one agent executes) or orchestrate (planner + subtasks). Set execution_mode in SKILL.md frontmatter and re-import under Plugins → Skills.',
+      },
+    ],
+  },
+  {
     heading: 'Dynamic orchestration',
     icon: '★',
     features: [

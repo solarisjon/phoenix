@@ -18,7 +18,8 @@ const FeedPage          = lazy(() => import('@/pages/FeedPage'))
 const BriefingPage      = lazy(() => import('@/pages/BriefingPage').then(m => ({ default: m.BriefingPage })))
 const AgentActivityPage = lazy(() => import('@/pages/AgentActivityPage').then(m => ({ default: m.AgentActivityPage })))
 const PluginsPage       = lazy(() => import('@/pages/PluginsPage').then(m => ({ default: m.PluginsPage })))
-const CostInsightsPage  = lazy(() => import('@/pages/CostInsightsPage'))
+const WorkflowWizardPage = lazy(() => import('@/pages/WorkflowWizardPage').then(m => ({ default: m.WorkflowWizardPage })))
+const CostInsightsPage   = lazy(() => import('@/pages/CostInsightsPage'))
 
 function AuthenticatedApp() {
   const { user, isLoading, logout } = useAuth()
@@ -46,6 +47,7 @@ function AuthenticatedApp() {
             <Route path="/projects" element={<ProjectsWorkspace />} />
             <Route path="/projects/:id" element={<ProjectsWorkspace />} />
             <Route path="/monitors" element={<MonitorsPage />} />
+            <Route path="/monitors/new" element={<WorkflowWizardPage />} />
             <Route path="/monitors/:id" element={<MonitorDetailPage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/teams" element={<TeamsPage />} />

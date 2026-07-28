@@ -21,7 +21,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
 	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on, loop_iteration,
-	task_type, orchestration_plan `
+	task_type, orchestration_plan, step_slug, deliverables_json, derived_health `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -133,6 +133,16 @@ func (r *TaskRepo) Get(ctx context.Context, id string) (*model.Task, error) {
 	return scanTask(row)
 }
 
+func (r *TaskRepo) ListByParentTaskID(ctx context.Context, parentID string) ([]*model.Task, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT`+taskSelectCols+`FROM tasks WHERE parent_task_id = ? ORDER BY created_at ASC`, parentID)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by parent: %w", err)
+	}
+	defer rows.Close()
+	return scanTasks(rows)
+}
+
 func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	isCriticReview := 0
 	if t.IsCriticReview {
@@ -154,10 +164,10 @@ func (r *TaskRepo) Create(ctx context.Context, t *model.Task) error {
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO tasks
-		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on, loop_iteration, task_type, orchestration_plan)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, agent_id, parent_task_id, follow_up_of, title, description, status, input, output, cost_usd, tokens_in, tokens_out, source, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, depends_on, loop_iteration, task_type, orchestration_plan, step_slug, deliverables_json, derived_health)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.ProjectID, t.AgentID, nullString(t.ParentTaskID), nullString(t.FollowUpOf),
-		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON, t.LoopIteration, taskType, t.OrchestrationPlan)
+		t.Title, t.Description, string(t.Status), t.Input, t.Output, t.CostUSD, t.TokensIn, t.TokensOut, t.Source, isCriticReview, nullString(t.ReviewedTaskID), criticMode, t.PromptHash, dependsOnJSON, t.LoopIteration, taskType, t.OrchestrationPlan, t.StepSlug, t.DeliverablesJSON, t.DerivedHealth)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
 	}
@@ -180,13 +190,13 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 		  started_at = ?, completed_at = ?,
 		  health_signal = ?, guardrail_reason = ?, last_error = ?,
 		  is_critic_review = ?, reviewed_task_id = ?, prompt_hash = ?,
-		  orchestration_plan = ?
+		  orchestration_plan = ?, step_slug = ?, deliverables_json = ?, derived_health = ?
 		WHERE id = ?`,
 		string(t.Status), t.Output, t.CostUSD, t.TokensIn, t.TokensOut, dismissed,
 		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt,
 		t.HealthSignal, t.GuardrailReason, t.LastError, isCriticReview, nullString(t.ReviewedTaskID), t.PromptHash,
-		t.OrchestrationPlan, t.ID)
+		t.OrchestrationPlan, t.StepSlug, t.DeliverablesJSON, t.DerivedHealth, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
@@ -390,7 +400,7 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 	var runnerPID sql.NullInt64
 	var timeoutAt, startedAt, completedAt sql.NullTime
 
-	var taskType, orchestrationPlan string
+	var taskType, orchestrationPlan, stepSlug, deliverablesJSON, derivedHealth string
 	if err := scanFn(
 		&dest.ID, &dest.ProjectID, &dest.AgentID, &parentID, &followUpOf,
 		&dest.Title, &dest.Description, &status,
@@ -399,7 +409,7 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 		&dest.Source, &healthSignal, &guardrailReason, &lastError,
 		&dest.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
 		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn, &dest.LoopIteration,
-		&taskType, &orchestrationPlan,
+		&taskType, &orchestrationPlan, &stepSlug, &deliverablesJSON, &derivedHealth,
 	); err != nil {
 		return err
 	}
@@ -409,6 +419,9 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 		dest.TaskType = model.TaskTypeStandard
 	}
 	dest.OrchestrationPlan = orchestrationPlan
+	dest.StepSlug = stepSlug
+	dest.DeliverablesJSON = deliverablesJSON
+	dest.DerivedHealth = derivedHealth
 	dest.Status = model.TaskStatus(status)
 	dest.Dismissed = dismissed != 0
 	dest.IsCriticReview = isCriticReview != 0

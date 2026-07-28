@@ -19,6 +19,7 @@ import { taskStatusVariant, taskStatusLabel, parseOutput, timeAgo, formatCost, g
 import { cn } from '@/lib/utils'
 import { phoenixWS } from '@/lib/ws'
 import { WorkingDirInput } from '@/components/ui/working-dir-input'
+import { WorkflowRunPanel } from '@/components/workflow/WorkflowRunPanel'
 import { TagInput } from '@/components/ui/tag-input'
 
 // ---------------------------------------------------------------------------
@@ -1176,6 +1177,9 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
           <div>
             <p className="text-xs font-medium text-slate-400 mb-1">Output</p>
             <MarkdownOutput content={output} className="text-sm" />
+            {(task.task_type === 'orchestration' || task.derived_health) && (
+              <WorkflowRunPanel taskId={task.id} expanded />
+            )}
           </div>
         )}
 

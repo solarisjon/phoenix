@@ -307,7 +307,7 @@ func (s *Scheduler) fire(ctx context.Context, spec scheduleSpec) error {
 			importDirs = cfg.SkillImportDirs
 		}
 	}
-	if spec.useOrchestrator && !agent.TaskRequestsSkillExecution(ctx, s.skills, importDirs, spec.monitor.WorkingDir, probeTask, spec.monitor) {
+	if spec.useOrchestrator && agent.TaskShouldUseOrchestrationType(ctx, s.skills, importDirs, spec.monitor.WorkingDir, probeTask, spec.monitor) {
 		taskType = model.TaskTypeOrchestration
 	}
 	task := &model.Task{

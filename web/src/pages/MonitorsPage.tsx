@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, type Project, type Agent, type Provider, type ProjectSummary, type Skill } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -430,7 +430,12 @@ export function MonitorsPage() {
             Autonomous agents that wake on a schedule, do their work, and sleep
           </p>
         </div>
-        <Button onClick={() => setShowForm(true)}>+ New Monitor</Button>
+        <div className="flex gap-2">
+          <Link to="/monitors/new">
+            <Button variant="secondary">Create Workflow</Button>
+          </Link>
+          <Button onClick={() => setShowForm(true)}>+ New Monitor</Button>
+        </div>
       </div>
 
       {loading ? (

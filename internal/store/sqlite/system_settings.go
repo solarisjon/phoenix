@@ -87,6 +87,7 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		MaxSubtasksPerLevel:             maxPerLevel,
 		OrchestratorConfidenceThreshold: confidenceThreshold,
 		SkillImportDirs:                 skillImportDirs,
+		DefaultWorkerAgentID:            kv["default_worker_agent_id"],
 	}
 	return s, nil
 }
@@ -207,6 +208,9 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 		return fmt.Errorf("marshal skill_import_dirs: %w", err)
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "skill_import_dirs", string(skillImportDirs), now); err != nil {
+		return err
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "default_worker_agent_id", s.DefaultWorkerAgentID, now); err != nil {
 		return err
 	}
 

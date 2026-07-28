@@ -150,6 +150,9 @@ export interface Task {
   loop_iteration: number // ReAct iteration index; 0 for non-loop tasks
   task_type: 'standard' | 'orchestration' | 'subtask'
   orchestration_plan: string   // JSON-encoded OrchestrationPlan; "" if none
+  step_slug: string
+  deliverables_json: string
+  derived_health: string
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -216,6 +219,7 @@ export interface SystemSettings {
   max_subtasks_per_level: number
   orchestrator_confidence_threshold: number
   skill_import_dirs: string[]
+  default_worker_agent_id: string
 }
 
 export interface ObsidianVault {
@@ -243,14 +247,42 @@ export interface ObsidianWriteResult {
 // A reusable, named instruction set. Bind one to a project as its default, or
 // invoke ad hoc by mentioning its slug in a task/project's description
 // (e.g. "execute the morning_coffee skill").
+export interface SkillStep {
+  slug: string
+  title: string
+  outputs?: string[]
+}
+
 export interface Skill {
   id: string
   name: string
   slug: string
   description: string
   instructions: string
+  execution_mode: 'direct' | 'orchestrate'
+  steps?: SkillStep[]
   enabled: boolean
   created_at: string
+}
+
+export interface WorkflowDeliverable {
+  path: string
+  title?: string
+  step_slug?: string
+  verified: boolean
+  kind?: string
+}
+
+export interface WorkflowRun {
+  root_task: Task
+  subtasks: Task[]
+  plan?: string
+  derived_health: string
+  deliverables: WorkflowDeliverable[]
+  total_cost: number
+  duration_sec?: number
+  steps_complete: number
+  steps_total: number
 }
 
 export interface SkillImportResult {
@@ -565,6 +597,7 @@ export const api = {
     list: (projectId: string) => request<Task[]>(`/tasks?project_id=${projectId}`),
     listAll: () => request<Task[]>('/tasks'),
     get: (id: string) => request<Task>(`/tasks/${id}`),
+    getRun: (id: string) => request<WorkflowRun>(`/tasks/${id}/run`),
     create: (data: Partial<Task>) => request<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
     delete: (id: string) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
     retry: (id: string) => request<Task>(`/tasks/${id}/retry`, { method: 'POST', body: '{}' }),
@@ -741,6 +774,24 @@ export const api = {
       request<SkillBulkDeleteResult>('/skills/bulk-delete', {
         method: 'POST',
         body: JSON.stringify({ ids }),
+      }),
+  },
+  workflows: {
+    create: (data: {
+      name: string
+      kind: 'monitor' | 'project'
+      skill_id: string
+      objective?: string
+      working_dir?: string
+      schedule_kind?: string
+      schedule_times?: string[]
+      schedule_interval?: number
+      agent_id?: string
+      test_run?: boolean
+    }) =>
+      request<{ project: Project; skill: Skill; test_task?: Task }>('/workflows', {
+        method: 'POST',
+        body: JSON.stringify(data),
       }),
   },
   taskTemplates: {

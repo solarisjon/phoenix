@@ -59,7 +59,7 @@ func TestAssembleUserPrompt_WithDescription(t *testing.T) {
 		Description: "Find best practices.",
 		Input:       `{"query":"OKRs"}`,
 	}
-	prompt := assembleUserPrompt(task)
+	prompt := assembleUserPrompt(task, nil)
 	if !strings.Contains(prompt, "Research OKRs") {
 		t.Error("missing task title")
 	}
@@ -73,7 +73,7 @@ func TestAssembleUserPrompt_WithDescription(t *testing.T) {
 
 func TestAssembleUserPrompt_EmptyInput(t *testing.T) {
 	task := &model.Task{Title: "Simple task", Input: "{}"}
-	prompt := assembleUserPrompt(task)
+	prompt := assembleUserPrompt(task, nil)
 	if strings.Contains(prompt, "## Input") {
 		t.Error("should not include Input section for empty JSON object")
 	}
@@ -150,7 +150,7 @@ func TestAssembleRequest(t *testing.T) {
 		Description: "Do the thing.",
 		Input:       "{}",
 	}
-	req := AssembleRequest(a, task, "", "")
+	req := AssembleRequest(a, task, nil, "", "")
 	if req.SystemPrompt == "" {
 		t.Error("SystemPrompt should not be empty")
 	}

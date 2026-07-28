@@ -305,7 +305,7 @@ func SelectOrchestrationModel(providers []*model.Provider) (providerID, modelID 
 // orchestration-type task completes successfully. It parses the plan from
 // the output, then either spawns subtasks (high confidence) or marks the
 // task as awaiting_approval (low confidence) so the human can review.
-func (o *Orchestrator) HandleOrchestrationComplete(ctx context.Context, task *model.Task, outputText string) {
+func (o *Orchestrator) HandleOrchestrationComplete(ctx context.Context, task *model.Task, outputText string, skill *model.Skill, workingDir string, importDirs []string) {
 	slog.Info("orchestrator: handling completed orchestration task", "task_id", task.ID)
 
 	settings, err := o.settings.Get(ctx)
@@ -314,13 +314,36 @@ func (o *Orchestrator) HandleOrchestrationComplete(ctx context.Context, task *mo
 		return
 	}
 
-	plan, err := parseRoutedPlan(outputText)
-	if err != nil {
-		slog.Warn("orchestrator: parse plan failed — task left as completed", "task_id", task.ID, "error", err)
-		return
+	var plan *routedPlan
+	if skill != nil && skill.ExecutionMode == model.SkillExecutionOrchestrate && len(skill.Steps) > 0 {
+		plan, _ = BuildSkillOrchestrationPlan(skill, workingDir)
+	} else {
+		var parseErr error
+		plan, parseErr = parseRoutedPlan(outputText)
+		if parseErr != nil {
+			slog.Warn("orchestrator: parse plan failed — task left as completed", "task_id", task.ID, "error", parseErr)
+			return
+		}
 	}
 
-	// Store the plan JSON on the task for UI display.
+	o.persistAndSpawnPlan(ctx, task, plan, settings, skill, importDirs, workingDir)
+}
+
+// SpawnSkillOrchestrationPlan deterministically decomposes a skill into subtasks.
+func (o *Orchestrator) SpawnSkillOrchestrationPlan(ctx context.Context, parent *model.Task, skill *model.Skill, workingDir string, importDirs []string) error {
+	settings, err := o.settings.Get(ctx)
+	if err != nil {
+		return err
+	}
+	plan, _ := BuildSkillOrchestrationPlan(skill, workingDir)
+	o.persistAndSpawnPlan(ctx, parent, plan, settings, skill, importDirs, workingDir)
+	return nil
+}
+
+func (o *Orchestrator) persistAndSpawnPlan(ctx context.Context, task *model.Task, plan *routedPlan, settings *model.SystemSettings, skill *model.Skill, importDirs []string, workingDir string) {
+	if plan == nil {
+		return
+	}
 	cleanPlan, _ := json.Marshal(plan)
 	task.OrchestrationPlan = string(cleanPlan)
 	if err := o.tasks.Update(ctx, task); err != nil {
@@ -337,7 +360,6 @@ func (o *Orchestrator) HandleOrchestrationComplete(ctx context.Context, task *mo
 			"task_id", task.ID,
 			"confidence", plan.Confidence,
 			"threshold", threshold)
-		// Revert to awaiting_approval so human can review + approve.
 		task.Status = model.TaskStatusAwaitingApproval
 		if err := o.tasks.Update(ctx, task); err != nil {
 			slog.Error("orchestrator: set awaiting_approval", "error", err)
@@ -346,12 +368,17 @@ func (o *Orchestrator) HandleOrchestrationComplete(ctx context.Context, task *mo
 	}
 
 	if len(plan.Subtasks) == 0 {
-		// Orchestrator decided no decomposition needed — task is already complete.
 		slog.Info("orchestrator: no decomposition needed, task complete", "task_id", task.ID)
 		return
 	}
 
-	// Spawn all subtasks.
+	if skill != nil && len(skill.Steps) > 0 {
+		if err := o.spawnSkillSubtasks(ctx, task, plan, settings, skill, importDirs, workingDir); err != nil {
+			slog.Error("orchestrator: spawn skill subtasks", "task_id", task.ID, "error", err)
+		}
+		return
+	}
+
 	if err := o.spawnSubtasks(ctx, task, plan, settings); err != nil {
 		slog.Error("orchestrator: spawn subtasks", "task_id", task.ID, "error", err)
 	}
@@ -425,6 +452,109 @@ func (o *Orchestrator) spawnSubtasks(ctx context.Context, parent *model.Task, pl
 	}
 
 	return nil
+}
+
+func (o *Orchestrator) spawnSkillSubtasks(ctx context.Context, parent *model.Task, plan *routedPlan, settings *model.SystemSettings, skill *model.Skill, importDirs []string, workingDir string) error {
+	allAgents, err := o.agents.List(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list agents: %w", err)
+	}
+	allProviders, err := o.providers.List(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list providers: %w", err)
+	}
+
+	workerAgentID := settings.DefaultWorkerAgentID
+	var prevTaskID string
+	created := 0
+	for i, sub := range plan.Subtasks {
+		step := skillStepAt(skill, i, sub.Title, workingDir)
+		agentID, _, _, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
+		if err != nil {
+			slog.Warn("orchestrator: resolve skill subtask routing", "subtask", sub.Title, "error", err)
+			continue
+		}
+		if workerAgentID != "" {
+			for _, a := range allAgents {
+				if a.ID == workerAgentID && a.Status == model.AgentStatusActive {
+					agentID = workerAgentID
+					break
+				}
+			}
+		}
+
+		desc := sub.Description
+		if step.Slug != "" {
+			if instr := LoadStepInstructions(skill, step, importDirs, workingDir); instr != "" {
+				desc = instr
+			}
+		}
+
+		var deps []string
+		if prevTaskID != "" {
+			deps = []string{prevTaskID}
+		}
+		status := model.TaskStatusPending
+		if len(deps) > 0 {
+			status = model.TaskStatusQueued
+		}
+
+		subtask := &model.Task{
+			ID:           uuid.New().String(),
+			ProjectID:    parent.ProjectID,
+			AgentID:      agentID,
+			ParentTaskID: &parent.ID,
+			Title:        sub.Title,
+			Description:  desc,
+			Status:       status,
+			TaskType:     model.TaskTypeSubtask,
+			Source:       "orchestrator:skill",
+			StepSlug:     step.Slug,
+			DependsOn:    deps,
+			Input:        "{}",
+			Output:       "{}",
+			CreatedAt:    time.Now(),
+		}
+
+		if err := o.tasks.Create(ctx, subtask); err != nil {
+			slog.Error("orchestrator: create skill subtask", "title", sub.Title, "error", err)
+			continue
+		}
+		prevTaskID = subtask.ID
+
+		if status == model.TaskStatusPending {
+			if err := o.runner.RunTask(ctx, subtask.ID); err != nil {
+				slog.Error("orchestrator: run skill subtask", "task_id", subtask.ID, "error", err)
+				continue
+			}
+		}
+
+		slog.Info("orchestrator: spawned skill subtask", "task_id", subtask.ID, "title", sub.Title, "step", step.Slug)
+		created++
+	}
+	if created == 0 {
+		return fmt.Errorf("no skill subtasks created")
+	}
+	return nil
+}
+
+func skillStepAt(skill *model.Skill, index int, title, workingDir string) model.SkillStep {
+	if skill == nil {
+		return model.SkillStep{Title: title}
+	}
+	active := []model.SkillStep{}
+	for _, step := range skill.Steps {
+		if !stepCheckpointFresh(step, workingDir) {
+			active = append(active, step)
+		}
+	}
+	if index >= 0 && index < len(active) {
+		return active[index]
+	}
+	if index >= 0 && index < len(skill.Steps) {
+		return skill.Steps[index]
+	}
+	return model.SkillStep{Title: title}
 }
 
 // resolveSubtaskRouting determines the agentID and optional model for a subtask.

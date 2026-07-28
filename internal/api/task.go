@@ -262,7 +262,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		if sysSettings, err := s.systemSettings.Get(r.Context()); err == nil && sysSettings != nil {
 			importDirs = sysSettings.SkillImportDirs
 		}
-		if agent.TaskRequestsSkillExecution(r.Context(), s.skills, importDirs, proj.WorkingDir, probeTask, proj) {
+		if !agent.TaskShouldUseOrchestrationType(r.Context(), s.skills, importDirs, proj.WorkingDir, probeTask, proj) {
 			taskType = model.TaskTypeStandard
 		}
 	}
@@ -715,4 +715,53 @@ func (s *Server) forceResetTask(w http.ResponseWriter, r *http.Request) {
 		updated = task
 	}
 	respond(w, http.StatusOK, updated)
+}
+
+func (s *Server) getTaskRun(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	task, err := s.tasks.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if task == nil {
+		respondErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+
+	root := task
+	if task.ParentTaskID != nil {
+		parent, err := s.tasks.Get(r.Context(), *task.ParentTaskID)
+		if err != nil {
+			respondInternalErr(w, err)
+			return
+		}
+		if parent != nil {
+			root = parent
+		}
+	}
+
+	subtasks, err := s.tasks.ListByParentTaskID(r.Context(), root.ID)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+
+	proj, _ := s.projects.Get(r.Context(), root.ProjectID)
+	workingDir := ""
+	if proj != nil {
+		workingDir = proj.WorkingDir
+	}
+
+	importDirs := []string{}
+	if settings, err := s.systemSettings.Get(r.Context()); err == nil && settings != nil {
+		importDirs = settings.SkillImportDirs
+	}
+	skillCtx := agent.ResolveSkillContext(r.Context(), s.skills, importDirs, workingDir, root, proj)
+	run := agent.BuildWorkflowRun(root, subtasks, agent.PrimaryMatchedSkill(skillCtx.Matched), workingDir)
+	if run == nil {
+		respondErr(w, http.StatusInternalServerError, "failed to build workflow run")
+		return
+	}
+	respond(w, http.StatusOK, run)
 }

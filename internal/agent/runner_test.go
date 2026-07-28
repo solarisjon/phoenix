@@ -166,6 +166,16 @@ func (r *memTaskRepo) ListByAgent(_ context.Context, agentID string) ([]*model.T
 	}
 	return out, nil
 }
+func (r *memTaskRepo) ListByParentTaskID(_ context.Context, parentID string) ([]*model.Task, error) {
+	r.mu.Lock(); defer r.mu.Unlock()
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.ParentTaskID != nil && *t.ParentTaskID == parentID {
+			out = append(out, copyTask(t))
+		}
+	}
+	return out, nil
+}
 func (r *memTaskRepo) Search(_ context.Context, query string) ([]*model.Task, error) {
 	r.mu.Lock(); defer r.mu.Unlock()
 	var out []*model.Task
@@ -424,6 +434,9 @@ func (f *fakeProviderRepo) Create(_ context.Context, _ *model.Provider) error { 
 func (f *fakeProviderRepo) Update(_ context.Context, _ *model.Provider) error { return nil }
 func (f *fakeProviderRepo) Delete(_ context.Context, _ string) error          { return nil }
 func (f *fakeProviderRepo) UpdateHealth(_ context.Context, _, _ string, _ *int64, _ string) error {
+	return nil
+}
+func (f *fakeProviderRepo) UpdateAllowedModels(_ context.Context, _ string, _ []model.ModelEntry) error {
 	return nil
 }
 

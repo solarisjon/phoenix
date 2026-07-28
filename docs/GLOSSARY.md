@@ -256,6 +256,39 @@ Queue → Running → Completed
 
 ---
 
+### Workflow Run
+
+> A single triggered execution that may decompose into orchestrated subtasks.
+> The run's **derived health** is computed from step outcomes and verified
+> deliverables — not from the planner agent's self-reported signal alone.
+
+- Root task + subtasks share a `parent_task_id` link
+- Step checklist, deliverables, and timeline are visible in the monitor/project UI
+- API: `GET /api/tasks/:id/run`
+
+---
+
+### Skill (execution modes)
+
+> Reusable instruction sets injected at prompt-assembly time.
+
+| Mode | Behavior |
+|------|----------|
+| `direct` | Assigned agent executes the skill end-to-end |
+| `orchestrate` | Cheap orchestrator decomposes into sequential subtasks; worker agents execute |
+
+Skills declare optional `steps[]` with expected `outputs` for deliverable verification.
+
+---
+
+### Deliverable
+
+> A verified output from a workflow run: a file path, URL, or artifact declared
+> by the skill, task, or agent `ARTIFACT_START` block. Unverified deliverables
+> downgrade the run's derived health.
+
+---
+
 ## Relationships at a glance
 
 ```

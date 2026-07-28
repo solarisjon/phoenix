@@ -153,6 +153,9 @@ type TaskRepo interface {
 	// and returns the agent IDs of the unlocked tasks so the caller can wake those queues.
 	UnlockDependents(ctx context.Context, completedTaskID string) (agentIDs []string, err error)
 
+	// ListByParentTaskID returns child tasks spawned from a parent orchestration task.
+	ListByParentTaskID(ctx context.Context, parentID string) ([]*model.Task, error)
+
 	// DependenciesSatisfied reports whether every task ID in ids currently has
 	// status 'completed'. A missing ID counts as unsatisfied. Used at task
 	// creation time so a task whose dependencies already finished runs

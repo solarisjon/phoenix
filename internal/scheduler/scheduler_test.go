@@ -174,6 +174,17 @@ func (r *fakeTaskRepo) ListByAgent(_ context.Context, agentID string) ([]*model.
 	}
 	return out, nil
 }
+func (r *fakeTaskRepo) ListByParentTaskID(_ context.Context, parentID string) ([]*model.Task, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*model.Task
+	for _, t := range r.tasks {
+		if t.ParentTaskID != nil && *t.ParentTaskID == parentID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
 func (r *fakeTaskRepo) Search(_ context.Context, _ string) ([]*model.Task, error) {
 	return nil, nil
 }

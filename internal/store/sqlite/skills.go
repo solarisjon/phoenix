@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -16,22 +17,41 @@ func NewSkillRepo(db *DB) *SkillRepo {
 	return &SkillRepo{db: db}
 }
 
-const skillCols = `id, name, slug, description, instructions, enabled, created_at`
+const skillCols = `id, name, slug, description, instructions, enabled, created_at, execution_mode, steps_json`
 
 func scanSkill(row interface {
 	Scan(...any) error
 }) (*model.Skill, error) {
 	var sk model.Skill
 	var enabled int
-	var createdAt string
-	if err := row.Scan(&sk.ID, &sk.Name, &sk.Slug, &sk.Description, &sk.Instructions, &enabled, &createdAt); err != nil {
+	var createdAt, executionMode, stepsJSON string
+	if err := row.Scan(&sk.ID, &sk.Name, &sk.Slug, &sk.Description, &sk.Instructions, &enabled, &createdAt, &executionMode, &stepsJSON); err != nil {
 		return nil, err
 	}
 	sk.Enabled = enabled == 1
+	if executionMode == "" {
+		sk.ExecutionMode = model.SkillExecutionDirect
+	} else {
+		sk.ExecutionMode = model.SkillExecutionMode(executionMode)
+	}
+	if stepsJSON != "" && stepsJSON != "[]" {
+		_ = json.Unmarshal([]byte(stepsJSON), &sk.Steps)
+	}
 	if t, err := time.Parse("2006-01-02 15:04:05", createdAt); err == nil {
 		sk.CreatedAt = t
 	}
 	return &sk, nil
+}
+
+func marshalSkillSteps(steps []model.SkillStep) string {
+	if len(steps) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(steps)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }
 
 func (r *SkillRepo) List(ctx context.Context) ([]*model.Skill, error) {
@@ -91,11 +111,15 @@ func (r *SkillRepo) Create(ctx context.Context, sk *model.Skill) error {
 	if sk.Enabled {
 		enabled = 1
 	}
+	mode := string(sk.ExecutionMode)
+	if mode == "" {
+		mode = string(model.SkillExecutionDirect)
+	}
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO skills (id, name, slug, description, instructions, enabled, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO skills (id, name, slug, description, instructions, enabled, created_at, execution_mode, steps_json)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sk.ID, sk.Name, sk.Slug, sk.Description, sk.Instructions, enabled,
-		sk.CreatedAt.UTC().Format("2006-01-02 15:04:05"))
+		sk.CreatedAt.UTC().Format("2006-01-02 15:04:05"), mode, marshalSkillSteps(sk.Steps))
 	return err
 }
 
@@ -104,9 +128,13 @@ func (r *SkillRepo) Update(ctx context.Context, sk *model.Skill) error {
 	if sk.Enabled {
 		enabled = 1
 	}
+	mode := string(sk.ExecutionMode)
+	if mode == "" {
+		mode = string(model.SkillExecutionDirect)
+	}
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE skills SET name=?, slug=?, description=?, instructions=?, enabled=? WHERE id=?`,
-		sk.Name, sk.Slug, sk.Description, sk.Instructions, enabled, sk.ID)
+		`UPDATE skills SET name=?, slug=?, description=?, instructions=?, enabled=?, execution_mode=?, steps_json=? WHERE id=?`,
+		sk.Name, sk.Slug, sk.Description, sk.Instructions, enabled, mode, marshalSkillSteps(sk.Steps), sk.ID)
 	return err
 }
 

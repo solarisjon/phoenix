@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,17 +43,7 @@ type ScannedSkill struct {
 // TaskRequestsSkillExecution reports whether a task should run in direct skill
 // execution mode rather than orchestrator decomposition.
 func TaskRequestsSkillExecution(ctx context.Context, repo store.SkillRepo, importDirs []string, workingDir string, t *model.Task, proj *model.Project) bool {
-	var allSkills []*model.Skill
-	if repo != nil {
-		dbSkills, err := repo.ListEnabled(ctx)
-		if err == nil {
-			allSkills = MergeSkills(dbSkills, DiscoverFilesystemSkills(importDirs, workingDir))
-		}
-	}
-	if len(allSkills) == 0 {
-		allSkills = DiscoverFilesystemSkills(importDirs, workingDir)
-	}
-	return TaskHasSkillIntent(allSkills, t, proj)
+	return ResolveSkillContext(ctx, repo, importDirs, workingDir, t, proj).Strategy != SkillStrategyNone
 }
 
 // SkillHaystack returns the lowercased text used to match skill slugs against a
@@ -303,6 +294,7 @@ func parseFilesystemSkill(path, dirName string) (*model.Skill, error) {
 		return nil, err
 	}
 	name, description, slug, body := parseSkillMarkdown(string(data))
+	executionMode, steps := parseSkillFrontmatterExtras(string(data))
 	if slug == "" {
 		slug = dirName
 	}
@@ -316,13 +308,18 @@ func parseFilesystemSkill(path, dirName string) (*model.Skill, error) {
 	if strings.TrimSpace(body) == "" {
 		return nil, fmt.Errorf("empty skill body")
 	}
+	if executionMode == "" {
+		executionMode = model.SkillExecutionDirect
+	}
 	return &model.Skill{
-		ID:           "fs:" + slug,
-		Name:         name,
-		Slug:         slug,
-		Description:  description,
-		Instructions: body,
-		Enabled:      true,
+		ID:            "fs:" + slug,
+		Name:          name,
+		Slug:          slug,
+		Description:   description,
+		Instructions:  body,
+		ExecutionMode: executionMode,
+		Steps:         steps,
+		Enabled:       true,
 	}, nil
 }
 
@@ -356,9 +353,113 @@ func parseSkillMarkdown(raw string) (name, description, slug, body string) {
 			}
 		case "description":
 			description = val
+		case "slug":
+			slug = val
 		}
 	}
 	return name, description, slug, body
+}
+
+func parseSkillFrontmatterExtras(raw string) (model.SkillExecutionMode, []model.SkillStep) {
+	content := strings.TrimSpace(raw)
+	if !strings.HasPrefix(content, "---") {
+		return model.SkillExecutionDirect, nil
+	}
+	end := strings.Index(content[3:], "---")
+	if end == -1 {
+		return model.SkillExecutionDirect, nil
+	}
+	frontmatter := content[3 : 3+end]
+	var mode model.SkillExecutionMode
+	var steps []model.SkillStep
+	for _, line := range strings.Split(frontmatter, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		switch key {
+		case "execution_mode":
+			switch strings.ToLower(val) {
+			case "orchestrate":
+				mode = model.SkillExecutionOrchestrate
+			default:
+				mode = model.SkillExecutionDirect
+			}
+		case "steps_json":
+			_ = json.Unmarshal([]byte(val), &steps)
+		}
+	}
+	if mode == "" {
+		mode = model.SkillExecutionDirect
+	}
+	if len(steps) == 0 {
+		steps = parseSkillStepsFromBody(content)
+	}
+	return mode, steps
+}
+
+func parseSkillStepsFromBody(raw string) []model.SkillStep {
+	content := strings.TrimSpace(raw)
+	start := strings.Index(content, "## Execution Order")
+	if start == -1 {
+		return nil
+	}
+	section := content[start:]
+	var steps []model.SkillStep
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "1.") && !strings.HasPrefix(line, "2.") && !strings.HasPrefix(line, "3.") &&
+			!strings.HasPrefix(line, "4.") && !strings.HasPrefix(line, "5.") && !strings.HasPrefix(line, "6.") &&
+			!strings.HasPrefix(line, "7.") && !strings.HasPrefix(line, "8.") && !strings.HasPrefix(line, "9.") {
+			if strings.HasPrefix(line, "## ") && !strings.HasPrefix(line, "## Execution") {
+				break
+			}
+			continue
+		}
+		// Pattern: 1. **Load `fetch-data` skill** — ...
+		if idx := strings.Index(line, "`"); idx != -1 {
+			rest := line[idx+1:]
+			if end := strings.Index(rest, "`"); end != -1 {
+				slug := strings.TrimSpace(rest[:end])
+				if slug != "" {
+					title := slug
+					if dash := strings.Index(line, "—"); dash != -1 {
+						title = strings.TrimSpace(line[dash+len("—"):])
+					}
+					steps = append(steps, model.SkillStep{Slug: slug, Title: title})
+				}
+			}
+		}
+	}
+	// Attach checkpoint outputs from ## Checkpoint Logic section if present.
+	checkStart := strings.Index(content, "## Checkpoint Logic")
+	if checkStart != -1 {
+		checkSection := content[checkStart:]
+		for i := range steps {
+			prefix := "`" + strings.ReplaceAll(steps[i].Slug, "_", "-") + "`"
+			for _, line := range strings.Split(checkSection, "\n") {
+				if !strings.Contains(line, prefix) && !strings.Contains(line, steps[i].Slug) {
+					continue
+				}
+				if idx := strings.Index(line, "`"); idx != -1 {
+					rest := line[idx+1:]
+					if end := strings.Index(rest, "`"); end != -1 {
+						out := strings.TrimSpace(rest[:end])
+						if strings.Contains(out, "/") || strings.Contains(out, ".") {
+							steps[i].Outputs = append(steps[i].Outputs, ExpandSkillPath(out))
+						}
+					}
+				}
+			}
+		}
+	}
+	return steps
 }
 
 // ScanFilesystemSkills discovers skills under dirs and reports whether each
@@ -441,13 +542,15 @@ func ImportFilesystemSkills(ctx context.Context, repo store.SkillRepo, dirs []st
 
 			now := time.Now().UTC()
 			sk := &model.Skill{
-				ID:           uuid.New().String(),
-				Name:         fsSkill.Name,
-				Slug:         slug,
-				Description:  fsSkill.Description,
-				Instructions: fsSkill.Instructions,
-				Enabled:      true,
-				CreatedAt:    now,
+				ID:            uuid.New().String(),
+				Name:          fsSkill.Name,
+				Slug:          slug,
+				Description:   fsSkill.Description,
+				Instructions:  fsSkill.Instructions,
+				ExecutionMode: fsSkill.ExecutionMode,
+				Steps:         fsSkill.Steps,
+				Enabled:       true,
+				CreatedAt:     now,
 			}
 			if existing != nil {
 				sk.ID = existing.ID
