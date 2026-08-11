@@ -159,6 +159,12 @@ type Agent struct {
 	Status            AgentStatus `json:"status"`
 	CreatedAt         time.Time   `json:"created_at"`
 	TemplateID        *string     `json:"template_id"`
+
+	// Agent self-test fields (mirrors provider health)
+	AgentHealthStatus     string     `json:"agent_health_status"` // "ok" | "error" | "unknown"
+	AgentHealthLatencyMs  *int64     `json:"agent_health_latency_ms,omitempty"` // nil if never tested
+	AgentHealthError       string     `json:"agent_health_error,omitempty"`     // error message if test failed
+	AgentHealthCheckedAt   *time.Time `json:"agent_health_checked_at,omitempty"` // when the test ran
 }
 
 // ProjectKind distinguishes human-driven workbenches from autonomous daemons.
@@ -397,6 +403,16 @@ const (
 	AgentDraftApproved AgentDraftStatus = "approved"
 	AgentDraftRejected AgentDraftStatus = "rejected"
 )
+
+// AgentTestResult holds the outcome of an agent self-test.
+type AgentTestResult struct {
+	AgentID    string     `json:"agent_id"`
+	AgentName  string     `json:"agent_name"`
+	Status     string     `json:"status"` // "ok" | "error" | "unknown"
+	LatencyMs  *int64     `json:"latency_ms,omitempty"` // nil if never tested
+	Error      string     `json:"error,omitempty"`
+	CheckedAt  *time.Time `json:"checked_at,omitempty"`
+}
 
 // MemoStatus represents the read/flag/archive lifecycle of a memo.
 type MemoStatus string

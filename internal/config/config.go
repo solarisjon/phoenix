@@ -33,6 +33,9 @@ type Config struct {
 	// HealthCheckInterval is how often the background checker probes each provider.
 	HealthCheckInterval time.Duration
 
+	// AgentHealthCheckInterval is how often the background checker self-tests each agent.
+	AgentHealthCheckInterval time.Duration
+
 	// AuthEnabled enables the login screen and per-user session enforcement.
 	// When false (default) the server operates in single-user mode with no auth.
 	AuthEnabled bool
@@ -57,6 +60,7 @@ func Load(defaultDBPath string) Config {
 		HTTPTimeout:         envDuration("PHOENIX_HTTP_TIMEOUT", 60*time.Second),
 		CORSOrigin:          os.Getenv("PHOENIX_CORS_ORIGIN"),
 		HealthCheckInterval: envDuration("PHOENIX_HEALTH_CHECK_INTERVAL", 10*time.Minute),
+		AgentHealthCheckInterval: envDuration("PHOENIX_AGENT_HEALTH_CHECK_INTERVAL", 5*time.Minute),
 		AuthEnabled:         os.Getenv("PHOENIX_AUTH_ENABLED") == "true",
 		SeedUsers:           os.Getenv("PHOENIX_SEED_USERS"),
 	}

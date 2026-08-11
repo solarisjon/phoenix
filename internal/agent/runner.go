@@ -339,6 +339,73 @@ func (r *Runner) Shutdown() {
 	}
 }
 
+// TestAgent runs a lightweight self-test for an agent and returns status
+// "ok" or "error" suitable for persisting as agent health.
+//
+// Coding-agent providers are probed the same way as background provider health:
+// binary on PATH + provider builds with the agent's model override. A full
+// opencode/claude Execute is too slow and flaky for a health probe (some CLI
+// versions hang with empty --format json stdout).
+//
+// LLM / Ollama providers get a short live inference probe with no agent
+// behaviour injected (keeps cost and latency down).
+func (r *Runner) TestAgent(ctx context.Context, agentID string) (int64, string, error) {
+	start := time.Now()
+
+	agent, err := r.agents.Get(ctx, agentID)
+	if err != nil || agent == nil {
+		elapsed := time.Since(start).Milliseconds()
+		return elapsed, "error", fmt.Errorf("agent %s not found", agentID)
+	}
+
+	var rec *model.Provider
+	if r.providers != nil {
+		rec, err = r.providers.Get(ctx, agent.ProviderID)
+		if err != nil {
+			elapsed := time.Since(start).Milliseconds()
+			return elapsed, "error", fmt.Errorf("provider lookup: %w", err)
+		}
+		if rec == nil {
+			elapsed := time.Since(start).Milliseconds()
+			return elapsed, "error", fmt.Errorf("provider %s not found", agent.ProviderID)
+		}
+	}
+
+	if rec != nil && rec.Type == model.ProviderTypeCodingAgent {
+		if err := provider.CheckCodingAgentBinary(rec.Config); err != nil {
+			elapsed := time.Since(start).Milliseconds()
+			return elapsed, "error", err
+		}
+		if _, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.ModelOverride); err != nil {
+			elapsed := time.Since(start).Milliseconds()
+			return elapsed, "error", fmt.Errorf("provider load: %w", err)
+		}
+		elapsed := time.Since(start).Milliseconds()
+		return elapsed, "ok", nil
+	}
+
+	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, agent.ModelOverride)
+	if err != nil {
+		elapsed := time.Since(start).Milliseconds()
+		return elapsed, "error", fmt.Errorf("provider load: %w", err)
+	}
+
+	tctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	resp, runErr := prov.Execute(tctx, provider.TaskRequest{
+		Prompt: "Reply with exactly one word: ok",
+	})
+	elapsed := time.Since(start).Milliseconds()
+	if runErr != nil {
+		return elapsed, "error", runErr
+	}
+	if strings.TrimSpace(resp.Output) == "" {
+		return elapsed, "error", fmt.Errorf("provider returned empty response")
+	}
+	return elapsed, "ok", nil
+}
+
 // ActiveTasks returns the IDs of all currently running tasks.
 func (r *Runner) ActiveTasks() []string {
 	r.mu.Lock()
@@ -458,8 +525,10 @@ func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*e
 // task should execute in skill mode.
 func (r *Runner) resolveSkillContext(ctx context.Context, task *model.Task, proj *model.Project, workingDir string) SkillContext {
 	importDirs := []string{}
-	if settings, err := r.settings.Get(ctx); err == nil && settings != nil {
-		importDirs = settings.SkillImportDirs
+	if r.settings != nil {
+		if settings, err := r.settings.Get(ctx); err == nil && settings != nil {
+			importDirs = settings.SkillImportDirs
+		}
 	}
 	return ResolveSkillContext(ctx, r.skills, importDirs, workingDir, task, proj)
 }

@@ -85,6 +85,18 @@ func (r *memAgentRepo) Delete(_ context.Context, id string) error {
 func (r *memAgentRepo) Search(_ context.Context, _, _ string) ([]*model.Agent, error) {
 	return nil, nil
 }
+func (r *memAgentRepo) UpdateHealth(_ context.Context, id, status string, latencyMs *int64, errMsg string) error {
+	a, ok := r.agents[id]
+	if !ok {
+		return fmt.Errorf("agent %s not found", id)
+	}
+	a.AgentHealthStatus = status
+	a.AgentHealthLatencyMs = latencyMs
+	a.AgentHealthError = errMsg
+	now := time.Now().UTC()
+	a.AgentHealthCheckedAt = &now
+	return nil
+}
 
 type memTaskRepo struct {
 	mu    sync.Mutex
@@ -615,5 +627,110 @@ func TestActiveTasksAndShutdown(t *testing.T) {
 	case <-bgCtx.Done():
 	default:
 		t.Error("expected bgCtx to be cancelled after Shutdown")
+	}
+}
+
+func TestTestAgent_Success(t *testing.T) {
+	prov := &mockProvider{output: "ok"}
+	runner, _ := runnerWithMock(t, prov, makeTask(model.TaskStatusPending))
+
+	elapsed, status, err := runner.TestAgent(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("TestAgent: %v", err)
+	}
+	if status != "ok" {
+		t.Errorf("status = %q, want ok", status)
+	}
+	if elapsed < 0 {
+		t.Errorf("elapsed = %d, want >= 0", elapsed)
+	}
+}
+
+func TestTestAgent_ProviderError(t *testing.T) {
+	prov := &mockProvider{err: fmt.Errorf("boom")}
+	runner, _ := runnerWithMock(t, prov, makeTask(model.TaskStatusPending))
+
+	_, status, err := runner.TestAgent(context.Background(), "agent-1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if status != "error" {
+		t.Errorf("status = %q, want error", status)
+	}
+}
+
+func TestTestAgent_EmptyResponse(t *testing.T) {
+	prov := &mockProvider{output: "   "}
+	runner, _ := runnerWithMock(t, prov, makeTask(model.TaskStatusPending))
+
+	_, status, err := runner.TestAgent(context.Background(), "agent-1")
+	if err == nil {
+		t.Fatal("expected error for empty response")
+	}
+	if status != "error" {
+		t.Errorf("status = %q, want error", status)
+	}
+}
+
+func TestTestAgent_NotFound(t *testing.T) {
+	prov := &mockProvider{output: "ok"}
+	runner, _ := runnerWithMock(t, prov, makeTask(model.TaskStatusPending))
+
+	_, status, err := runner.TestAgent(context.Background(), "missing")
+	if err == nil {
+		t.Fatal("expected error for missing agent")
+	}
+	if status != "error" {
+		t.Errorf("status = %q, want error", status)
+	}
+}
+
+func TestTestAgent_CodingAgentBinaryOK(t *testing.T) {
+	prov := &mockProvider{output: "unused"}
+	agentRepo := newMemAgentRepo(makeAgent())
+	fakeProvRepo := &fakeProviderRepo{
+		record: &model.Provider{
+			ID:     "prov-1",
+			Name:   "Mock Coding",
+			Type:   model.ProviderTypeCodingAgent,
+			Config: `{"kind":"opencode","binary_path":"/bin/sh"}`,
+		},
+	}
+	reg := registry.NewRegistry(fakeProvRepo)
+	reg.InjectForTest("prov-1", prov)
+	runner := New(agentRepo, newMemTaskRepo(), &mockProjectRepo{}, nil, nil, reg, nil)
+	runner.SetProviderRepo(fakeProvRepo)
+
+	_, status, err := runner.TestAgent(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("TestAgent: %v", err)
+	}
+	if status != "ok" {
+		t.Errorf("status = %q, want ok", status)
+	}
+}
+
+func TestTestAgent_CodingAgentBinaryMissing(t *testing.T) {
+	prov := &mockProvider{output: "unused"}
+	agentRepo := newMemAgentRepo(makeAgent())
+	fakeProvRepo := &fakeProviderRepo{
+		record: &model.Provider{
+			ID:     "prov-1",
+			Name:   "Mock Coding",
+			Type:   model.ProviderTypeCodingAgent,
+			Config: `{"kind":"opencode","binary_path":"/nonexistent/opencode-binary-xyz"}`,
+		},
+	}
+	reg := registry.NewRegistry(fakeProvRepo)
+	reg.InjectForTest("prov-1", prov)
+	runner := New(agentRepo, newMemTaskRepo(), &mockProjectRepo{}, nil, nil, reg, nil)
+	runner.SetProviderRepo(fakeProvRepo)
+
+	_, status, err := runner.TestAgent(context.Background(), "agent-1")
+	if err == nil {
+		t.Fatal("expected error for missing binary")
+	}
+	if status != "error" {
+		t.Errorf("status = %q, want error", status)
 	}
 }

@@ -158,11 +158,10 @@ func TestAgentCRUD(t *testing.T) {
 func seedProject(t *testing.T, db *DB) *model.Project {
 	t.Helper()
 	p := &model.Project{
-		ID:          "proj-1",
-		Name:        "Build OKRs",
-		Description: "Org-wide OKR generation",
-		Owner:       defaultUserID,
-		Status:      model.ProjectStatusActive,
+		ID:     "proj-1",
+		Name:   "Build OKRs",
+		Owner:  defaultUserID,
+		Status: model.ProjectStatusActive,
 	}
 	if err := NewProjectRepo(db).Create(context.Background(), p); err != nil {
 		t.Fatalf("seed project: %v", err)

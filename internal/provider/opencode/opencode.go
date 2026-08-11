@@ -167,6 +167,10 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 			if stderrMsg := strings.TrimSpace(stderrBuf.String()); stderrMsg != "" {
 				slog.Debug("opencode: stderr", "msg", stderrMsg)
 				ch <- provider.StreamChunk{Error: fmt.Errorf("opencode: no output — %s", stderrMsg), Done: true}
+			} else if err := ctx.Err(); err != nil {
+				ch <- provider.StreamChunk{Error: fmt.Errorf("opencode: no output before deadline: %w", err), Done: true}
+			} else {
+				ch <- provider.StreamChunk{Error: fmt.Errorf("opencode: no text output (empty stream)"), Done: true}
 			}
 		}
 	}()

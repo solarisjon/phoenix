@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -417,4 +419,39 @@ func (s *Server) listAgentTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []*model.Task{}
 	}
 	respond(w, http.StatusOK, tasks)
+}
+
+// TestAgent runs a lightweight self-test against the agent's provider.
+// Results are persisted as the agent's health state (mirrors testProvider).
+func (s *Server) TestAgent(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	agent, err := s.agents.Get(r.Context(), id)
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
+	if agent == nil {
+		respondErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+
+	elapsed, status, testErr := s.runner.TestAgent(r.Context(), id)
+
+	errMsg := ""
+	if testErr != nil {
+		errMsg = testErr.Error()
+	}
+
+	if err := s.agents.UpdateHealth(context.Background(), id, status, &elapsed, errMsg); err != nil {
+		slog.Warn("TestAgent: persist health", "agent_id", id, "error", err)
+	}
+
+	respond(w, http.StatusOK, map[string]interface{}{
+		"agent_id":   id,
+		"agent_name": agent.Name,
+		"status":     status,
+		"latency_ms": elapsed,
+		"error":      errMsg,
+		"checked_at": time.Now().UTC().Format(time.RFC3339),
+	})
 }

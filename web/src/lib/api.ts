@@ -58,6 +58,19 @@ export interface Agent {
   created_by: string
   created_at: string
   template_id: string | null
+  agent_health_status: 'ok' | 'error' | 'unknown'
+  agent_health_latency_ms: number | null
+  agent_health_error: string
+  agent_health_checked_at: string | null
+}
+
+export interface TestAgentResult {
+  agent_id: string
+  agent_name: string
+  status: 'ok' | 'error'
+  latency_ms: number | null
+  error: string
+  checked_at: string
 }
 
 export interface GeneratedAgent {
@@ -534,6 +547,7 @@ export const api = {
         body: JSON.stringify({ description, provider_id: providerId ?? '' }),
       }),
     clearMemory: (id: string) => request<void>(`/agents/${id}/memory`, { method: 'DELETE' }),
+    test: (id: string) => request<TestAgentResult>(`/agents/${id}/test`, { method: 'POST' }),
   },
   teams: {
     list: () => request<Team[]>('/teams'),

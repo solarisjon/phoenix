@@ -281,13 +281,21 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	_, testErr := prov.Execute(ctx, provider.TaskRequest{
+	resp, testErr := prov.Execute(ctx, provider.TaskRequest{
 		Prompt: "Reply with exactly one word: ok",
 	})
 	latencyMs := time.Since(start).Milliseconds()
 	if testErr != nil {
 		persist(false, latencyMs, testErr.Error())
 		respond(w, http.StatusOK, result{false, testErr.Error(), latencyMs})
+		return
+	}
+	// Some coding-agent CLIs can return a nil error with empty stdout (e.g.
+	// opencode --format json dropping text events after a timeout kill).
+	if strings.TrimSpace(resp.Output) == "" {
+		msg := "provider returned empty response"
+		persist(false, latencyMs, msg)
+		respond(w, http.StatusOK, result{false, msg, latencyMs})
 		return
 	}
 	persist(true, latencyMs, "")

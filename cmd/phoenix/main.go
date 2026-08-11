@@ -17,6 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"github.com/solarisjon/phoenix/internal/agent"
 	"github.com/solarisjon/phoenix/internal/api"
+	"github.com/solarisjon/phoenix/internal/agenthealthcheck"
 	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/frontend"
 	"github.com/solarisjon/phoenix/internal/healthcheck"
@@ -237,6 +238,11 @@ func main() {
 	healthChecker := healthcheck.New(providerRepo, reg, cfg.HealthCheckInterval)
 	healthChecker.Start(sigCtx)
 	defer healthChecker.Stop()
+
+	// Start the agent self-test health checker.
+	agentHealthChecker := agenthealthcheck.New(agentRepo, runner, cfg.AgentHealthCheckInterval)
+	agentHealthChecker.Start(sigCtx)
+	defer agentHealthChecker.Stop()
 
 	// Start the monitor scheduler. Scans monitors every SchedulerInterval and
 	// fires tasks for monitors with schedule_interval set.

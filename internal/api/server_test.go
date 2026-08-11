@@ -46,18 +46,18 @@ func testServer(t *testing.T) *Server {
 	reg.InjectForTest("prov-test", &mockProv{})
 
 	memoRepo := sqllite.NewMemoRepo(db)
-	runner := agent.New(agentRepo, taskRepo, projRepo, nil, memoRepo, reg, nil)
-	t.Cleanup(runner.Shutdown)
-
 	agentDraftRepo := sqllite.NewAgentDraftRepo(db)
 	systemSettingsRepo := sqllite.NewSystemSettingsRepo(db)
+	runner := agent.New(agentRepo, taskRepo, projRepo, systemSettingsRepo, memoRepo, reg, nil)
+	t.Cleanup(runner.Shutdown)
 	adminRepo := sqllite.NewAdminRepo(db)
 	pluginRepo := sqllite.NewPluginRepo(db)
 	ruleRepo := sqllite.NewNotificationRuleRepo(db)
-	pm := plugin.NewManager(pluginRepo, ruleRepo, systemSettingsRepo, plugin.ManagerOpts{NoPlugins: true})
+	pm := plugin.NewManager(pluginRepo, ruleRepo, systemSettingsRepo, agentRepo, projRepo, plugin.ManagerOpts{NoPlugins: true})
 	obsidianVaultRepo := sqllite.NewObsidianVaultRepo(db)
+	skillRepo := sqllite.NewSkillRepo(db)
 	taskTemplateRepo := sqllite.NewTaskTemplateRepo(db)
-	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, sessionRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, obsidianVaultRepo, taskTemplateRepo, pm, runner, reg, pricing.New(), adminRepo, 0, config.Config{})
+	return New(provRepo, agentRepo, projRepo, taskRepo, statsRepo, userRepo, sessionRepo, teamRepo, agentDraftRepo, systemSettingsRepo, memoRepo, pluginRepo, ruleRepo, obsidianVaultRepo, skillRepo, taskTemplateRepo, pm, runner, reg, pricing.New(), adminRepo, 0, config.Config{})
 }
 
 type mockProv struct{}

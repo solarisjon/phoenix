@@ -169,6 +169,7 @@ func (s *Server) buildRouter() http.Handler {
 		r.Delete("/agents/{id}", s.deleteAgent)
 		r.Get("/agents/{id}/tasks", s.listAgentTasks)
 		r.Delete("/agents/{id}/memory", s.clearAgentMemory)
+		r.Post("/agents/{id}/test", s.TestAgent)
 
 		// Teams
 		r.Get("/teams", s.listTeams)

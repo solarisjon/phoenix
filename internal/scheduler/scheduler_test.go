@@ -23,6 +23,7 @@ func (r *fakeAgentRepo) Create(_ context.Context, _ *model.Agent) error         
 func (r *fakeAgentRepo) Update(_ context.Context, _ *model.Agent) error                        { return nil }
 func (r *fakeAgentRepo) Delete(_ context.Context, _ string) error                              { return nil }
 func (r *fakeAgentRepo) Search(_ context.Context, _, _ string) ([]*model.Agent, error)         { return nil, nil }
+func (r *fakeAgentRepo) UpdateHealth(_ context.Context, _, _ string, _ *int64, _ string) error { return nil }
 
 type fakeProjectRepo struct {
 	mu       sync.Mutex

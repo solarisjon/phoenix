@@ -411,6 +411,20 @@ export function AgentsPage() {
 
   const providerName = (id: string) => providers.find(p => p.id === id)?.name ?? '–'
 
+  const testAgent = async (agent: Agent) => {
+    try {
+      const result = await api.agents.test(agent.id)
+      if (result.status === 'ok') {
+        alert(`✅ Agent test passed — responded in ${result.latency_ms}ms`)
+      } else {
+        alert(`❌ Agent test failed — ${result.error || 'Unknown error'}`)
+      }
+      load()
+    } catch (error: unknown) {
+      alert(`❌ Test failed — ${getErrorMessage(error)}`)
+    }
+  }
+
   const exportAgent = async (agent: Agent) => {
     const blob = await api.agents.export(agent.id)
     const url = window.URL.createObjectURL(blob)
@@ -495,12 +509,18 @@ export function AgentsPage() {
                         </p>
                       </div>
                       <Badge variant={statusVariant[a.status]}>{a.status}</Badge>
+                      {a.agent_health_status !== 'unknown' && (
+                        <Badge variant={a.agent_health_status === 'ok' ? 'success' : a.agent_health_status === 'error' ? 'danger' : 'default'} className="ml-2">
+                          {a.agent_health_status === 'ok' ? '✓' : a.agent_health_status === 'error' ? '✗' : '○'} {a.agent_health_status}
+                        </Badge>
+                      )}
                     </div>
                     {(a.behaviour || a.persona) && (
                       <p className="text-sm text-slate-400 line-clamp-2 pl-11">{a.behaviour || a.persona}</p>
                     )}
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => testAgent(a)}>Test</Button>
                     <Button variant="ghost" size="sm" onClick={() => exportAgent(a)}>Export</Button>
                     <Link to={`/agents/${a.id}/activity`}>
                       <Button variant="ghost" size="sm">Activity</Button>

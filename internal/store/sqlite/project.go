@@ -220,7 +220,8 @@ func (r *ProjectRepo) ListAgents(ctx context.Context, projectID string) ([]*mode
 		SELECT a.id, a.name, a.persona, a.instructions, a.guardrails, a.behaviour, a.hard_guardrails,
 		       a.provider_id, a.model_override, a.can_spawn_agents, a.can_hire_agents,
 		       a.max_concurrent, a.max_cost_per_run, a.fallback_model, a.is_orchestrator,
-		       a.created_by, a.status, a.created_at, a.template_id
+		       a.created_by, a.status, a.created_at, a.template_id,
+		       a.agent_health_status, a.agent_health_latency_ms, a.agent_health_error, a.agent_health_checked_at
 		FROM agents a
 		JOIN project_agents pa ON pa.agent_id = a.id
 		WHERE pa.project_id = ?

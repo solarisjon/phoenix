@@ -52,6 +52,9 @@ type AgentRepo interface {
 	Update(ctx context.Context, a *model.Agent) error
 	Delete(ctx context.Context, id string) error
 	Search(ctx context.Context, query, userID string) ([]*model.Agent, error)
+
+	// UpdateHealth records the outcome of an agent self-test.
+	UpdateHealth(ctx context.Context, id, status string, latencyMs *int64, errMsg string) error
 }
 
 // ProjectRepo manages projects and project-agent assignments.
