@@ -19,7 +19,6 @@ import (
 	"github.com/solarisjon/phoenix/internal/store"
 )
 
-
 // Registry resolves a provider ID to a live Provider instance.
 // It caches instances so adapters are not re-created on every task.
 type Registry struct {
@@ -129,7 +128,9 @@ func buildProvider(rec *model.Provider) (provider.Provider, error) {
 		var llmMeta struct {
 			Kind string `json:"kind"`
 		}
-		_ = json.Unmarshal([]byte(expandedConfig), &llmMeta)
+		if err := json.Unmarshal([]byte(expandedConfig), &llmMeta); err != nil {
+			return nil, fmt.Errorf("llm config: parse kind: %w", err)
+		}
 		if llmMeta.Kind == "ollama" {
 			return ollama.New(expandedConfig)
 		}

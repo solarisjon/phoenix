@@ -30,8 +30,8 @@ func mockServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 func newAdapter(t *testing.T, endpoint string) *Adapter {
 	t.Helper()
 	cfg := map[string]interface{}{
-		"endpoint":             endpoint,
-		"model":                "test-model",
+		"endpoint":              endpoint,
+		"model":                 "test-model",
 		"cost_per_input_token":  0.000001,
 		"cost_per_output_token": 0.000002,
 	}
@@ -123,8 +123,8 @@ func TestExecute_WithAuthHeader(t *testing.T) {
 	})
 
 	cfg := map[string]interface{}{
-		"endpoint":   srv.URL,
-		"model":      "test-model",
+		"endpoint":    srv.URL,
+		"model":       "test-model",
 		"auth_header": "Bearer test-key",
 	}
 	data, _ := json.Marshal(cfg)
@@ -470,17 +470,13 @@ func TestExecute_Anthropic_CacheUsage(t *testing.T) {
 			}
 		}
 
-		// Return an Anthropic-style response with cache_read tokens.
-		resp := chatCompletion{}
-		resp.Choices = append(resp.Choices, struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		}{Message: struct {
-			Content string `json:"content"`
-		}{Content: "cached answer"}})
-		resp.Usage.PromptTokens = 10
-		resp.Usage.CompletionTokens = 5
+		// Return a real Anthropic Messages API response shape: top-level
+		// "content" array of blocks, usage with input_tokens/output_tokens.
+		resp := anthropicResponse{
+			Content: []contentBlock{{Type: "text", Text: "cached answer"}},
+		}
+		resp.Usage.InputTokens = 10
+		resp.Usage.OutputTokens = 5
 		resp.Usage.CacheReadInputTokens = 500
 
 		w.Header().Set("Content-Type", "application/json")
@@ -525,9 +521,9 @@ func TestStreamExecute_AnthropicFormat(t *testing.T) {
 			"type": "message_start",
 			"message": map[string]interface{}{
 				"usage": map[string]interface{}{
-					"input_tokens":                   50,
-					"cache_creation_input_tokens":    200,
-					"cache_read_input_tokens":        0,
+					"input_tokens":                50,
+					"cache_creation_input_tokens": 200,
+					"cache_read_input_tokens":     0,
 				},
 			},
 		})

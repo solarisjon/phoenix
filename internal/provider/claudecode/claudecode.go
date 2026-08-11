@@ -227,15 +227,15 @@ func (a *Adapter) buildPrompt(req provider.TaskRequest) string {
 //   - result           → final summary with cost, usage, is_error
 
 type ccEvent struct {
-	Type    string          `json:"type"`
-	Subtype string          `json:"subtype"`
-	Message *ccMessage      `json:"message"`
-	IsError bool            `json:"is_error"`
-	Result  string          `json:"result"`
-	Error   string          `json:"error"`
-	TotalCostUSD float64    `json:"total_cost_usd"`
-	Usage   *ccUsage        `json:"usage"`
-	Raw     json.RawMessage `json:"-"`
+	Type         string          `json:"type"`
+	Subtype      string          `json:"subtype"`
+	Message      *ccMessage      `json:"message"`
+	IsError      bool            `json:"is_error"`
+	Result       string          `json:"result"`
+	Error        string          `json:"error"`
+	TotalCostUSD float64         `json:"total_cost_usd"`
+	Usage        *ccUsage        `json:"usage"`
+	Raw          json.RawMessage `json:"-"`
 }
 
 type ccMessage struct {
@@ -259,6 +259,9 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 	scanner := bufio.NewScanner(r)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 4*1024*1024)
+
+	var tokensIn, tokensOut int
+	var costUSD float64
 
 	for scanner.Scan() {
 		select {
@@ -313,12 +316,12 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 				return
 			}
 			if ev.TotalCostUSD > 0 || ev.Usage != nil {
-				tokIn, tokOut := 0, 0
 				if ev.Usage != nil {
-					tokIn = ev.Usage.InputTokens
-					tokOut = ev.Usage.OutputTokens
+					tokensIn = ev.Usage.InputTokens
+					tokensOut = ev.Usage.OutputTokens
 				}
-				slog.Debug("claudecode: completed", "input_tokens", tokIn, "output_tokens", tokOut, "cost_usd", ev.TotalCostUSD)
+				costUSD = ev.TotalCostUSD
+				slog.Debug("claudecode: completed", "input_tokens", tokensIn, "output_tokens", tokensOut, "cost_usd", costUSD)
 			}
 
 		case "system":
@@ -337,5 +340,10 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		return
 	}
 
-	ch <- provider.StreamChunk{Done: true}
+	ch <- provider.StreamChunk{
+		Done:      true,
+		TokensIn:  tokensIn,
+		TokensOut: tokensOut,
+		CostUSD:   costUSD,
+	}
 }

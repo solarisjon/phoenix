@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	once     sync.Once
-	cfgDir   string
-	dataDir  string
+	once    sync.Once
+	cfgDir  string
+	dataDir string
 )
 
 // Init resolves and creates config and data directories once.

@@ -10,7 +10,7 @@ import (
 // ThemeResponse represents a theme for the frontend, combining built-in and community themes.
 type ThemeResponse struct {
 	ID          string            `json:"id"`
-	Kind        string            `json:"kind"`    // "dark" | "light"
+	Kind        string            `json:"kind"` // "dark" | "light"
 	Label       string            `json:"label"`
 	Description string            `json:"description,omitempty"`
 	Preview     []string          `json:"preview"` // 3 hex colors

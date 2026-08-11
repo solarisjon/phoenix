@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/store"
 )
 
 type ProviderRepo struct{ db *DB }
@@ -84,6 +85,14 @@ func (r *ProviderRepo) Update(ctx context.Context, p *model.Provider) error {
 func (r *ProviderRepo) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM providers WHERE id = ?`, id)
 	if err != nil {
+		if isForeignKeyViolation(err) {
+			var agentCount int
+			_ = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE provider_id = ?`, id).Scan(&agentCount)
+			if agentCount > 0 {
+				return fmt.Errorf("%w: %d agent(s) still use this provider", store.ErrInUse, agentCount)
+			}
+			return fmt.Errorf("%w: other records still reference this provider", store.ErrInUse)
+		}
 		return fmt.Errorf("delete provider: %w", err)
 	}
 	return nil

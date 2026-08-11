@@ -204,9 +204,9 @@ type ollamaChunk struct {
 		Content  string `json:"content"`
 		Thinking string `json:"thinking"` // chain-of-thought, skipped by default
 	} `json:"message"`
-	Done            bool  `json:"done"`
-	PromptEvalCount int   `json:"prompt_eval_count"`  // input tokens
-	EvalCount       int   `json:"eval_count"`          // output tokens
+	Done            bool `json:"done"`
+	PromptEvalCount int  `json:"prompt_eval_count"` // input tokens
+	EvalCount       int  `json:"eval_count"`        // output tokens
 }
 
 func (a *Adapter) buildMessages(req provider.TaskRequest) []ollamaMessage {

@@ -61,21 +61,20 @@ func (s *Server) restoreDB(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 func (s *Server) getSysInfo(w http.ResponseWriter, r *http.Request) {
 	type taskCount struct {
 		Status string `json:"status"`
 		Count  int    `json:"count"`
 	}
 	type sysInfoResponse struct {
-		Version      string      `json:"version"`
-		UptimeSeconds float64    `json:"uptime_seconds"`
-		GoVersion    string      `json:"go_version"`
-		DBSizeBytes  int64       `json:"db_size_bytes"`
-		DBPath       string      `json:"db_path"`
-		TotalTasks   int         `json:"total_tasks"`
-		TaskCounts   []taskCount `json:"task_counts"`
-		ActiveTasks  int         `json:"active_tasks"`
+		Version       string      `json:"version"`
+		UptimeSeconds float64     `json:"uptime_seconds"`
+		GoVersion     string      `json:"go_version"`
+		DBSizeBytes   int64       `json:"db_size_bytes"`
+		DBPath        string      `json:"db_path"`
+		TotalTasks    int         `json:"total_tasks"`
+		TaskCounts    []taskCount `json:"task_counts"`
+		ActiveTasks   int         `json:"active_tasks"`
 	}
 
 	resp := sysInfoResponse{
@@ -101,7 +100,7 @@ func (s *Server) getSysInfo(w http.ResponseWriter, r *http.Request) {
 
 	respond(w, http.StatusOK, resp)
 }
-//
+
 // It uses VACUUM INTO to produce a clean, WAL-consolidated copy in a temp file,
 // then streams that file as an application/octet-stream download and removes it.
 // Safe to call while the server is running — VACUUM INTO takes a read lock and

@@ -114,7 +114,8 @@ func newMemTaskRepo(tasks ...*model.Task) *memTaskRepo {
 func copyTask(t *model.Task) *model.Task { cp := *t; return &cp }
 
 func (r *memTaskRepo) List(_ context.Context, projectID string) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.ProjectID == projectID {
@@ -124,7 +125,8 @@ func (r *memTaskRepo) List(_ context.Context, projectID string) ([]*model.Task, 
 	return out, nil
 }
 func (r *memTaskRepo) ListByProject(_ context.Context, projectID string, status model.TaskStatus, limit int) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.ProjectID == projectID && (status == "" || t.Status == status) {
@@ -137,7 +139,8 @@ func (r *memTaskRepo) ListByProject(_ context.Context, projectID string, status 
 	return out, nil
 }
 func (r *memTaskRepo) ListAll(_ context.Context) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		out = append(out, copyTask(t))
@@ -145,7 +148,8 @@ func (r *memTaskRepo) ListAll(_ context.Context) ([]*model.Task, error) {
 	return out, nil
 }
 func (r *memTaskRepo) ListByStatus(_ context.Context, s model.TaskStatus) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.Status == s {
@@ -155,7 +159,8 @@ func (r *memTaskRepo) ListByStatus(_ context.Context, s model.TaskStatus) ([]*mo
 	return out, nil
 }
 func (r *memTaskRepo) ListByStatuses(_ context.Context, statuses []model.TaskStatus) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	set := make(map[model.TaskStatus]bool, len(statuses))
 	for _, s := range statuses {
 		set[s] = true
@@ -169,7 +174,8 @@ func (r *memTaskRepo) ListByStatuses(_ context.Context, statuses []model.TaskSta
 	return out, nil
 }
 func (r *memTaskRepo) ListByAgent(_ context.Context, agentID string) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.AgentID == agentID {
@@ -179,7 +185,8 @@ func (r *memTaskRepo) ListByAgent(_ context.Context, agentID string) ([]*model.T
 	return out, nil
 }
 func (r *memTaskRepo) ListByParentTaskID(_ context.Context, parentID string) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.ParentTaskID != nil && *t.ParentTaskID == parentID {
@@ -189,7 +196,8 @@ func (r *memTaskRepo) ListByParentTaskID(_ context.Context, parentID string) ([]
 	return out, nil
 }
 func (r *memTaskRepo) Search(_ context.Context, query string) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	q := strings.ToLower(strings.Trim(query, `"`))
 	for _, t := range r.tasks {
@@ -202,7 +210,8 @@ func (r *memTaskRepo) Search(_ context.Context, query string) ([]*model.Task, er
 	return out, nil
 }
 func (r *memTaskRepo) Get(_ context.Context, id string) (*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	t := r.tasks[id]
 	if t == nil {
 		return nil, nil
@@ -211,24 +220,28 @@ func (r *memTaskRepo) Get(_ context.Context, id string) (*model.Task, error) {
 	return &cp, nil
 }
 func (r *memTaskRepo) Create(_ context.Context, t *model.Task) error {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	cp := *t
 	r.tasks[t.ID] = &cp
 	return nil
 }
 func (r *memTaskRepo) Update(_ context.Context, t *model.Task) error {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	cp := *t
 	r.tasks[t.ID] = &cp
 	return nil
 }
 func (r *memTaskRepo) Delete(_ context.Context, id string) error {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.tasks, id)
 	return nil
 }
 func (r *memTaskRepo) NextQueuedTask(_ context.Context, agentID string) (*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var oldest *model.Task
 	for _, t := range r.tasks {
 		if t.AgentID == agentID && t.Status == model.TaskStatusQueued {
@@ -243,7 +256,8 @@ func (r *memTaskRepo) NextQueuedTask(_ context.Context, agentID string) (*model.
 	return copyTask(oldest), nil
 }
 func (r *memTaskRepo) CancelQueuedTask(_ context.Context, taskID string) (bool, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	t, ok := r.tasks[taskID]
 	if !ok || t.Status != model.TaskStatusQueued {
 		return false, nil
@@ -254,7 +268,8 @@ func (r *memTaskRepo) CancelQueuedTask(_ context.Context, taskID string) (bool, 
 	return true, nil
 }
 func (r *memTaskRepo) ListCompletedForInbox(_ context.Context, limit int) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.Status == model.TaskStatusCompleted {
@@ -267,7 +282,8 @@ func (r *memTaskRepo) ListCompletedForInbox(_ context.Context, limit int) ([]*mo
 	return out, nil
 }
 func (r *memTaskRepo) FindByPromptHash(_ context.Context, projectID, hash string) (*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, t := range r.tasks {
 		if t.ProjectID == projectID && t.PromptHash == hash && t.Status == model.TaskStatusCompleted {
 			return copyTask(t), nil
@@ -279,7 +295,8 @@ func (r *memTaskRepo) ProjectSpendForPeriod(_ context.Context, _ string, _ strin
 	return 0, nil
 }
 func (r *memTaskRepo) ForceFailTask(_ context.Context, taskID string) (bool, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	t, ok := r.tasks[taskID]
 	if !ok {
 		return false, nil
@@ -291,7 +308,8 @@ func (r *memTaskRepo) ForceFailTask(_ context.Context, taskID string) (bool, err
 	return true, nil
 }
 func (r *memTaskRepo) ListProjectHistory(_ context.Context, projectID string) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []*model.Task
 	for _, t := range r.tasks {
 		if t.ProjectID == projectID && t.Status == model.TaskStatusCompleted {
@@ -301,7 +319,8 @@ func (r *memTaskRepo) ListProjectHistory(_ context.Context, projectID string) ([
 	return out, nil
 }
 func (r *memTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*time.Time, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var latest *time.Time
 	for _, t := range r.tasks {
 		if t.ProjectID == projectID && t.Source == "monitor" {
@@ -316,7 +335,8 @@ func (r *memTaskRepo) LastMonitorRunAt(_ context.Context, projectID string) (*ti
 }
 func (r *memTaskRepo) ListTimedOut(_ context.Context) ([]*model.Task, error) { return nil, nil }
 func (r *memTaskRepo) ListFollowUpChain(_ context.Context, rootTaskID string) ([]*model.Task, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	root, ok := r.tasks[rootTaskID]
 	if !ok {
 		return nil, nil
@@ -324,14 +344,16 @@ func (r *memTaskRepo) ListFollowUpChain(_ context.Context, rootTaskID string) ([
 	return []*model.Task{copyTask(root)}, nil
 }
 func (r *memTaskRepo) SaveSummaryCache(_ context.Context, taskID, summary string) error {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if t, ok := r.tasks[taskID]; ok {
 		t.SummaryCache = summary
 	}
 	return nil
 }
 func (r *memTaskRepo) HasActiveTaskForProject(_ context.Context, projectID string) (bool, error) {
-	r.mu.Lock(); defer r.mu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, t := range r.tasks {
 		if t.ProjectID == projectID && (t.Status == model.TaskStatusRunning || t.Status == model.TaskStatusQueued) {
 			return true, nil
@@ -351,7 +373,9 @@ func (r *memTaskRepo) DependenciesSatisfied(_ context.Context, _ []string) (bool
 
 type mockProjectRepo struct{}
 
-func (r *mockProjectRepo) List(_ context.Context, _ string) ([]*model.Project, error) { return nil, nil }
+func (r *mockProjectRepo) List(_ context.Context, _ string) ([]*model.Project, error) {
+	return nil, nil
+}
 func (r *mockProjectRepo) ListByKind(_ context.Context, _, _ string) ([]*model.Project, error) {
 	return nil, nil
 }
@@ -360,14 +384,18 @@ func (r *mockProjectRepo) Get(_ context.Context, id string) (*model.Project, err
 }
 func (r *mockProjectRepo) Create(_ context.Context, _ *model.Project) error  { return nil }
 func (r *mockProjectRepo) Update(_ context.Context, _ *model.Project) error  { return nil }
-func (r *mockProjectRepo) Delete(_ context.Context, _ string) error              { return nil }
-func (r *mockProjectRepo) DeleteWithTasks(_ context.Context, _ string) error     { return nil }
+func (r *mockProjectRepo) Delete(_ context.Context, _ string) error          { return nil }
+func (r *mockProjectRepo) DeleteWithTasks(_ context.Context, _ string) error { return nil }
 func (r *mockProjectRepo) ListByStatus(_ context.Context, _, _, _ string) ([]*model.Project, error) {
 	return nil, nil
 }
-func (r *mockProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, error) { return false, nil }
-func (r *mockProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) { return true, nil }
-func (r *mockProjectRepo) RemoveAgent(_ context.Context, _, _ string) error  { return nil }
+func (r *mockProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (r *mockProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (r *mockProjectRepo) RemoveAgent(_ context.Context, _, _ string) error { return nil }
 func (r *mockProjectRepo) ListAgents(_ context.Context, _ string) ([]*model.Agent, error) {
 	return nil, nil
 }

@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	skillIntentPattern  = regexp.MustCompile(`(?i)(?:run|execute|use|invoke|apply)\s+(?:the\s+)?(?:skill\s+(?:called\s+)?)?[\w-]+(?:\s+skill)?`)
+	skillIntentPattern    = regexp.MustCompile(`(?i)(?:run|execute|use|invoke|apply)\s+(?:the\s+)?(?:skill\s+(?:called\s+)?)?[\w-]+(?:\s+skill)?`)
 	skillSlugInvalidChars = regexp.MustCompile(`[^a-z0-9]+`)
 )
 

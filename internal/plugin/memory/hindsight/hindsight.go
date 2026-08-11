@@ -2,10 +2,11 @@
 // the Hindsight agent memory system (https://github.com/vectorize-io/hindsight).
 //
 // API paths used:
-//   POST   /v1/default/banks/{bank_id}/memories         — retain
-//   POST   /v1/default/banks/{bank_id}/memories/recall  — recall
-//   DELETE /v1/default/banks/{bank_id}/memories         — clear
-//   GET    /v1/default/banks                            — ping
+//
+//	POST   /v1/default/banks/{bank_id}/memories         — retain
+//	POST   /v1/default/banks/{bank_id}/memories/recall  — recall
+//	DELETE /v1/default/banks/{bank_id}/memories         — clear
+//	GET    /v1/default/banks                            — ping
 package hindsight
 
 import (

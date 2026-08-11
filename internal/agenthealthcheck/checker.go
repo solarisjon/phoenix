@@ -4,6 +4,7 @@ package agenthealthcheck
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -15,10 +16,10 @@ import (
 // Checker periodically tests all agents and persists the results.
 // Agents are only tested if their status is 'active'.
 type Checker struct {
-	agents  store.AgentRepo
-	runner  *agent.Runner
+	agents   store.AgentRepo
+	runner   *agent.Runner
 	interval time.Duration
-	cancel  context.CancelFunc
+	cancel   context.CancelFunc
 }
 
 // New creates a Checker. Call Start to begin the background loop.
@@ -79,6 +80,10 @@ func (c *Checker) testAll(ctx context.Context) {
 
 func (c *Checker) testAgent(ctx context.Context, rec *model.Agent) {
 	elapsed, status, testErr := c.runner.TestAgent(ctx, rec.ID)
+
+	if errors.Is(testErr, context.Canceled) {
+		return // parent context cancelled (shutdown); don't overwrite health state
+	}
 
 	errMsg := ""
 	if testErr != nil {

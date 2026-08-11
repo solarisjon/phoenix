@@ -11,51 +11,87 @@ import (
 )
 
 type costsResponse struct {
-	Total       float64                    `json:"total_cost_usd"`
-	TokensIn    int                        `json:"total_tokens_in"`
-	TokensOut   int                        `json:"total_tokens_out"`
-	ByAgent     []*store.CostSummary       `json:"by_agent"`
-	ByProject   []*store.CostSummary       `json:"by_project"`
-	ByProvider  []*store.UsageSummary      `json:"by_provider"`
-	ByModel     []*store.UsageSummary      `json:"by_model"`
-	ByDay       []*store.DailyCost         `json:"by_day"`
-	ByStatus    []*store.TaskCountByStatus `json:"by_status"`
-	TotalTasks  int                        `json:"total_tasks"`
+	Total      float64                    `json:"total_cost_usd"`
+	TokensIn   int                        `json:"total_tokens_in"`
+	TokensOut  int                        `json:"total_tokens_out"`
+	ByAgent    []*store.CostSummary       `json:"by_agent"`
+	ByProject  []*store.CostSummary       `json:"by_project"`
+	ByProvider []*store.UsageSummary      `json:"by_provider"`
+	ByModel    []*store.UsageSummary      `json:"by_model"`
+	ByDay      []*store.DailyCost         `json:"by_day"`
+	ByStatus   []*store.TaskCountByStatus `json:"by_status"`
+	TotalTasks int                        `json:"total_tasks"`
 }
 
 func (s *Server) getCosts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	usage, err := s.stats.TotalUsage(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	byAgent, err := s.stats.CostByAgent(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	byProject, err := s.stats.CostByProject(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	byProvider, err := s.stats.UsageByProvider(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	byModel, err := s.stats.UsageByModel(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	byDay, err := s.stats.CostByDay(ctx, 30)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	byStatus, err := s.stats.TaskCountByStatus(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
 	totalTasks, err := s.stats.TotalTaskCount(ctx)
-	if err != nil { respondInternalErr(w, err); return }
+	if err != nil {
+		respondInternalErr(w, err)
+		return
+	}
 
-	if byAgent == nil { byAgent = []*store.CostSummary{} }
-	if byProject == nil { byProject = []*store.CostSummary{} }
-	if byProvider == nil { byProvider = []*store.UsageSummary{} }
-	if byModel == nil { byModel = []*store.UsageSummary{} }
-	if byDay == nil { byDay = []*store.DailyCost{} }
-	if byStatus == nil { byStatus = []*store.TaskCountByStatus{} }
+	if byAgent == nil {
+		byAgent = []*store.CostSummary{}
+	}
+	if byProject == nil {
+		byProject = []*store.CostSummary{}
+	}
+	if byProvider == nil {
+		byProvider = []*store.UsageSummary{}
+	}
+	if byModel == nil {
+		byModel = []*store.UsageSummary{}
+	}
+	if byDay == nil {
+		byDay = []*store.DailyCost{}
+	}
+	if byStatus == nil {
+		byStatus = []*store.TaskCountByStatus{}
+	}
 
 	respond(w, http.StatusOK, costsResponse{
 		Total:      usage.CostUSD,
@@ -74,21 +110,21 @@ func (s *Server) getCosts(w http.ResponseWriter, r *http.Request) {
 // ---- Cost Insights ----
 
 type insightBreakdownRow struct {
-	ID                 string  `json:"id"`
-	Name               string  `json:"name"`
-	Model              string  `json:"model,omitempty"`
-	ProviderName       string  `json:"provider_name,omitempty"`
-	ProviderID         string  `json:"provider_id,omitempty"`
-	ActualCostUSD      float64 `json:"actual_cost_usd"`
-	TokensIn           int64   `json:"tokens_in"`
-	TokensOut          int64   `json:"tokens_out"`
-	TaskCount          int     `json:"task_count"`
-	CostPerTask        float64 `json:"cost_per_task"`
+	ID                  string  `json:"id"`
+	Name                string  `json:"name"`
+	Model               string  `json:"model,omitempty"`
+	ProviderName        string  `json:"provider_name,omitempty"`
+	ProviderID          string  `json:"provider_id,omitempty"`
+	ActualCostUSD       float64 `json:"actual_cost_usd"`
+	TokensIn            int64   `json:"tokens_in"`
+	TokensOut           int64   `json:"tokens_out"`
+	TaskCount           int     `json:"task_count"`
+	CostPerTask         float64 `json:"cost_per_task"`
 	ProjectedMonthlyUSD float64 `json:"projected_monthly_usd"`
 }
 
 type insightRecommendation struct {
-	Severity   string `json:"severity"`    // "warning" | "info"
+	Severity   string `json:"severity"` // "warning" | "info"
 	Kind       string `json:"kind"`
 	Title      string `json:"title"`
 	Detail     string `json:"detail"`
@@ -178,7 +214,7 @@ func (s *Server) getCostInsights(w http.ResponseWriter, r *http.Request) {
 				avgIn := float64(row.TokensIn) / float64(row.TaskCount)
 				avgOut := float64(row.TokensOut) / float64(row.TaskCount)
 				tasksPerMonth := float64(row.TaskCount) / periodDays * 30
-				br.ProjectedMonthlyUSD = round2((avgIn*price.InputPerMToken+avgOut*price.OutputPerMToken)/1_000_000*tasksPerMonth)
+				br.ProjectedMonthlyUSD = round2((avgIn*price.InputPerMToken + avgOut*price.OutputPerMToken) / 1_000_000 * tasksPerMonth)
 			} else if row.ActualCost > 0 {
 				// Fall back to extrapolating actual cost.
 				br.ProjectedMonthlyUSD = round2(row.ActualCost / periodDays * 30)
@@ -264,7 +300,7 @@ func (s *Server) buildRecommendations(rows []*store.InsightRow, periodDays float
 		if hasPrice {
 			avgIn := float64(row.TokensIn) / float64(row.TaskCount)
 			avgOut := float64(row.TokensOut) / float64(row.TaskCount)
-			projectedMonthly := (avgIn*price.InputPerMToken+avgOut*price.OutputPerMToken) / 1_000_000 * tasksPerMonth
+			projectedMonthly := (avgIn*price.InputPerMToken + avgOut*price.OutputPerMToken) / 1_000_000 * tasksPerMonth
 			if projectedMonthly > 5 {
 				suggested, savingPct, ok := pricing.SuggestCheaperModel(row.Model, s.pricingReg)
 				if ok && savingPct > 50 {

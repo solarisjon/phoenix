@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/provider"
+	"github.com/solarisjon/phoenix/internal/store"
 )
 
 type createAgentRequest struct {
@@ -105,22 +107,22 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a := &model.Agent{
-		ID:                uuid.New().String(),
-		Name:              strings.TrimSpace(req.Name),
-		Behaviour:         req.Behaviour,
-		Persona:           req.Persona,
-		Instructions:      req.Instructions,
-		Guardrails:        req.Guardrails,
-		HardGuardrails:    req.HardGuardrails,
-		ProviderID:        req.ProviderID,
-		ModelOverride:     req.ModelOverride,
-		CanSpawnAgents:    req.CanSpawnAgents,
-		CanHireAgents:     req.CanHireAgents,
-		IsOrchestrator:    req.IsOrchestrator,
-		CreatedBy:         user.ID,
-		Status:            status,
-		CreatedAt:         time.Now(),
-		TemplateID:        req.TemplateID,
+		ID:             uuid.New().String(),
+		Name:           strings.TrimSpace(req.Name),
+		Behaviour:      req.Behaviour,
+		Persona:        req.Persona,
+		Instructions:   req.Instructions,
+		Guardrails:     req.Guardrails,
+		HardGuardrails: req.HardGuardrails,
+		ProviderID:     req.ProviderID,
+		ModelOverride:  req.ModelOverride,
+		CanSpawnAgents: req.CanSpawnAgents,
+		CanHireAgents:  req.CanHireAgents,
+		IsOrchestrator: req.IsOrchestrator,
+		CreatedBy:      user.ID,
+		Status:         status,
+		CreatedAt:      time.Now(),
+		TemplateID:     req.TemplateID,
 	}
 	if err := s.agents.Create(r.Context(), a); err != nil {
 		respondInternalErr(w, err)
@@ -393,6 +395,10 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.agents.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrInUse) {
+			respondErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		respondInternalErr(w, err)
 		return
 	}

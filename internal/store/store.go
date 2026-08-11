@@ -4,10 +4,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
 )
+
+// ErrInUse indicates a delete was rejected because other records still
+// reference the row (e.g. deleting a provider that agents still use).
+var ErrInUse = errors.New("store: still referenced by other records")
 
 // UserRepo manages user records.
 type UserRepo interface {
@@ -191,7 +196,7 @@ type CostSummary struct {
 
 // UsageSummary holds aggregated usage by provider or model.
 type UsageSummary struct {
-	Label     string  `json:"label"`      // provider name or model string
+	Label     string  `json:"label"` // provider name or model string
 	Total     float64 `json:"total_cost_usd"`
 	TaskCount int     `json:"task_count"`
 	TokensIn  int     `json:"tokens_in"`

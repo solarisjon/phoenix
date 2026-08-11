@@ -46,23 +46,23 @@ const (
 type ModelCapabilityTier string
 
 const (
-	ModelTierFast      ModelCapabilityTier = "fast"      // cheap, quick, simple tasks
-	ModelTierStandard  ModelCapabilityTier = "standard"  // mid-tier general purpose
-	ModelTierPowerful  ModelCapabilityTier = "powerful"  // top-tier for complex tasks
-	ModelTierPlanning  ModelCapabilityTier = "planning"  // good at reasoning/orchestration
+	ModelTierFast     ModelCapabilityTier = "fast"     // cheap, quick, simple tasks
+	ModelTierStandard ModelCapabilityTier = "standard" // mid-tier general purpose
+	ModelTierPowerful ModelCapabilityTier = "powerful" // top-tier for complex tasks
+	ModelTierPlanning ModelCapabilityTier = "planning" // good at reasoning/orchestration
 )
 
 // ModelEntry describes a single model in a provider's whitelisted pool.
 // Stored as a JSON array in providers.allowed_models.
 type ModelEntry struct {
-	ModelID             string              `json:"model_id"`
-	Label               string              `json:"label"`
-	CapabilityTier      ModelCapabilityTier `json:"capability_tier"`
-	CapabilityDesc      string              `json:"capability_description"`
-	UserDescription     string              `json:"user_description,omitempty"`
-	InputCostPer1K      float64             `json:"input_cost_per_1k"`
-	OutputCostPer1K     float64             `json:"output_cost_per_1k"`
-	ProbedAt            *time.Time          `json:"probed_at,omitempty"`
+	ModelID         string              `json:"model_id"`
+	Label           string              `json:"label"`
+	CapabilityTier  ModelCapabilityTier `json:"capability_tier"`
+	CapabilityDesc  string              `json:"capability_description"`
+	UserDescription string              `json:"user_description,omitempty"`
+	InputCostPer1K  float64             `json:"input_cost_per_1k"`
+	OutputCostPer1K float64             `json:"output_cost_per_1k"`
+	ProbedAt        *time.Time          `json:"probed_at,omitempty"`
 }
 
 // TaskType distinguishes the role of a task in the orchestration pipeline.
@@ -110,8 +110,8 @@ type User struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Email        string    `json:"email"`
-	Settings     string    `json:"settings"`      // JSON blob
-	PasswordHash string    `json:"-"`             // bcrypt hash; never serialised
+	Settings     string    `json:"settings"` // JSON blob
+	PasswordHash string    `json:"-"`        // bcrypt hash; never serialised
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -128,11 +128,11 @@ type Provider struct {
 	ID              string       `json:"id"`
 	Name            string       `json:"name"`
 	Type            ProviderType `json:"type"`
-	Config          string       `json:"config"` // JSON blob
+	Config          string       `json:"config"`         // JSON blob
 	AllowedModels   []ModelEntry `json:"allowed_models"` // curated model pool; empty = unrestricted
 	CreatedBy       string       `json:"created_by"`
 	CreatedAt       time.Time    `json:"created_at"`
-	HealthStatus    string       `json:"health_status"`              // "ok" | "error" | "unknown"
+	HealthStatus    string       `json:"health_status"`               // "ok" | "error" | "unknown"
 	HealthLatencyMs *int64       `json:"health_latency_ms,omitempty"` // nil if never checked
 	HealthError     string       `json:"health_error,omitempty"`
 	HealthCheckedAt *time.Time   `json:"health_checked_at,omitempty"`
@@ -140,31 +140,31 @@ type Provider struct {
 
 // Agent is an AI agent with a behaviour description, guardrails, and a provider.
 type Agent struct {
-	ID                string      `json:"id"`
-	Name              string      `json:"name"`
-	Behaviour         string      `json:"behaviour"`       // unified persona + instructions field
-	Persona           string      `json:"persona"`         // legacy — kept for backwards compat
-	Instructions      string      `json:"instructions"`    // legacy — kept for backwards compat
-	Guardrails        string      `json:"guardrails"`      // soft (advisory) constraints
-	HardGuardrails    string      `json:"hard_guardrails"` // mandatory — triggers awaiting_approval
-	ProviderID        string      `json:"provider_id"`
-	ModelOverride     string      `json:"model_override"`     // if set, overrides the provider's default model
-	CanSpawnAgents    bool        `json:"can_spawn_agents"`   // if true, agent may create tasks for other agents
-	CanHireAgents     bool        `json:"can_hire_agents"`    // if true, agent may submit new agent hire proposals
-	MaxConcurrent     int         `json:"max_concurrent"`     // 0 = unlimited
-	MaxCostPerRun     float64     `json:"max_cost_per_run"`   // 0 = unlimited; USD ceiling per run (estimated pre-execution)
-	FallbackModel     string      `json:"fallback_model"`     // model to use when cost budget overflows after context truncation; empty = fail
-	IsOrchestrator    bool        `json:"is_orchestrator"`    // if true, this agent is the global task orchestrator
-	CreatedBy         string      `json:"created_by"`
-	Status            AgentStatus `json:"status"`
-	CreatedAt         time.Time   `json:"created_at"`
-	TemplateID        *string     `json:"template_id"`
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	Behaviour      string      `json:"behaviour"`       // unified persona + instructions field
+	Persona        string      `json:"persona"`         // legacy — kept for backwards compat
+	Instructions   string      `json:"instructions"`    // legacy — kept for backwards compat
+	Guardrails     string      `json:"guardrails"`      // soft (advisory) constraints
+	HardGuardrails string      `json:"hard_guardrails"` // mandatory — triggers awaiting_approval
+	ProviderID     string      `json:"provider_id"`
+	ModelOverride  string      `json:"model_override"`   // if set, overrides the provider's default model
+	CanSpawnAgents bool        `json:"can_spawn_agents"` // if true, agent may create tasks for other agents
+	CanHireAgents  bool        `json:"can_hire_agents"`  // if true, agent may submit new agent hire proposals
+	MaxConcurrent  int         `json:"max_concurrent"`   // 0 = unlimited
+	MaxCostPerRun  float64     `json:"max_cost_per_run"` // 0 = unlimited; USD ceiling per run (estimated pre-execution)
+	FallbackModel  string      `json:"fallback_model"`   // model to use when cost budget overflows after context truncation; empty = fail
+	IsOrchestrator bool        `json:"is_orchestrator"`  // if true, this agent is the global task orchestrator
+	CreatedBy      string      `json:"created_by"`
+	Status         AgentStatus `json:"status"`
+	CreatedAt      time.Time   `json:"created_at"`
+	TemplateID     *string     `json:"template_id"`
 
 	// Agent self-test fields (mirrors provider health)
-	AgentHealthStatus     string     `json:"agent_health_status"` // "ok" | "error" | "unknown"
-	AgentHealthLatencyMs  *int64     `json:"agent_health_latency_ms,omitempty"` // nil if never tested
-	AgentHealthError       string     `json:"agent_health_error,omitempty"`     // error message if test failed
-	AgentHealthCheckedAt   *time.Time `json:"agent_health_checked_at,omitempty"` // when the test ran
+	AgentHealthStatus    string     `json:"agent_health_status"`               // "ok" | "error" | "unknown"
+	AgentHealthLatencyMs *int64     `json:"agent_health_latency_ms,omitempty"` // nil if never tested
+	AgentHealthError     string     `json:"agent_health_error,omitempty"`      // error message if test failed
+	AgentHealthCheckedAt *time.Time `json:"agent_health_checked_at,omitempty"` // when the test ran
 }
 
 // ProjectKind distinguishes human-driven workbenches from autonomous daemons.
@@ -190,10 +190,10 @@ const (
 // CriticMode controls whether and how a critic/devil's-advocate review is run
 // after a task completes.
 //
-//   "none"       — no critic (default)
-//   "builtin"    — ephemeral devil's advocate; same provider as the original agent,
-//                  hardcoded contrarian system prompt, no DB agent record required
-//   "agent:<id>" — delegate to a specific registered agent
+//	"none"       — no critic (default)
+//	"builtin"    — ephemeral devil's advocate; same provider as the original agent,
+//	               hardcoded contrarian system prompt, no DB agent record required
+//	"agent:<id>" — delegate to a specific registered agent
 //
 // On tasks, the special value "inherit" means "use the project's setting".
 type CriticMode = string
@@ -206,32 +206,32 @@ const (
 
 // Project is a workspace containing tasks assigned to agents.
 type Project struct {
-	ID               string        `json:"id"`
-	Name             string        `json:"name"`
-	Objective        string        `json:"objective"`         // goal statement injected into every task prompt
-	WorkingDir       string        `json:"working_dir"`       // optional: filesystem path passed to coding agents
-	Kind             ProjectKind   `json:"kind"`              // "project" | "monitor"
-	ScheduleInterval *int          `json:"schedule_interval"` // seconds; nil = no automatic schedule (monitors only)
-	ScheduleKind     ScheduleKind  `json:"schedule_kind"`     // "interval" | "daily" (monitors only)
-	ScheduleTimes    []string      `json:"schedule_times"`    // ["07:00","12:00"] local time, used when ScheduleKind == "daily"
-	ScheduleCatchUp  bool          `json:"schedule_catch_up"` // daily only: run a missed time at next opportunity (same calendar day)
-	Owner            string        `json:"owner"`
-	Status           ProjectStatus `json:"status"`
-	CriticAgentID    *string       `json:"critic_agent_id"` // deprecated: use CriticMode
-	CriticMode       string        `json:"critic_mode"`     // "none" | "builtin" | "agent:<id>"
-	MonitorModel     string        `json:"monitor_model"`   // if set, overrides the agent's model for monitor runs
-	BudgetUSD              float64  `json:"budget_usd"`              // 0 = no limit; positive = max spend for the period
-	BudgetPeriod           string   `json:"budget_period"`           // "day" | "week" | "month" | "total"
-	ContextSummarisation   bool     `json:"context_summarisation"`   // if true, long follow-up chains are summarised before injection
-	Tags                   []string `json:"tags"`                    // free-text labels for grouping/filtering
+	ID                   string        `json:"id"`
+	Name                 string        `json:"name"`
+	Objective            string        `json:"objective"`         // goal statement injected into every task prompt
+	WorkingDir           string        `json:"working_dir"`       // optional: filesystem path passed to coding agents
+	Kind                 ProjectKind   `json:"kind"`              // "project" | "monitor"
+	ScheduleInterval     *int          `json:"schedule_interval"` // seconds; nil = no automatic schedule (monitors only)
+	ScheduleKind         ScheduleKind  `json:"schedule_kind"`     // "interval" | "daily" (monitors only)
+	ScheduleTimes        []string      `json:"schedule_times"`    // ["07:00","12:00"] local time, used when ScheduleKind == "daily"
+	ScheduleCatchUp      bool          `json:"schedule_catch_up"` // daily only: run a missed time at next opportunity (same calendar day)
+	Owner                string        `json:"owner"`
+	Status               ProjectStatus `json:"status"`
+	CriticAgentID        *string       `json:"critic_agent_id"`       // deprecated: use CriticMode
+	CriticMode           string        `json:"critic_mode"`           // "none" | "builtin" | "agent:<id>"
+	MonitorModel         string        `json:"monitor_model"`         // if set, overrides the agent's model for monitor runs
+	BudgetUSD            float64       `json:"budget_usd"`            // 0 = no limit; positive = max spend for the period
+	BudgetPeriod         string        `json:"budget_period"`         // "day" | "week" | "month" | "total"
+	ContextSummarisation bool          `json:"context_summarisation"` // if true, long follow-up chains are summarised before injection
+	Tags                 []string      `json:"tags"`                  // free-text labels for grouping/filtering
 
 	// Heartbeat reaction fields (monitors only — migration 045)
-	HeartbeatOnAttention    string  `json:"heartbeat_on_attention"`     // "" | "spawn" | "notify" | "escalate"
-	HeartbeatOnFailed       string  `json:"heartbeat_on_failed"`        // same options
-	LinkedProjectID         *string `json:"linked_project_id"`          // project to spawn remediation tasks in
-	HeartbeatConsecutiveBad  int    `json:"heartbeat_consecutive_bad"`   // consecutive non-clear signal count
-	HeartbeatLastSignal      string `json:"heartbeat_last_signal"`       // last signal value
-	HeartbeatEscalateAfter   int    `json:"heartbeat_escalate_after"`    // fire escalate action only after N consecutive bad; 0 = immediately
+	HeartbeatOnAttention    string  `json:"heartbeat_on_attention"`    // "" | "spawn" | "notify" | "escalate"
+	HeartbeatOnFailed       string  `json:"heartbeat_on_failed"`       // same options
+	LinkedProjectID         *string `json:"linked_project_id"`         // project to spawn remediation tasks in
+	HeartbeatConsecutiveBad int     `json:"heartbeat_consecutive_bad"` // consecutive non-clear signal count
+	HeartbeatLastSignal     string  `json:"heartbeat_last_signal"`     // last signal value
+	HeartbeatEscalateAfter  int     `json:"heartbeat_escalate_after"`  // fire escalate action only after N consecutive bad; 0 = immediately
 
 	// Monitor cache TTL (migration 048)
 	MonitorCacheTTL int `json:"monitor_cache_ttl"` // seconds; 0 = cache indefinitely (original behaviour)
@@ -253,42 +253,42 @@ type ProjectAgent struct {
 
 // Task is a unit of work assigned to an agent within a project.
 type Task struct {
-	ID              string     `json:"id"`
-	ProjectID       string     `json:"project_id"`
-	AgentID         string     `json:"agent_id"`
-	ParentTaskID    *string    `json:"parent_task_id"` // nil = top-level task
-	FollowUpOf      *string    `json:"follow_up_of"`   // nil = original task; set on human refinement follow-ups
-	Title           string     `json:"title"`
-	Description     string     `json:"description"`
-	Status          TaskStatus `json:"status"`
-	Input           string     `json:"input"`  // JSON blob
-	Output          string     `json:"output"` // JSON blob
-	CostUSD         float64    `json:"cost_usd"`
-	TokensIn        int        `json:"tokens_in"`
-	TokensOut       int        `json:"tokens_out"`
-	Source          string     `json:"source"`           // free-text provenance, empty if human-created
-	HealthSignal    *string    `json:"health_signal"`    // monitor runs: "all_clear" | "needs_attention" | "failed"
-	GuardrailReason *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
-	LastError       string     `json:"last_error"`       // most recent failure message; preserved across retries
-	Dismissed       bool       `json:"dismissed"`        // hidden from inbox but kept for audit
-	RunnerPID       int        `json:"runner_pid"`       // OS PID of the subprocess, 0 if not running
-	TimeoutAt       *time.Time `json:"timeout_at"`       // when the task will be force-killed
-	IsCriticReview  bool       `json:"is_critic_review"`
-	ReviewedTaskID  *string    `json:"reviewed_task_id"`
-	CriticMode      string     `json:"critic_mode"` // "inherit" | "none" | "builtin" | "agent:<id>"
-	Priority             int        `json:"priority"`             // higher = runs first; default 0 = FIFO
-	DependsOn            []string   `json:"depends_on"`           // task IDs that must complete before this task runs; nil = no deps
-	LoopIteration        int        `json:"loop_iteration"`       // iteration index within a ReAct loop (0 = first/only)
-	PromptHash           string     `json:"prompt_hash"`          // SHA-256 of the assembled prompt; used for monitor diffing
-	SummaryCache         string     `json:"summary_cache"`        // cached summary of older follow-up turns (stored on the root task)
-	TaskType             TaskType   `json:"task_type"`            // "standard" | "orchestration" | "subtask"
-	OrchestrationPlan    string     `json:"orchestration_plan"`   // JSON blob: plan produced by orchestrator
-	StepSlug             string     `json:"step_slug"`            // orchestrated skill step identifier
-	DeliverablesJSON     string     `json:"deliverables_json"`    // JSON: []WorkflowDeliverable
-	DerivedHealth        string     `json:"derived_health"`       // computed workflow health
-	CreatedAt            time.Time  `json:"created_at"`
-	StartedAt            *time.Time `json:"started_at"`
-	CompletedAt          *time.Time `json:"completed_at"`
+	ID                string     `json:"id"`
+	ProjectID         string     `json:"project_id"`
+	AgentID           string     `json:"agent_id"`
+	ParentTaskID      *string    `json:"parent_task_id"` // nil = top-level task
+	FollowUpOf        *string    `json:"follow_up_of"`   // nil = original task; set on human refinement follow-ups
+	Title             string     `json:"title"`
+	Description       string     `json:"description"`
+	Status            TaskStatus `json:"status"`
+	Input             string     `json:"input"`  // JSON blob
+	Output            string     `json:"output"` // JSON blob
+	CostUSD           float64    `json:"cost_usd"`
+	TokensIn          int        `json:"tokens_in"`
+	TokensOut         int        `json:"tokens_out"`
+	Source            string     `json:"source"`           // free-text provenance, empty if human-created
+	HealthSignal      *string    `json:"health_signal"`    // monitor runs: "all_clear" | "needs_attention" | "failed"
+	GuardrailReason   *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
+	LastError         string     `json:"last_error"`       // most recent failure message; preserved across retries
+	Dismissed         bool       `json:"dismissed"`        // hidden from inbox but kept for audit
+	RunnerPID         int        `json:"runner_pid"`       // OS PID of the subprocess, 0 if not running
+	TimeoutAt         *time.Time `json:"timeout_at"`       // when the task will be force-killed
+	IsCriticReview    bool       `json:"is_critic_review"`
+	ReviewedTaskID    *string    `json:"reviewed_task_id"`
+	CriticMode        string     `json:"critic_mode"`        // "inherit" | "none" | "builtin" | "agent:<id>"
+	Priority          int        `json:"priority"`           // higher = runs first; default 0 = FIFO
+	DependsOn         []string   `json:"depends_on"`         // task IDs that must complete before this task runs; nil = no deps
+	LoopIteration     int        `json:"loop_iteration"`     // iteration index within a ReAct loop (0 = first/only)
+	PromptHash        string     `json:"prompt_hash"`        // SHA-256 of the assembled prompt; used for monitor diffing
+	SummaryCache      string     `json:"summary_cache"`      // cached summary of older follow-up turns (stored on the root task)
+	TaskType          TaskType   `json:"task_type"`          // "standard" | "orchestration" | "subtask"
+	OrchestrationPlan string     `json:"orchestration_plan"` // JSON blob: plan produced by orchestrator
+	StepSlug          string     `json:"step_slug"`          // orchestrated skill step identifier
+	DeliverablesJSON  string     `json:"deliverables_json"`  // JSON: []WorkflowDeliverable
+	DerivedHealth     string     `json:"derived_health"`     // computed workflow health
+	CreatedAt         time.Time  `json:"created_at"`
+	StartedAt         *time.Time `json:"started_at"`
+	CompletedAt       *time.Time `json:"completed_at"`
 }
 
 // Team is a named group of agents that can be assigned to projects as a unit.
@@ -303,20 +303,20 @@ type Team struct {
 
 // SystemSettings holds platform-wide configuration that overrides per-agent settings.
 type SystemSettings struct {
-	GlobalGuardrailsEnabled  bool   `json:"global_guardrails_enabled"`
-	GlobalGuardrails         string `json:"global_guardrails"`
-	CorePluginsEnabled       bool   `json:"core_plugins_enabled"`
-	CommunityPluginsEnabled  bool   `json:"community_plugins_enabled"`
-	ObsidianEnabled          bool   `json:"obsidian_enabled"`    // master on/off switch for the Obsidian plugin
-	ObsidianRoot             string `json:"obsidian_root"`       // filesystem path of vaults directory
-	ObsidianAutoWrite        bool   `json:"obsidian_auto_write"` // auto-write MD to vault after task completion
-	Theme                    string `json:"theme"`               // active UI theme id, e.g. "dracula"
+	GlobalGuardrailsEnabled bool   `json:"global_guardrails_enabled"`
+	GlobalGuardrails        string `json:"global_guardrails"`
+	CorePluginsEnabled      bool   `json:"core_plugins_enabled"`
+	CommunityPluginsEnabled bool   `json:"community_plugins_enabled"`
+	ObsidianEnabled         bool   `json:"obsidian_enabled"`    // master on/off switch for the Obsidian plugin
+	ObsidianRoot            string `json:"obsidian_root"`       // filesystem path of vaults directory
+	ObsidianAutoWrite       bool   `json:"obsidian_auto_write"` // auto-write MD to vault after task completion
+	Theme                   string `json:"theme"`               // active UI theme id, e.g. "dracula"
 
 	// Dynamic orchestration settings (migration 051)
-	DynamicOrchestrationEnabled    bool    `json:"dynamic_orchestration_enabled"`
-	OrchestratorAgentID            string  `json:"orchestrator_agent_id"`
-	MaxSubtaskDepth                int     `json:"max_subtask_depth"`               // default 2
-	MaxSubtasksPerLevel            int     `json:"max_subtasks_per_level"`          // default 5
+	DynamicOrchestrationEnabled     bool    `json:"dynamic_orchestration_enabled"`
+	OrchestratorAgentID             string  `json:"orchestrator_agent_id"`
+	MaxSubtaskDepth                 int     `json:"max_subtask_depth"`                 // default 2
+	MaxSubtasksPerLevel             int     `json:"max_subtasks_per_level"`            // default 5
 	OrchestratorConfidenceThreshold float64 `json:"orchestrator_confidence_threshold"` // default 0.75; below = approval required
 
 	// SkillImportDirs lists filesystem paths scanned for SKILL.md files. Each path
@@ -332,9 +332,9 @@ type SystemSettings struct {
 // describing what the vault is for, used to route agent output to the right vault.
 type ObsidianVault struct {
 	ID        string    `json:"id"`
-	Name      string    `json:"name"`      // directory name
-	Path      string    `json:"path"`      // absolute path to vault root
-	Context   string    `json:"context"`   // human description of vault purpose
+	Name      string    `json:"name"`    // directory name
+	Path      string    `json:"path"`    // absolute path to vault root
+	Context   string    `json:"context"` // human description of vault purpose
 	Enabled   bool      `json:"enabled"`
 	SortOrder int       `json:"sort_order"`
 	CreatedAt time.Time `json:"created_at"`
@@ -406,12 +406,12 @@ const (
 
 // AgentTestResult holds the outcome of an agent self-test.
 type AgentTestResult struct {
-	AgentID    string     `json:"agent_id"`
-	AgentName  string     `json:"agent_name"`
-	Status     string     `json:"status"` // "ok" | "error" | "unknown"
-	LatencyMs  *int64     `json:"latency_ms,omitempty"` // nil if never tested
-	Error      string     `json:"error,omitempty"`
-	CheckedAt  *time.Time `json:"checked_at,omitempty"`
+	AgentID   string     `json:"agent_id"`
+	AgentName string     `json:"agent_name"`
+	Status    string     `json:"status"`               // "ok" | "error" | "unknown"
+	LatencyMs *int64     `json:"latency_ms,omitempty"` // nil if never tested
+	Error     string     `json:"error,omitempty"`
+	CheckedAt *time.Time `json:"checked_at,omitempty"`
 }
 
 // MemoStatus represents the read/flag/archive lifecycle of a memo.
@@ -503,10 +503,10 @@ type TaskTemplate struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"` // what the template is for
-	Title       string    `json:"title"`        // task title (may contain {{vars}})
-	Body        string    `json:"body"`         // task description (may contain {{vars}})
-	ProjectID   *string   `json:"project_id"`   // nil = global
-	AgentID     *string   `json:"agent_id"`     // nil = inherits from project
+	Title       string    `json:"title"`       // task title (may contain {{vars}})
+	Body        string    `json:"body"`        // task description (may contain {{vars}})
+	ProjectID   *string   `json:"project_id"`  // nil = global
+	AgentID     *string   `json:"agent_id"`    // nil = inherits from project
 	CreatedAt   time.Time `json:"created_at"`
 }
 

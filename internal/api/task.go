@@ -485,12 +485,12 @@ func (s *Server) ensureSandboxProject(ctx context.Context) error {
 		return fmt.Errorf("get default user for sandbox project: %w", err)
 	}
 	p := &model.Project{
-		ID:          sandboxProjectID,
-		Name:        "Quick Tasks",
+		ID:        sandboxProjectID,
+		Name:      "Quick Tasks",
 		Objective: "One-off tasks not tied to a specific project.",
-		Owner:       user.ID,
-		Status:      model.ProjectStatusActive,
-		CreatedAt:   time.Now(),
+		Owner:     user.ID,
+		Status:    model.ProjectStatusActive,
+		CreatedAt: time.Now(),
 	}
 	return s.projects.Create(ctx, p)
 }

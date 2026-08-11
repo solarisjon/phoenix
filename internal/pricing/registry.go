@@ -23,8 +23,8 @@ type ModelPrice struct {
 
 // Registry is a thread-safe store of model prices.
 type Registry struct {
-	mu        sync.RWMutex
-	builtin   map[string]ModelPrice // seed table, never modified after init
+	mu         sync.RWMutex
+	builtin    map[string]ModelPrice // seed table, never modified after init
 	openrouter map[string]ModelPrice // populated by Refresh()
 	overrides  map[string]ModelPrice // keyed by provider ID
 }
@@ -231,39 +231,39 @@ func parseFloat(s string) float64 {
 func builtinPrices() map[string]ModelPrice {
 	return map[string]ModelPrice{
 		// OpenAI
-		"gpt-4o":              {InputPerMToken: 5.00, OutputPerMToken: 15.00},
-		"gpt-4o-mini":         {InputPerMToken: 0.15, OutputPerMToken: 0.60},
-		"gpt-4-turbo":         {InputPerMToken: 10.00, OutputPerMToken: 30.00},
-		"gpt-4":               {InputPerMToken: 30.00, OutputPerMToken: 60.00},
-		"gpt-3.5-turbo":       {InputPerMToken: 0.50, OutputPerMToken: 1.50},
-		"o1":                  {InputPerMToken: 15.00, OutputPerMToken: 60.00},
-		"o1-mini":             {InputPerMToken: 3.00, OutputPerMToken: 12.00},
-		"o3-mini":             {InputPerMToken: 1.10, OutputPerMToken: 4.40},
+		"gpt-4o":        {InputPerMToken: 5.00, OutputPerMToken: 15.00},
+		"gpt-4o-mini":   {InputPerMToken: 0.15, OutputPerMToken: 0.60},
+		"gpt-4-turbo":   {InputPerMToken: 10.00, OutputPerMToken: 30.00},
+		"gpt-4":         {InputPerMToken: 30.00, OutputPerMToken: 60.00},
+		"gpt-3.5-turbo": {InputPerMToken: 0.50, OutputPerMToken: 1.50},
+		"o1":            {InputPerMToken: 15.00, OutputPerMToken: 60.00},
+		"o1-mini":       {InputPerMToken: 3.00, OutputPerMToken: 12.00},
+		"o3-mini":       {InputPerMToken: 1.10, OutputPerMToken: 4.40},
 		// Anthropic
-		"claude-3-5-sonnet":   {InputPerMToken: 3.00, OutputPerMToken: 15.00},
-		"claude-3-5-haiku":    {InputPerMToken: 0.80, OutputPerMToken: 4.00},
-		"claude-3-haiku":      {InputPerMToken: 0.25, OutputPerMToken: 1.25},
-		"claude-3-opus":       {InputPerMToken: 15.00, OutputPerMToken: 75.00},
-		"claude-3-sonnet":     {InputPerMToken: 3.00, OutputPerMToken: 15.00},
-		"claude-opus-4":       {InputPerMToken: 15.00, OutputPerMToken: 75.00},
-		"claude-sonnet-4":     {InputPerMToken: 3.00, OutputPerMToken: 15.00},
+		"claude-3-5-sonnet": {InputPerMToken: 3.00, OutputPerMToken: 15.00},
+		"claude-3-5-haiku":  {InputPerMToken: 0.80, OutputPerMToken: 4.00},
+		"claude-3-haiku":    {InputPerMToken: 0.25, OutputPerMToken: 1.25},
+		"claude-3-opus":     {InputPerMToken: 15.00, OutputPerMToken: 75.00},
+		"claude-3-sonnet":   {InputPerMToken: 3.00, OutputPerMToken: 15.00},
+		"claude-opus-4":     {InputPerMToken: 15.00, OutputPerMToken: 75.00},
+		"claude-sonnet-4":   {InputPerMToken: 3.00, OutputPerMToken: 15.00},
 		// Meta Llama
-		"llama-3.1-8b":        {InputPerMToken: 0.05, OutputPerMToken: 0.08},
-		"llama-3.1-70b":       {InputPerMToken: 0.35, OutputPerMToken: 0.40},
-		"llama-3.1-405b":      {InputPerMToken: 2.70, OutputPerMToken: 2.70},
-		"llama-3.3-70b":       {InputPerMToken: 0.23, OutputPerMToken: 0.40},
+		"llama-3.1-8b":   {InputPerMToken: 0.05, OutputPerMToken: 0.08},
+		"llama-3.1-70b":  {InputPerMToken: 0.35, OutputPerMToken: 0.40},
+		"llama-3.1-405b": {InputPerMToken: 2.70, OutputPerMToken: 2.70},
+		"llama-3.3-70b":  {InputPerMToken: 0.23, OutputPerMToken: 0.40},
 		// Mistral
-		"mistral-7b":          {InputPerMToken: 0.07, OutputPerMToken: 0.07},
-		"mixtral-8x7b":        {InputPerMToken: 0.45, OutputPerMToken: 0.45},
-		"mistral-small":       {InputPerMToken: 0.20, OutputPerMToken: 0.60},
-		"mistral-large":       {InputPerMToken: 2.00, OutputPerMToken: 6.00},
+		"mistral-7b":    {InputPerMToken: 0.07, OutputPerMToken: 0.07},
+		"mixtral-8x7b":  {InputPerMToken: 0.45, OutputPerMToken: 0.45},
+		"mistral-small": {InputPerMToken: 0.20, OutputPerMToken: 0.60},
+		"mistral-large": {InputPerMToken: 2.00, OutputPerMToken: 6.00},
 		// Google
-		"gemini-1.5-pro":      {InputPerMToken: 3.50, OutputPerMToken: 10.50},
-		"gemini-1.5-flash":    {InputPerMToken: 0.35, OutputPerMToken: 1.05},
-		"gemini-2.0-flash":    {InputPerMToken: 0.10, OutputPerMToken: 0.40},
-		"gemini-2.5-pro":      {InputPerMToken: 2.50, OutputPerMToken: 10.00},
+		"gemini-1.5-pro":   {InputPerMToken: 3.50, OutputPerMToken: 10.50},
+		"gemini-1.5-flash": {InputPerMToken: 0.35, OutputPerMToken: 1.05},
+		"gemini-2.0-flash": {InputPerMToken: 0.10, OutputPerMToken: 0.40},
+		"gemini-2.5-pro":   {InputPerMToken: 2.50, OutputPerMToken: 10.00},
 		// DeepSeek
-		"deepseek-chat":       {InputPerMToken: 0.27, OutputPerMToken: 1.10},
-		"deepseek-r1":         {InputPerMToken: 0.55, OutputPerMToken: 2.19},
+		"deepseek-chat": {InputPerMToken: 0.27, OutputPerMToken: 1.10},
+		"deepseek-r1":   {InputPerMToken: 0.55, OutputPerMToken: 2.19},
 	}
 }

@@ -97,4 +97,3 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, http.StatusOK, map[string]string{"id": u.ID, "name": u.Name})
 }
-

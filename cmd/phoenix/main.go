@@ -14,10 +14,9 @@ import (
 	_ "time/tzdata" // embed timezone data for scratch/minimal containers
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/solarisjon/phoenix/internal/agent"
-	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/agenthealthcheck"
+	"github.com/solarisjon/phoenix/internal/api"
 	"github.com/solarisjon/phoenix/internal/config"
 	"github.com/solarisjon/phoenix/internal/frontend"
 	"github.com/solarisjon/phoenix/internal/healthcheck"
@@ -29,6 +28,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider/registry"
 	"github.com/solarisjon/phoenix/internal/scheduler"
 	"github.com/solarisjon/phoenix/internal/store/sqlite"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {

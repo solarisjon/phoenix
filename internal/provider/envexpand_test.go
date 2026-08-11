@@ -17,7 +17,7 @@ func TestExpandEnv(t *testing.T) {
 	}{
 		{`Bearer ${TEST_KEY}`, `Bearer sk-abc123`},
 		{`${TEST_URL}/chat`, `https://api.example.com/v1/chat`},
-		{`${UNKNOWN_VAR}`, `${UNKNOWN_VAR}`},           // left as-is
+		{`${UNKNOWN_VAR}`, `${UNKNOWN_VAR}`}, // left as-is
 		{`no vars here`, `no vars here`},
 		{`${TEST_KEY} and ${TEST_URL}`, `sk-abc123 and https://api.example.com/v1`},
 	}

@@ -53,16 +53,16 @@ type Config struct {
 // Unset or unparseable values fall back to their stated defaults.
 func Load(defaultDBPath string) Config {
 	return Config{
-		DBPath:              envString("PHOENIX_DB_PATH", defaultDBPath),
-		Port:                envString("PHOENIX_PORT", "8080"),
-		TaskTimeout:         envDuration("PHOENIX_TASK_TIMEOUT", 30*time.Minute),
-		SchedulerInterval:   envDuration("PHOENIX_SCHEDULER_INTERVAL", 60*time.Second),
-		HTTPTimeout:         envDuration("PHOENIX_HTTP_TIMEOUT", 60*time.Second),
-		CORSOrigin:          os.Getenv("PHOENIX_CORS_ORIGIN"),
-		HealthCheckInterval: envDuration("PHOENIX_HEALTH_CHECK_INTERVAL", 10*time.Minute),
+		DBPath:                   envString("PHOENIX_DB_PATH", defaultDBPath),
+		Port:                     envString("PHOENIX_PORT", "8080"),
+		TaskTimeout:              envDuration("PHOENIX_TASK_TIMEOUT", 30*time.Minute),
+		SchedulerInterval:        envDuration("PHOENIX_SCHEDULER_INTERVAL", 60*time.Second),
+		HTTPTimeout:              envDuration("PHOENIX_HTTP_TIMEOUT", 60*time.Second),
+		CORSOrigin:               os.Getenv("PHOENIX_CORS_ORIGIN"),
+		HealthCheckInterval:      envDuration("PHOENIX_HEALTH_CHECK_INTERVAL", 10*time.Minute),
 		AgentHealthCheckInterval: envDuration("PHOENIX_AGENT_HEALTH_CHECK_INTERVAL", 5*time.Minute),
-		AuthEnabled:         os.Getenv("PHOENIX_AUTH_ENABLED") == "true",
-		SeedUsers:           os.Getenv("PHOENIX_SEED_USERS"),
+		AuthEnabled:              os.Getenv("PHOENIX_AUTH_ENABLED") == "true",
+		SeedUsers:                os.Getenv("PHOENIX_SEED_USERS"),
 	}
 }
 

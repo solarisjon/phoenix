@@ -37,11 +37,11 @@ type Runner struct {
 	projects       store.ProjectRepo
 	settings       store.SystemSettingsRepo
 	memos          store.MemoRepo
-	providers      store.ProviderRepo   // nil before SetProviderRepo is called
+	providers      store.ProviderRepo      // nil before SetProviderRepo is called
 	obsidianVaults store.ObsidianVaultRepo // nil = disabled
 	skills         store.SkillRepo         // nil = disabled
 	registry       *registry.Registry
-	orchestrator   *Orchestrator        // nil until SetOrchestrator is called
+	orchestrator   *Orchestrator // nil until SetOrchestrator is called
 	onEvent        EventHandler
 	onMemo         MemoHandler
 	memoryClient   memory.MemoryClient // nil = disabled

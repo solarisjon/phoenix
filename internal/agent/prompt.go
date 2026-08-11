@@ -87,24 +87,24 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serve
 		b.WriteString("## Hiring New Agents\n")
 		b.WriteString(fmt.Sprintf(
 			`You are permitted to recruit and create new agents by calling the Phoenix API.`+"\n\n"+
-			`**Step 1 — Check existing agents first:**`+"\n"+
-			`Before proposing a hire, call GET %s/api/agents to list all existing agents.`+"\n"+
-			`Review their names and personas. Only propose a new hire if no existing agent can fulfill the required role.`+"\n\n"+
-			`**Step 2 — Submit a hire proposal:**`+"\n"+
-			`If no suitable agent exists, make an HTTP POST to %s/api/agent-drafts with this JSON body:`+"\n\n"+
-			"```json\n"+
-			"{\n"+
-			`  "created_by_agent_id": "%s",`+"\n"+
-			`  "created_by_task_id":  "%s",`+"\n"+
-			`  "name":         "<full role title, e.g. Senior Operations Manager>",`+"\n"+
-			`  "persona":      "<2-3 sentences: who they are, personality, communication style>",`+"\n"+
-			`  "instructions": "<detailed operational instructions, 4-8 paragraphs or bullets>",`+"\n"+
-			`  "guardrails":   "<constraints and boundaries, 3-5 items>"`+"\n"+
-			"}\n"+
-			"```\n"+
-			`The draft will be sent to a human for review and approval before the agent is activated.`+"\n"+
-			`You do not need to assign a provider or project — the human handles that at approval time.`+"\n"+
-			`Only propose a hire when explicitly asked to recruit, or when your task requires a capability that no existing agent can fulfill.`,
+				`**Step 1 — Check existing agents first:**`+"\n"+
+				`Before proposing a hire, call GET %s/api/agents to list all existing agents.`+"\n"+
+				`Review their names and personas. Only propose a new hire if no existing agent can fulfill the required role.`+"\n\n"+
+				`**Step 2 — Submit a hire proposal:**`+"\n"+
+				`If no suitable agent exists, make an HTTP POST to %s/api/agent-drafts with this JSON body:`+"\n\n"+
+				"```json\n"+
+				"{\n"+
+				`  "created_by_agent_id": "%s",`+"\n"+
+				`  "created_by_task_id":  "%s",`+"\n"+
+				`  "name":         "<full role title, e.g. Senior Operations Manager>",`+"\n"+
+				`  "persona":      "<2-3 sentences: who they are, personality, communication style>",`+"\n"+
+				`  "instructions": "<detailed operational instructions, 4-8 paragraphs or bullets>",`+"\n"+
+				`  "guardrails":   "<constraints and boundaries, 3-5 items>"`+"\n"+
+				"}\n"+
+				"```\n"+
+				`The draft will be sent to a human for review and approval before the agent is activated.`+"\n"+
+				`You do not need to assign a provider or project — the human handles that at approval time.`+"\n"+
+				`Only propose a hire when explicitly asked to recruit, or when your task requires a capability that no existing agent can fulfill.`,
 			serverURL, serverURL, a.ID, t.ID))
 		b.WriteString("\n")
 	}
@@ -175,7 +175,6 @@ ARTIFACT_END
 Supported types: file, url, jira, confluence, html
 Only emit an ARTIFACT block when you have actually created or modified something — not for pre-existing resources you merely referenced.
 `)
-
 
 	if globalGuardrails != "" {
 		b.WriteString("\n## Platform-Wide Guardrails (mandatory — overrides all other instructions)\n")

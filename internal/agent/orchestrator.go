@@ -408,7 +408,10 @@ func (o *Orchestrator) spawnSubtasks(ctx context.Context, parent *model.Task, pl
 			break
 		}
 
-		agentID, modelOverride, providerID, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
+		// Only the agentID is used here: for a newly-created dynamic agent, the
+		// model/provider are already baked into it (see createDynamicAgent); for
+		// an existing agent, its own configured provider/model applies.
+		agentID, _, _, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
 		if err != nil {
 			slog.Warn("orchestrator: resolve subtask routing", "subtask", sub.Title, "error", err)
 			continue
@@ -427,14 +430,6 @@ func (o *Orchestrator) spawnSubtasks(ctx context.Context, parent *model.Task, pl
 			Input:        "{}",
 			Output:       "{}",
 			CreatedAt:    time.Now(),
-		}
-		// Apply model override if we found a specific cheapest model.
-		if modelOverride != "" {
-			subtask.AgentID = agentID
-			// Store the model override via a temporary agent override — we need to update the agent or use a different mechanism.
-			// For now we encode the desired model in the task source field as routing metadata.
-			_ = modelOverride // applied via agent.ModelOverride at agent creation time
-			_ = providerID
 		}
 
 		if err := o.tasks.Create(ctx, subtask); err != nil {

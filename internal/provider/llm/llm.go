@@ -20,13 +20,13 @@ import (
 
 // Config holds the configuration for a custom LLM endpoint.
 type Config struct {
-	Endpoint           string            `json:"endpoint"`             // Base URL, e.g. "http://llm.local/v1"
-	AuthHeader         string            `json:"auth_header"`          // e.g. "Bearer sk-..."
-	Model              string            `json:"model"`                // e.g. "gpt-4o"
+	Endpoint           string            `json:"endpoint"`              // Base URL, e.g. "http://llm.local/v1"
+	AuthHeader         string            `json:"auth_header"`           // e.g. "Bearer sk-..."
+	Model              string            `json:"model"`                 // e.g. "gpt-4o"
 	CostPerInputToken  float64           `json:"cost_per_input_token"`  // USD per token
 	CostPerOutputToken float64           `json:"cost_per_output_token"` // USD per token
-	ExtraHeaders       map[string]string `json:"extra_headers"`        // Optional additional headers
-	TimeoutSeconds     int               `json:"timeout_seconds"`      // 0 = default (60s)
+	ExtraHeaders       map[string]string `json:"extra_headers"`         // Optional additional headers
+	TimeoutSeconds     int               `json:"timeout_seconds"`       // 0 = default (60s)
 
 	// ApiFlavour selects the wire format. "openai" (default) uses the standard
 	// OpenAI chat completions format. "anthropic" uses the Anthropic Messages API
@@ -103,6 +103,10 @@ func (a *Adapter) Execute(ctx context.Context, req provider.TaskRequest) (provid
 		return provider.TaskResponse{}, fmt.Errorf("llm api error %d: %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 
+	if a.isAnthropic() {
+		return a.parseAnthropicResponse(raw)
+	}
+
 	var completion chatCompletion
 	if err := json.Unmarshal(raw, &completion); err != nil {
 		return provider.TaskResponse{}, fmt.Errorf("parse completion: %w", err)
@@ -122,6 +126,38 @@ func (a *Adapter) Execute(ctx context.Context, req provider.TaskRequest) (provid
 
 	return provider.TaskResponse{
 		Output:    output,
+		TokensIn:  totalIn,
+		TokensOut: tokensOut,
+		CostUSD:   cost,
+	}, nil
+}
+
+// parseAnthropicResponse parses a non-streaming Anthropic Messages API
+// response body (POST /v1/messages), which has no "choices"/"message.content"
+// field — content is a top-level array of blocks, and usage uses
+// input_tokens/output_tokens rather than prompt_tokens/completion_tokens.
+func (a *Adapter) parseAnthropicResponse(raw []byte) (provider.TaskResponse, error) {
+	var resp anthropicResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return provider.TaskResponse{}, fmt.Errorf("parse anthropic response: %w", err)
+	}
+
+	var sb strings.Builder
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			sb.WriteString(block.Text)
+		}
+	}
+
+	tokensIn := resp.Usage.InputTokens
+	tokensOut := resp.Usage.OutputTokens
+	cacheWrite := resp.Usage.CacheCreationInputTokens
+	cacheRead := resp.Usage.CacheReadInputTokens
+	cost := a.calcCostWithCache(tokensIn, tokensOut, cacheWrite, cacheRead)
+	totalIn := tokensIn + cacheWrite + cacheRead
+
+	return provider.TaskResponse{
+		Output:    sb.String(),
 		TokensIn:  totalIn,
 		TokensOut: tokensOut,
 		CostUSD:   cost,
@@ -493,10 +529,10 @@ type chatCompletion struct {
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens                int `json:"prompt_tokens"`
-		CompletionTokens            int `json:"completion_tokens"`
-		CacheCreationInputTokens    int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens        int `json:"cache_read_input_tokens"`
+		PromptTokens             int `json:"prompt_tokens"`
+		CompletionTokens         int `json:"completion_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
@@ -524,6 +560,18 @@ type cacheControl struct {
 	Type string `json:"type"` // "ephemeral"
 }
 
+// anthropicResponse is the non-streaming Anthropic Messages API response
+// (POST /v1/messages, stream=false).
+type anthropicResponse struct {
+	Content []contentBlock `json:"content"`
+	Usage   struct {
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	} `json:"usage"`
+}
+
 // anthropicEvent covers all Anthropic SSE event shapes we care about.
 type anthropicEvent struct {
 	Type  string `json:"type"`
@@ -534,10 +582,10 @@ type anthropicEvent struct {
 	// message_start carries the initial usage (input tokens).
 	Message *struct {
 		Usage *struct {
-			InputTokens                 int `json:"input_tokens"`
-			OutputTokens                int `json:"output_tokens"`
-			CacheCreationInputTokens    int `json:"cache_creation_input_tokens"`
-			CacheReadInputTokens        int `json:"cache_read_input_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`
 	// message_delta carries output token count.

@@ -17,13 +17,17 @@ import (
 
 type fakeAgentRepo struct{}
 
-func (r *fakeAgentRepo) List(_ context.Context, _ string) ([]*model.Agent, error)              { return nil, nil }
-func (r *fakeAgentRepo) Get(_ context.Context, _ string) (*model.Agent, error)                 { return nil, nil }
-func (r *fakeAgentRepo) Create(_ context.Context, _ *model.Agent) error                        { return nil }
-func (r *fakeAgentRepo) Update(_ context.Context, _ *model.Agent) error                        { return nil }
-func (r *fakeAgentRepo) Delete(_ context.Context, _ string) error                              { return nil }
-func (r *fakeAgentRepo) Search(_ context.Context, _, _ string) ([]*model.Agent, error)         { return nil, nil }
-func (r *fakeAgentRepo) UpdateHealth(_ context.Context, _, _ string, _ *int64, _ string) error { return nil }
+func (r *fakeAgentRepo) List(_ context.Context, _ string) ([]*model.Agent, error) { return nil, nil }
+func (r *fakeAgentRepo) Get(_ context.Context, _ string) (*model.Agent, error)    { return nil, nil }
+func (r *fakeAgentRepo) Create(_ context.Context, _ *model.Agent) error           { return nil }
+func (r *fakeAgentRepo) Update(_ context.Context, _ *model.Agent) error           { return nil }
+func (r *fakeAgentRepo) Delete(_ context.Context, _ string) error                 { return nil }
+func (r *fakeAgentRepo) Search(_ context.Context, _, _ string) ([]*model.Agent, error) {
+	return nil, nil
+}
+func (r *fakeAgentRepo) UpdateHealth(_ context.Context, _, _ string, _ *int64, _ string) error {
+	return nil
+}
 
 type fakeProjectRepo struct {
 	mu       sync.Mutex
@@ -88,9 +92,13 @@ func (r *fakeProjectRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 func (r *fakeProjectRepo) DeleteWithTasks(_ context.Context, _ string) error { return nil }
-func (r *fakeProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, error) { return false, nil }
-func (r *fakeProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) { return true, nil }
-func (r *fakeProjectRepo) RemoveAgent(_ context.Context, _, _ string) error  { return nil }
+func (r *fakeProjectRepo) AssignAgent(_ context.Context, _, _ string) (bool, error) {
+	return false, nil
+}
+func (r *fakeProjectRepo) IsAgentAssigned(_ context.Context, _, _ string) (bool, error) {
+	return true, nil
+}
+func (r *fakeProjectRepo) RemoveAgent(_ context.Context, _, _ string) error { return nil }
 func (r *fakeProjectRepo) ListAgents(_ context.Context, projectID string) ([]*model.Agent, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

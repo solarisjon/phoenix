@@ -41,14 +41,14 @@ func (r *AdminRepo) Reset(ctx context.Context) error {
 	// schema omit ON DELETE CASCADE (e.g. agent_drafts → tasks), and relying on
 	// it silently skips child rows when the cascade doesn't fire.
 	tables := []string{
-		"notification_rules",          // child of plugins
-		"agent_drafts",                // child of agents + tasks (no CASCADE)
-		"todo_items",                  // child of projects + agents
-		"broadcasts",                  // child of projects + agents
-		"broadcast_subscriptions",     // child of projects + agents
-		"tasks",                       // child of projects + agents
-		"project_agents",              // child of projects + agents
-		"team_agents",                 // child of teams + agents
+		"notification_rules",      // child of plugins
+		"agent_drafts",            // child of agents + tasks (no CASCADE)
+		"todo_items",              // child of projects + agents
+		"broadcasts",              // child of projects + agents
+		"broadcast_subscriptions", // child of projects + agents
+		"tasks",                   // child of projects + agents
+		"project_agents",          // child of projects + agents
+		"team_agents",             // child of teams + agents
 		"memos",
 		"plugins",
 		"obsidian_vaults",

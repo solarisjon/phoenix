@@ -256,9 +256,9 @@ func (a *Adapter) buildPrompt(req provider.TaskRequest) string {
 //   - agent_end       → signals completion
 
 type piEvent struct {
-	Type                 string              `json:"type"`
-	AssistantMessageEvent *piMessageEvent    `json:"assistantMessageEvent"`
-	Message              *piMessage          `json:"message"`
+	Type                  string          `json:"type"`
+	AssistantMessageEvent *piMessageEvent `json:"assistantMessageEvent"`
+	Message               *piMessage      `json:"message"`
 }
 
 type piMessageEvent struct {
@@ -291,6 +291,8 @@ type piCost struct {
 // and returns the number of text-delta chunks emitted.
 func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provider.StreamChunk) int {
 	var outputCount int
+	var tokensIn, tokensOut int
+	var costUSD float64
 	scanner := bufio.NewScanner(r)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 4*1024*1024)
@@ -329,11 +331,12 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 				continue
 			}
 			if ev.Message.Usage != nil {
-				cost := 0.0
+				tokensIn = ev.Message.Usage.Input
+				tokensOut = ev.Message.Usage.Output
 				if ev.Message.Usage.Cost != nil {
-					cost = ev.Message.Usage.Cost.Total
+					costUSD = ev.Message.Usage.Cost.Total
 				}
-				slog.Debug("pi: message end", "input_tokens", ev.Message.Usage.Input, "output_tokens", ev.Message.Usage.Output, "cost_usd", cost)
+				slog.Debug("pi: message end", "input_tokens", tokensIn, "output_tokens", tokensOut, "cost_usd", costUSD)
 			}
 
 		case "agent_end":
@@ -353,6 +356,11 @@ func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provid
 		return outputCount
 	}
 
-	ch <- provider.StreamChunk{Done: true}
+	ch <- provider.StreamChunk{
+		Done:      true,
+		TokensIn:  tokensIn,
+		TokensOut: tokensOut,
+		CostUSD:   costUSD,
+	}
 	return outputCount
 }

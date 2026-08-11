@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/store"
 )
 
 type AgentRepo struct{ db *DB }
@@ -125,6 +126,14 @@ func (r *AgentRepo) Update(ctx context.Context, a *model.Agent) error {
 func (r *AgentRepo) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM agents WHERE id = ?`, id)
 	if err != nil {
+		if isForeignKeyViolation(err) {
+			var taskCount int
+			_ = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE agent_id = ?`, id).Scan(&taskCount)
+			if taskCount > 0 {
+				return fmt.Errorf("%w: %d task(s) still reference this agent", store.ErrInUse, taskCount)
+			}
+			return fmt.Errorf("%w: other records still reference this agent", store.ErrInUse)
+		}
 		return fmt.Errorf("delete agent: %w", err)
 	}
 	return nil

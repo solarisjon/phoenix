@@ -5,11 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite"
 )
 
 //go:embed migrations
@@ -34,7 +35,11 @@ func Open(path string) (*DB, error) {
 		slog.Info("sqlite: restore applied — existing data replaced")
 	}
 
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000", path)
+	// modernc.org/sqlite (unlike mattn/go-sqlite3) only recognizes pragmas via
+	// the _pragma=name(value) query form — the more common _journal_mode=/
+	// _foreign_keys=/_busy_timeout= convention is silently ignored by this
+	// driver, so those pragmas must be set this way to actually take effect.
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -117,7 +122,10 @@ func (db *DB) ResetOrphanedTasks(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reset orphaned tasks: query pids: %w", err)
 	}
-	type orphan struct{ id, title, status string; pid int }
+	type orphan struct {
+		id, title, status string
+		pid               int
+	}
 	var orphans []orphan
 	for rows.Next() {
 		var o orphan
@@ -186,6 +194,17 @@ func (db *DB) Seed(ctx context.Context) error {
 		VALUES ('00000000-0000-0000-0000-000000000001', 'Admin', '', '{}')
 	`)
 	return err
+}
+
+// sqliteForeignKeyConstraintCode is SQLITE_CONSTRAINT_FOREIGNKEY (the
+// extended result code SQLite returns when a foreign key check fails).
+const sqliteForeignKeyConstraintCode = 787
+
+// isForeignKeyViolation reports whether err is a SQLite foreign key
+// constraint failure (e.g. deleting a row that other rows still reference).
+func isForeignKeyViolation(err error) bool {
+	var sqliteErr *sqlite.Error
+	return errors.As(err, &sqliteErr) && sqliteErr.Code() == sqliteForeignKeyConstraintCode
 }
 
 // nullString converts a *string to sql.NullString.

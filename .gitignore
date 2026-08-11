@@ -17,6 +17,10 @@ internal/frontend/dist/
 # Air
 build-errors.log
 
+# Secrets / deploy artifacts
+.env
+ca-certificates.crt
+
 # OS
 .DS_Store
 Thumbs.db

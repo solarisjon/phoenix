@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/provider"
+	"github.com/solarisjon/phoenix/internal/store"
 )
 
 type createProviderRequest struct {
@@ -208,6 +210,10 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.providers.Delete(context.Background(), id); err != nil {
+		if errors.Is(err, store.ErrInUse) {
+			respondErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		respondInternalErr(w, err)
 		return
 	}

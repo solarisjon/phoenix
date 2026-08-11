@@ -405,8 +405,8 @@ export function AgentsPage() {
 
   const remove = async (id: string) => {
     if (!confirm('Delete this agent?')) return
-    await api.agents.delete(id)
-    load()
+    try { await api.agents.delete(id); load() }
+    catch (error: unknown) { alert(getErrorMessage(error)) }
   }
 
   const providerName = (id: string) => providers.find(p => p.id === id)?.name ?? '–'

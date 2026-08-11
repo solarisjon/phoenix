@@ -23,9 +23,9 @@ type NotifyMessage struct {
 // JSONSchema is a minimal JSON Schema descriptor used by the Settings UI
 // to render a dynamic configuration form for a notifier plugin.
 type JSONSchema struct {
-	Type       string                `json:"type"`
+	Type       string                 `json:"type"`
 	Properties map[string]SchemaField `json:"properties"`
-	Required   []string              `json:"required,omitempty"`
+	Required   []string               `json:"required,omitempty"`
 }
 
 // SchemaField describes a single config field for the UI.

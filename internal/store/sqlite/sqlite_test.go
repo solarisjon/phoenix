@@ -2,10 +2,12 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/model"
+	"github.com/solarisjon/phoenix/internal/store"
 )
 
 // testDB opens a fresh in-memory SQLite database for testing.
@@ -101,6 +103,29 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+// TestProviderDeleteBlockedByAgent ensures deleting a provider still in use by
+// an agent is rejected with store.ErrInUse rather than silently orphaning the
+// agent's provider_id (which foreign_keys=off would otherwise allow).
+func TestProviderDeleteBlockedByAgent(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	seedAgent(t, db) // also seeds prov-1
+
+	err := NewProviderRepo(db).Delete(ctx, "prov-1")
+	if err == nil {
+		t.Fatal("expected Delete to fail while an agent still references the provider")
+	}
+	if !errors.Is(err, store.ErrInUse) {
+		t.Errorf("err = %v, want store.ErrInUse", err)
+	}
+
+	// The provider must still exist — the delete must not have partially applied.
+	got, getErr := NewProviderRepo(db).Get(ctx, "prov-1")
+	if getErr != nil || got == nil {
+		t.Fatalf("provider should still exist after blocked delete: err=%v got=%v", getErr, got)
+	}
+}
+
 // ---- Agent ----
 
 func seedAgent(t *testing.T, db *DB) *model.Agent {
@@ -150,6 +175,42 @@ func TestAgentCRUD(t *testing.T) {
 
 	if err := repo.Delete(ctx, a.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
+	}
+}
+
+// TestAgentDeleteBlockedByTask ensures deleting an agent that still has task
+// history is rejected with store.ErrInUse rather than silently orphaning the
+// task's agent_id (which foreign_keys=off would otherwise allow).
+func TestAgentDeleteBlockedByTask(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	seedAgent(t, db)
+	seedProject(t, db)
+
+	task := &model.Task{
+		ID:        "task-1",
+		ProjectID: "proj-1",
+		AgentID:   "agent-1",
+		Title:     "Research OKRs",
+		Status:    model.TaskStatusPending,
+		Input:     `{}`,
+		Output:    `{}`,
+	}
+	if err := NewTaskRepo(db).Create(ctx, task); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	err := NewAgentRepo(db).Delete(ctx, "agent-1")
+	if err == nil {
+		t.Fatal("expected Delete to fail while a task still references the agent")
+	}
+	if !errors.Is(err, store.ErrInUse) {
+		t.Errorf("err = %v, want store.ErrInUse", err)
+	}
+
+	got, getErr := NewAgentRepo(db).Get(ctx, "agent-1")
+	if getErr != nil || got == nil {
+		t.Fatalf("agent should still exist after blocked delete: err=%v got=%v", getErr, got)
 	}
 }
 

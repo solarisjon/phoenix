@@ -26,7 +26,7 @@ func init() {
 type Config struct {
 	URL            string `json:"url"`
 	AuthHeader     string `json:"auth_header"`
-	Secret         string `json:"secret"`          // HMAC-SHA256 signing secret
+	Secret         string `json:"secret"` // HMAC-SHA256 signing secret
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 
