@@ -1,6 +1,7 @@
 # Binary
-phoenix
-phoenix-linux
+# built binary at repo root only (anchored so cmd/phoenix/ sources are never ignored)
+/phoenix
+/phoenix-linux
 tmp/
 
 # Frontend build artifacts
