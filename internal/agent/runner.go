@@ -625,6 +625,14 @@ func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*e
 	ec.prov = prov
 	ec.modelID = modelOverride
 	ec.profile = r.resolveProfile(ctx, agent.ProviderID, prov, modelOverride)
+	// A per-agent output cap (agents.max_tokens_per_run) wins over the pool /
+	// probe / default reserve, both for the request and for prompt budgeting.
+	if agent.MaxOutputTokens > 0 {
+		ec.profile.MaxOutputTokens = agent.MaxOutputTokens
+		if ec.profile.ContextWindow > 0 && ec.profile.MaxOutputTokens >= ec.profile.ContextWindow {
+			ec.profile.MaxOutputTokens = ec.profile.ContextWindow / 2
+		}
+	}
 	return &ec, nil
 }
 
@@ -806,9 +814,14 @@ func (r *Runner) buildTaskRequestMeta(ctx context.Context, task *model.Task, ec 
 	trims, fitErr := pa.Fit(meta.Budget, meta.Profile.Count)
 	meta.Trims = trims
 	req := pa.Render()
-	// Keep the model's output cap consistent with the reserve we budgeted for.
-	if meta.Budget > 0 && req.MaxOutputTokens == 0 && meta.Profile.MaxOutputTokens > 0 {
-		req.MaxOutputTokens = meta.Profile.MaxOutputTokens
+	// Keep the model's output cap consistent with the reserve we budgeted for;
+	// an explicit per-agent cap applies even when the window is unknown.
+	if req.MaxOutputTokens == 0 {
+		if ec.agent.MaxOutputTokens > 0 {
+			req.MaxOutputTokens = ec.agent.MaxOutputTokens
+		} else if meta.Budget > 0 && meta.Profile.MaxOutputTokens > 0 {
+			req.MaxOutputTokens = meta.Profile.MaxOutputTokens
+		}
 	}
 	if meta.Budget > 0 {
 		meta.PromptTokens = pa.TokenCount(meta.Profile.Count)

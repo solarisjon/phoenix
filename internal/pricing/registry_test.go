@@ -3,6 +3,7 @@ package pricing
 import (
 	"context"
 	"encoding/json"
+	"github.com/solarisjon/phoenix/internal/model"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -150,5 +151,28 @@ func TestModelTier(t *testing.T) {
 		if got != c.tier {
 			t.Errorf("ModelTier(%q) = %d, want %d", c.model, got, c.tier)
 		}
+	}
+}
+
+func TestEffectiveTier_PrefersCuratedPool(t *testing.T) {
+	prov := &model.Provider{AllowedModels: []model.ModelEntry{
+		{ModelID: "gpt-4o", CapabilityTier: model.ModelTierStandard}, // user demoted it
+		{ModelID: "qwen3-14b", CapabilityTier: model.ModelTierPowerful},
+		{ModelID: "unknown-thing", CapabilityTier: ""},
+	}}
+	if got := EffectiveTier("gpt-4o", prov); got != 2 {
+		t.Errorf("curated standard should map to cost tier 2, got %d", got)
+	}
+	if got := EffectiveTier("qwen3-14b", prov); got != 1 {
+		t.Errorf("curated powerful should map to cost tier 1, got %d", got)
+	}
+	if got := EffectiveTier("gpt-4o", nil); got != 1 {
+		t.Errorf("no provider → name heuristic (gpt-4o = tier 1), got %d", got)
+	}
+	if got := EffectiveTier("unknown-thing", prov); got != 0 {
+		t.Errorf("empty capability + unknown name → 0, got %d", got)
+	}
+	if TierFromCapability(model.ModelTierFast) != 3 || TierFromCapability(model.ModelTierPlanning) != 1 {
+		t.Errorf("TierFromCapability mapping wrong")
 	}
 }

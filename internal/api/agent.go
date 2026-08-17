@@ -34,6 +34,13 @@ type createAgentRequest struct {
 	HeartbeatInterval *int    `json:"heartbeat_interval,omitempty"` // kept for bundle import compat; ignored
 	Status            string  `json:"status"`
 	TemplateID        *string `json:"template_id"`
+
+	// Limits (were sent by the Agents form but silently ignored before
+	// local-models phase 6).
+	MaxConcurrent   int     `json:"max_concurrent"`
+	MaxCostPerRun   float64 `json:"max_cost_per_run"`
+	FallbackModel   string  `json:"fallback_model"`
+	MaxOutputTokens int     `json:"max_output_tokens"`
 }
 
 func (r createAgentRequest) validate() string {
@@ -124,6 +131,11 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		Status:         status,
 		CreatedAt:      time.Now(),
 		TemplateID:     req.TemplateID,
+
+		MaxConcurrent:   req.MaxConcurrent,
+		MaxCostPerRun:   req.MaxCostPerRun,
+		FallbackModel:   req.FallbackModel,
+		MaxOutputTokens: req.MaxOutputTokens,
 	}
 	if err := s.agents.Create(r.Context(), a); err != nil {
 		respondInternalErr(w, err)
@@ -178,6 +190,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	existing.CanHireAgents = req.CanHireAgents
 	existing.IsOrchestrator = req.IsOrchestrator
 	existing.TemplateID = req.TemplateID
+	existing.MaxConcurrent = req.MaxConcurrent
+	existing.MaxCostPerRun = req.MaxCostPerRun
+	existing.FallbackModel = req.FallbackModel
+	existing.MaxOutputTokens = req.MaxOutputTokens
 	if req.Status != "" {
 		existing.Status = model.AgentStatus(req.Status)
 	}

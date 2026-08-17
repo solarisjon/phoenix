@@ -183,25 +183,30 @@ type Provider struct {
 
 // Agent is an AI agent with a behaviour description, guardrails, and a provider.
 type Agent struct {
-	ID             string      `json:"id"`
-	Name           string      `json:"name"`
-	Behaviour      string      `json:"behaviour"`       // unified persona + instructions field
-	Persona        string      `json:"persona"`         // legacy — kept for backwards compat
-	Instructions   string      `json:"instructions"`    // legacy — kept for backwards compat
-	Guardrails     string      `json:"guardrails"`      // soft (advisory) constraints
-	HardGuardrails string      `json:"hard_guardrails"` // mandatory — triggers awaiting_approval
-	ProviderID     string      `json:"provider_id"`
-	ModelOverride  string      `json:"model_override"`   // if set, overrides the provider's default model
-	CanSpawnAgents bool        `json:"can_spawn_agents"` // if true, agent may create tasks for other agents
-	CanHireAgents  bool        `json:"can_hire_agents"`  // if true, agent may submit new agent hire proposals
-	MaxConcurrent  int         `json:"max_concurrent"`   // 0 = unlimited
-	MaxCostPerRun  float64     `json:"max_cost_per_run"` // 0 = unlimited; USD ceiling per run (estimated pre-execution)
-	FallbackModel  string      `json:"fallback_model"`   // model to use when cost budget overflows after context truncation; empty = fail
-	IsOrchestrator bool        `json:"is_orchestrator"`  // if true, this agent is the global task orchestrator
-	CreatedBy      string      `json:"created_by"`
-	Status         AgentStatus `json:"status"`
-	CreatedAt      time.Time   `json:"created_at"`
-	TemplateID     *string     `json:"template_id"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Behaviour      string  `json:"behaviour"`       // unified persona + instructions field
+	Persona        string  `json:"persona"`         // legacy — kept for backwards compat
+	Instructions   string  `json:"instructions"`    // legacy — kept for backwards compat
+	Guardrails     string  `json:"guardrails"`      // soft (advisory) constraints
+	HardGuardrails string  `json:"hard_guardrails"` // mandatory — triggers awaiting_approval
+	ProviderID     string  `json:"provider_id"`
+	ModelOverride  string  `json:"model_override"`   // if set, overrides the provider's default model
+	CanSpawnAgents bool    `json:"can_spawn_agents"` // if true, agent may create tasks for other agents
+	CanHireAgents  bool    `json:"can_hire_agents"`  // if true, agent may submit new agent hire proposals
+	MaxConcurrent  int     `json:"max_concurrent"`   // 0 = unlimited
+	MaxCostPerRun  float64 `json:"max_cost_per_run"` // 0 = unlimited; USD ceiling per run (estimated pre-execution)
+	FallbackModel  string  `json:"fallback_model"`   // model to use when cost budget overflows after context truncation; empty = fail
+	// MaxOutputTokens caps the reply length for this agent's tasks (column
+	// max_tokens_per_run, migration 030 — repurposed in local-models phase 6
+	// from an unimplemented input budget). 0 = model/profile default. Also
+	// the reserve prompt budgeting subtracts from the context window.
+	MaxOutputTokens int         `json:"max_output_tokens"`
+	IsOrchestrator  bool        `json:"is_orchestrator"` // if true, this agent is the global task orchestrator
+	CreatedBy       string      `json:"created_by"`
+	Status          AgentStatus `json:"status"`
+	CreatedAt       time.Time   `json:"created_at"`
+	TemplateID      *string     `json:"template_id"`
 
 	// Agent self-test fields (mirrors provider health)
 	AgentHealthStatus    string     `json:"agent_health_status"`               // "ok" | "error" | "unknown"

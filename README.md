@@ -35,12 +35,13 @@ A self-hosted **harness engineering** platform for AI agents. Define agents with
 | **Plugins** | Extend Phoenix with notifiers (Telegram, Webhook) and custom themes. Core plugins ship built-in; community plugins can be enabled separately. |
 | **Task templates** | Save reusable prompt scaffolds. Optionally scope to a project or agent. Apply from the task compose panel. |
 | **Provider health checks** | Background ping every 10 minutes; status shown on each provider card. Manual test via the Test button. |
+| **Runs fully local** | Native **llama.cpp** provider (plus Ollama). Phoenix reads the model's context window, counts tokens exactly, **fits every prompt into the window** (trims shown on the task), uses a terser **compact prompt profile** for small models, routes its own side jobs to a **helper model**, gets **grammar-enforced JSON** from local servers, and can **grade any model's Phoenix compatibility** before you trust it with a monitor. See [`docs/guides/local-models-llama-cpp.md`](docs/guides/local-models-llama-cpp.md). |
 | **Retry with edit** | On any failed task, edit the title and description before re-running. The new run is linked as a follow-up. |
 | **Task priority** | Bump a queued task to jump ahead of others. Higher-priority tasks run first; ties broken by creation time. |
 | **Task dependency chains** | Block a task until one or more other tasks complete. Dependent tasks start as `queued` and are skipped by the scheduler until all prereqs finish. Set dependencies in the task compose panel. |
 | **Agent export / import** | Export any agent as a self-contained JSON bundle (persona, instructions, guardrails, provider hint). Import on any Phoenix instance — provider is matched automatically or created from the hint. |
 | **Output diff view** | Select two completed tasks and compare their outputs side-by-side with a line-level diff (added lines green, removed lines red). Checkboxes appear on each completed task row. |
-| **Cost estimator** | Estimate token count and USD cost range before submitting a task. Uses provider pricing and agent config to give a low–high range with no API call required. |
+| **Cost & context estimator** | Before submitting a task, see the USD cost range *and* how the real assembled prompt fits the model's context window (with what would be trimmed). Local models show "Free". |
 | **Obsidian integration** | Connect Obsidian vaults. Agents can write notes directly to vault files. Auto-write mode creates a note after every task. Configure vault paths in Settings → Obsidian. |
 | **Cost insights** | Trend analysis and anomaly flags on the Dashboard cost view. |
 | **Monitor pause** | Pause a monitor to stop new runs without archiving it. Resume when ready. |
@@ -58,7 +59,7 @@ A self-hosted **harness engineering** platform for AI agents. Define agents with
 - Node.js 18+
 - At least one provider:
   - An OpenAI-compatible LLM endpoint (OpenAI, Anthropic, LM Studio, LLM Proxy…)
-  - **Ollama** for local models (`qwen3.5`, `llama3`, `mistral`…)
+  - **llama.cpp** (`llama-server`) or **Ollama** for local models — see [the local-models guide](docs/guides/local-models-llama-cpp.md)
   - A local coding agent: [`pi`](https://github.com/earendil-works/pi), [`opencode`](https://opencode.ai), [`claude`](https://www.anthropic.com/claude-code), or [`crush`](https://github.com/charmbracelet/crush)
 
 ### Build & run
@@ -679,8 +680,9 @@ Initial release: agents, projects, monitors, tasks, inbox, providers, WebSocket 
 
 See [GitHub Issues](https://github.com/solarisjon/phoenix/issues) for the full backlog.
 
+Recently shipped (2026-08-17): first-class local model support via llama.cpp — context budgeting, compact prompt profile, grammar-constrained output, helper-model routing, model eval harness ([design spec](docs/superpowers/specs/2026-08-17-local-models-design.md), [plan](docs/superpowers/specs/2026-08-17-local-models-implementation-plan.md)).
+
 Near-term:
-- First-class local model support via llama.cpp — context budgeting, compact prompt profile, grammar-constrained output, helper-model routing, model eval harness ([design spec](docs/superpowers/specs/2026-08-17-local-models-design.md), [plan](docs/superpowers/specs/2026-08-17-local-models-implementation-plan.md))
 - Mobile-friendly layout (sidebar collapses to bottom nav)
 - Keyboard shortcuts (R=retry, D=dismiss, J/K navigate tasks)
 - GitHub Issues plugin — bidirectional (receive issues → tasks, post output → comments)

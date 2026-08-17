@@ -91,6 +91,7 @@ export interface Agent {
   max_concurrent: number
   max_cost_per_run: number
   fallback_model: string
+  max_output_tokens?: number   // per-agent reply cap; 0 = model/profile default. Also the reserve prompt budgeting keeps free.
   status: 'active' | 'paused' | 'disabled'
   created_by: string
   created_at: string

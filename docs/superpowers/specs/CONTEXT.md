@@ -1,6 +1,6 @@
 # Phoenix — Active Development Context
 
-**Last updated:** 2026-06-27 (v0.7 in progress)  
+**Last updated:** 2026-08-17 (local-models initiative #100 complete)  
 **Purpose:** Quick-load context for a coding agent resuming work on this project. Read this file first, then the GitHub Issues at https://github.com/solarisjon/phoenix/issues, then proceed.
 
 ---
@@ -458,7 +458,12 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 - UI (Providers → Model Pool): "Phoenix A · 100" badge (click for per-case detail + "Apply to this row" for suggested tier/profile), "⚖ Run eval" with live progress.
 - Live results (llama-server router): Qwen2.5-14B-Instruct Q4_K_M → **100/A** in ~2.5 min (~10 tok/s); Qwen3-0.6B Q8_0 → **84/B** (fails `guardrail_stop` — ignores hard guardrails), ~120 tok/s.
 
-Remaining gaps (Phase 6): `SelectModelForDomain` result discarded when an existing agent matches; `SelectOrchestrationModel` has no caller; no retry on malformed structured output; `agents.max_tokens_per_run` (migration 030) is dead.
+**Local-models Phase 6 (done 2026-08-17, #104):** cleanup.
+- `agents.max_tokens_per_run` (migration 030) repurposed as `Agent.MaxOutputTokens` (JSON `max_output_tokens`): per-agent reply cap, wins over pool/probe/default reserve for prompt budgeting and is sent as the request's output cap. Agents form field. **Fixed a pre-existing API bug:** `createAgentRequest` lacked `max_concurrent` / `max_cost_per_run` / `fallback_model`, so the Agents form's limit fields were silently dropped on create/update — they now round-trip (test `TestAgentLimitsRoundTrip`).
+- Two tier systems reconciled: `pricing.EffectiveTier(model, providerRec)` uses the curated pool entry's `CapabilityTier` (mapped via `TierFromCapability`: powerful/planning→1, standard→2, fast→3) and falls back to the name-prefix `ModelTier`. Cost-insights recommendations use it.
+- README, this file, guide, spec and plan finalised; epic #100 closed.
+
+**Initiative complete.** Everything the epic listed shipped except two deliberate scope calls: prose-only assist endpoints stay unconstrained (they don't return JSON), and Ollama `max_concurrent` defaults to unlimited (was 1 in the plan). Local providers are first-class: llama.cpp native adapter, exact-token budgeting with visible trims, compact prompt profile, helper-model routing, grammar-constrained JSON with one-shot repair, and an eval harness that grades a model before you trust it.
 
 ---
 
@@ -520,7 +525,7 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–055
+- Migrations applied: 001–057
 
 ---
 

@@ -35,6 +35,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
   const [maxConcurrent, setMaxConcurrent] = useState<number>(initial?.max_concurrent ?? 1)
   const [maxCostPerRun, setMaxCostPerRun] = useState<number>(initial?.max_cost_per_run ?? 0)
   const [fallbackModel, setFallbackModel] = useState(initial?.fallback_model ?? '')
+  const [maxOutputTokens, setMaxOutputTokens] = useState<number>(initial?.max_output_tokens ?? 0)
   const [status, setStatus] = useState(initial?.status ?? 'active')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -78,7 +79,7 @@ function AgentForm({ initial, providers, onSave, onClose }: {
     if (!providerID) { setError('Select a provider'); return }
     setSaving(true)
     try {
-      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, is_orchestrator: isOrchestrator, max_concurrent: maxConcurrent, max_cost_per_run: maxCostPerRun, fallback_model: fallbackModel, status }
+      const data = { name, behaviour, guardrails, hard_guardrails: hardGuardrails, provider_id: providerID, model_override: modelOverride, can_spawn_agents: canSpawnAgents, can_hire_agents: canHireAgents, is_orchestrator: isOrchestrator, max_concurrent: maxConcurrent, max_cost_per_run: maxCostPerRun, fallback_model: fallbackModel, max_output_tokens: maxOutputTokens, status }
       if (initial) await api.agents.update(initial.id, data)
       else await api.agents.create(data)
       onSave()
@@ -220,6 +221,27 @@ function AgentForm({ initial, providers, onSave, onClose }: {
             </p>
           </div>
         )}
+
+        {/* Per-agent output cap */}
+        <div className="border-t border-slate-800 pt-4">
+          <Label htmlFor="max-output-tokens">
+            Max output tokens
+            <span className="text-slate-600 font-normal ml-2">(0 = model default)</span>
+          </Label>
+          <Input
+            id="max-output-tokens"
+            type="number"
+            min={0}
+            step={256}
+            value={maxOutputTokens || ''}
+            onChange={e => setMaxOutputTokens(parseInt(e.target.value, 10) || 0)}
+            placeholder="e.g. 1024 for terse monitors, 4096 for long reports"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Caps this agent's replies and is the amount prompt budgeting keeps free in the model's context window.
+            On small local models a lower cap (512–1024) leaves more room for skills and history.
+          </p>
+        </div>
 
         {/* Spawn agents toggle */}
         <div className="border-t border-slate-800 pt-4">

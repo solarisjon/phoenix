@@ -524,3 +524,47 @@ var _ store.TeamRepo = (*sqllite.TeamRepo)(nil)
 
 // Suppress unused import
 var _ = time.Now
+
+// Local-models phase 6: the Agents form's limit fields must round-trip through
+// the API (max_concurrent / max_cost_per_run / fallback_model were silently
+// dropped before; max_output_tokens is new).
+func TestAgentLimitsRoundTrip(t *testing.T) {
+	srv := testServer(t)
+	provID := seedProvider(t, srv)
+
+	w := postJSON(t, srv, "/api/agents", map[string]any{
+		"name": "Limits", "behaviour": "b", "provider_id": provID,
+		"max_concurrent": 2, "max_cost_per_run": 0.5, "fallback_model": "small", "max_output_tokens": 1024,
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	var a model.Agent
+	_ = json.NewDecoder(w.Body).Decode(&a)
+	if a.MaxConcurrent != 2 || a.MaxCostPerRun != 0.5 || a.FallbackModel != "small" || a.MaxOutputTokens != 1024 {
+		t.Fatalf("limits not persisted on create: %+v", a)
+	}
+
+	upd, _ := json.Marshal(map[string]any{
+		"name": "Limits", "behaviour": "b", "provider_id": provID, "max_concurrent": 3, "max_output_tokens": 512,
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/agents/"+a.ID, bytes.NewReader(upd))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", w.Code, w.Body.String())
+	}
+	var u model.Agent
+	_ = json.NewDecoder(w.Body).Decode(&u)
+	if u.MaxConcurrent != 3 || u.MaxOutputTokens != 512 || u.MaxCostPerRun != 0 {
+		t.Fatalf("limits not persisted on update: %+v", u)
+	}
+	// And they survive a reload from the store.
+	w = getJSON(t, srv, "/api/agents/"+a.ID)
+	var g model.Agent
+	_ = json.NewDecoder(w.Body).Decode(&g)
+	if g.MaxOutputTokens != 512 || g.MaxConcurrent != 3 {
+		t.Fatalf("limits not stored: %+v", g)
+	}
+}

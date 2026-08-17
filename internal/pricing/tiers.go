@@ -1,11 +1,52 @@
 package pricing
 
-import "strings"
+import (
+	"strings"
 
-// Model tier classification for recommendation logic.
+	"github.com/solarisjon/phoenix/internal/model"
+)
+
+// Model tier classification for the cost-insights recommendation logic.
 // Tier 1 = expensive flagship models.
 // Tier 2 = capable mid-range models (recommended swap targets).
 // Tier 3 = cheap/local models.
+//
+// Phoenix has a second, user-facing notion of tier — model.ModelCapabilityTier
+// (fast / standard / powerful / planning) on provider model-pool entries, used
+// by the orchestrator, the helper-model resolver and prompt profiles. When a
+// pool entry exists for a model it is the source of truth; TierFromCapability
+// maps it onto the cost tiers so both systems agree. The name-prefix tables
+// below are only the fallback for models nobody has curated.
+
+// TierFromCapability maps a curated capability tier onto the cost tier scale.
+// Unknown/empty → 0 (caller falls back to ModelTier by name).
+func TierFromCapability(t model.ModelCapabilityTier) int {
+	switch t {
+	case model.ModelTierPowerful, model.ModelTierPlanning:
+		return 1
+	case model.ModelTierStandard:
+		return 2
+	case model.ModelTierFast:
+		return 3
+	}
+	return 0
+}
+
+// EffectiveTier returns the cost tier for a model: the curated pool entry's
+// capability tier when the provider record has one for modelName, else the
+// name-prefix heuristic.
+func EffectiveTier(modelName string, prov *model.Provider) int {
+	if prov != nil {
+		for _, e := range prov.AllowedModels {
+			if strings.EqualFold(e.ModelID, modelName) {
+				if t := TierFromCapability(e.CapabilityTier); t != 0 {
+					return t
+				}
+			}
+		}
+	}
+	return ModelTier(modelName)
+}
 
 var tier1Prefixes = []string{
 	"gpt-4o", "gpt-4-turbo", "gpt-4",

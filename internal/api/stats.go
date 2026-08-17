@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
 	"time"
 
+	"github.com/solarisjon/phoenix/internal/model"
 	"github.com/solarisjon/phoenix/internal/pricing"
 	"github.com/solarisjon/phoenix/internal/store"
 )
@@ -288,11 +290,20 @@ func (s *Server) effectivePrice(row *store.InsightRow) (pricing.ModelPrice, bool
 func (s *Server) buildRecommendations(rows []*store.InsightRow, periodDays float64) []insightRecommendation {
 	var recs []insightRecommendation
 
+	// Provider records (for curated model-pool tiers) — loaded once.
+	provByID := map[string]*model.Provider{}
+	if provs, err := s.providers.List(context.Background(), ""); err == nil {
+		for _, p := range provs {
+			provByID[p.ID] = p
+		}
+	}
+
 	for _, row := range rows {
 		if row.TaskCount == 0 {
 			continue
 		}
 		tasksPerMonth := float64(row.TaskCount) / periodDays * 30
+		modelTier := pricing.EffectiveTier(row.Model, provByID[row.ProviderID])
 
 		// Rule 1: expensive_model_swap
 		// Agent projected monthly > $5 AND a cheaper model exists that saves >50%.
@@ -301,7 +312,7 @@ func (s *Server) buildRecommendations(rows []*store.InsightRow, periodDays float
 			avgIn := float64(row.TokensIn) / float64(row.TaskCount)
 			avgOut := float64(row.TokensOut) / float64(row.TaskCount)
 			projectedMonthly := (avgIn*price.InputPerMToken + avgOut*price.OutputPerMToken) / 1_000_000 * tasksPerMonth
-			if projectedMonthly > 5 {
+			if projectedMonthly > 5 && modelTier == 1 {
 				suggested, savingPct, ok := pricing.SuggestCheaperModel(row.Model, s.pricingReg)
 				if ok && savingPct > 50 {
 					recs = append(recs, insightRecommendation{
@@ -318,7 +329,7 @@ func (s *Server) buildRecommendations(rows []*store.InsightRow, periodDays float
 
 		// Rule 2: overkill_monitor
 		// Uses a Tier 1 model but runs <5 tasks/month (low-frequency workload).
-		if pricing.ModelTier(row.Model) == 1 && tasksPerMonth < 5 {
+		if modelTier == 1 && tasksPerMonth < 5 {
 			recs = append(recs, insightRecommendation{
 				Severity: "info",
 				Kind:     "overkill_monitor",

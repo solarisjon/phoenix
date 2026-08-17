@@ -23,7 +23,7 @@ func (r *AgentRepo) List(ctx context.Context, userID string) ([]*model.Agent, er
 		rows, err = r.db.QueryContext(ctx, `
 			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 			       provider_id, model_override, can_spawn_agents, can_hire_agents,
-			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator,
+			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, max_tokens_per_run,
 			       created_by, status, created_at, template_id,
 			       agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at
 			FROM agents ORDER BY created_at ASC`)
@@ -31,7 +31,7 @@ func (r *AgentRepo) List(ctx context.Context, userID string) ([]*model.Agent, er
 		rows, err = r.db.QueryContext(ctx, `
 			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 			       provider_id, model_override, can_spawn_agents, can_hire_agents,
-			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator,
+			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, max_tokens_per_run,
 			       created_by, status, created_at, template_id,
 			       agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at
 			FROM agents WHERE created_by = ? ORDER BY created_at ASC`, userID)
@@ -47,7 +47,7 @@ func (r *AgentRepo) Get(ctx context.Context, id string) (*model.Agent, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 		       provider_id, model_override, can_spawn_agents, can_hire_agents,
-		       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator,
+		       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, max_tokens_per_run,
 		       created_by, status, created_at, template_id,
 		       agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at
 		FROM agents WHERE id = ?`, id)
@@ -77,10 +77,10 @@ func (r *AgentRepo) Create(ctx context.Context, a *model.Agent) error {
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO agents
-		  (id, name, persona, instructions, guardrails, behaviour, hard_guardrails, provider_id, model_override, can_spawn_agents, can_hire_agents, max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, created_by, status, template_id, agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, name, persona, instructions, guardrails, behaviour, hard_guardrails, provider_id, model_override, can_spawn_agents, can_hire_agents, max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, max_tokens_per_run, created_by, status, template_id, agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Name, a.Persona, a.Instructions, a.Guardrails, a.Behaviour, a.HardGuardrails,
-		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxCostPerRun, a.FallbackModel, isOrchestrator, a.CreatedBy, string(a.Status), nullString(a.TemplateID),
+		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxCostPerRun, a.FallbackModel, isOrchestrator, a.MaxOutputTokens, a.CreatedBy, string(a.Status), nullString(a.TemplateID),
 		healthStatus, a.AgentHealthLatencyMs, healthError, a.AgentHealthCheckedAt)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
@@ -112,10 +112,10 @@ func (r *AgentRepo) Update(ctx context.Context, a *model.Agent) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE agents SET
 		  name = ?, persona = ?, instructions = ?, guardrails = ?, behaviour = ?, hard_guardrails = ?,
-		  provider_id = ?, model_override = ?, can_spawn_agents = ?, can_hire_agents = ?, max_concurrent = ?, max_cost_per_run = ?, fallback_model = ?, is_orchestrator = ?, status = ?, template_id = ?, agent_health_status = ?, agent_health_latency_ms = ?, agent_health_error = ?, agent_health_checked_at = ?
+		  provider_id = ?, model_override = ?, can_spawn_agents = ?, can_hire_agents = ?, max_concurrent = ?, max_cost_per_run = ?, fallback_model = ?, is_orchestrator = ?, max_tokens_per_run = ?, status = ?, template_id = ?, agent_health_status = ?, agent_health_latency_ms = ?, agent_health_error = ?, agent_health_checked_at = ?
 		WHERE id = ?`,
 		a.Name, a.Persona, a.Instructions, a.Guardrails, a.Behaviour, a.HardGuardrails,
-		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxCostPerRun, a.FallbackModel, isOrchestrator, string(a.Status), nullString(a.TemplateID),
+		a.ProviderID, a.ModelOverride, canSpawn, canHire, a.MaxConcurrent, a.MaxCostPerRun, a.FallbackModel, isOrchestrator, a.MaxOutputTokens, string(a.Status), nullString(a.TemplateID),
 		healthStatus, a.AgentHealthLatencyMs, healthError, a.AgentHealthCheckedAt, a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
@@ -163,7 +163,7 @@ func (r *AgentRepo) Search(ctx context.Context, query, userID string) ([]*model.
 		rows, err = r.db.QueryContext(ctx, `
 			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 			       provider_id, model_override, can_spawn_agents, can_hire_agents,
-			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator,
+			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, max_tokens_per_run,
 			       created_by, status, created_at, template_id,
 			       agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at
 			FROM agents
@@ -173,7 +173,7 @@ func (r *AgentRepo) Search(ctx context.Context, query, userID string) ([]*model.
 		rows, err = r.db.QueryContext(ctx, `
 			SELECT id, name, persona, instructions, guardrails, behaviour, hard_guardrails,
 			       provider_id, model_override, can_spawn_agents, can_hire_agents,
-			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator,
+			       max_concurrent, max_cost_per_run, fallback_model, is_orchestrator, max_tokens_per_run,
 			       created_by, status, created_at, template_id,
 			       agent_health_status, agent_health_latency_ms, agent_health_error, agent_health_checked_at
 			FROM agents
@@ -198,7 +198,7 @@ func scanAgent(row *sql.Row) (*model.Agent, error) {
 	var canSpawn, canHire, isOrchestrator int
 	err := row.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails, &a.Behaviour, &a.HardGuardrails,
 		&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.MaxCostPerRun, &a.FallbackModel,
-		&isOrchestrator, &a.CreatedBy, &status, &a.CreatedAt, &templateID, &healthStatus, &healthLatencyMs, &healthError, &healthCheckedAt)
+		&isOrchestrator, &a.MaxOutputTokens, &a.CreatedBy, &status, &a.CreatedAt, &templateID, &healthStatus, &healthLatencyMs, &healthError, &healthCheckedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -236,7 +236,7 @@ func scanAgents(rows *sql.Rows) ([]*model.Agent, error) {
 		var canSpawn, canHire, isOrchestrator int
 		if err := rows.Scan(&a.ID, &a.Name, &a.Persona, &a.Instructions, &a.Guardrails, &a.Behaviour, &a.HardGuardrails,
 			&a.ProviderID, &a.ModelOverride, &canSpawn, &canHire, &a.MaxConcurrent, &a.MaxCostPerRun, &a.FallbackModel,
-			&isOrchestrator, &a.CreatedBy, &status, &a.CreatedAt, &templateID, &healthStatus, &healthLatencyMs, &healthError, &healthCheckedAt); err != nil {
+			&isOrchestrator, &a.MaxOutputTokens, &a.CreatedBy, &status, &a.CreatedAt, &templateID, &healthStatus, &healthLatencyMs, &healthError, &healthCheckedAt); err != nil {
 			return nil, fmt.Errorf("scan agent row: %w", err)
 		}
 		a.Status = model.AgentStatus(status)

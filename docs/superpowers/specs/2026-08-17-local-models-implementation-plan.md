@@ -201,7 +201,9 @@ Cheap fixes that remove the sharpest edges. All behind existing config; nothing 
 
 ---
 
-## Phase 6 — Docs, cleanup, hardening (½ day)
+## Phase 6 — Docs, cleanup, hardening (½ day) — ✅ DONE 2026-08-17 (#104)
+
+> Shipped: `max_tokens_per_run` repurposed as `Agent.MaxOutputTokens` (+ Agents form field, budgeting reserve, request cap); **fixed** the pre-existing bug where the agent API dropped `max_concurrent`/`max_cost_per_run`/`fallback_model`; `pricing.EffectiveTier` reconciles capability and cost tiers; README/CONTEXT/guide/spec finalised; epic #100 closed.
 
 - `CONTEXT.md`: provider table (`llamacpp`), new columns, new interfaces, gotchas (port 8080 clash; `n_ctx` is per-slot; `/tokenize` memo; `standard` golden files must be regenerated deliberately).
 - Guide: replace "What's coming" with the native config, eval instructions, and helper-model setup.

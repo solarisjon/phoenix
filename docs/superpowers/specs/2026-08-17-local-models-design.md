@@ -1,7 +1,7 @@
 # Local Models (llama.cpp) — Design Spec
 
 **Date:** 2026-08-17  
-**Status:** Draft — for review  
+**Status:** Implemented — all six phases shipped 2026-08-17 (see the implementation plan for per-phase notes and deviations)  
 **Issue:** [#100](https://github.com/solarisjon/phoenix/issues/100) (epic; child issues per phase listed in the plan)  
 **Related:** [`docs/guides/local-models-llama-cpp.md`](../../guides/local-models-llama-cpp.md) (user guide), [`2026-08-17-local-models-implementation-plan.md`](2026-08-17-local-models-implementation-plan.md) (phased plan)  
 **Supersedes / touches:** `2026-06-22-prompt-caching-design.md` (llm adapter), `2026-06-26-cost-insights-design.md` (tiers), memory: *Agent architecture direction* (HEALTH_SIGNAL structured output)

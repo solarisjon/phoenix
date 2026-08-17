@@ -222,6 +222,15 @@ Differences to be aware of:
 
 ---
 
-## What's coming
+## What Phoenix does for you on local models (recap)
 
-See the design spec for the full plan. Next: **prompt budgeting** against the probed context window (with a visible "prompt trimmed" note), a **compact prompt profile** for small models, a **helper-model** setting so summaries/classification run on a small fast model while agents use a bigger one (llama-server router mode fits this perfectly), schemas on every JSON-producing call, and an **evaluation harness** that scores how well a given local model handles Phoenix's protocols before you trust it with a monitor.
+- **Native llama.cpp provider** — context window and slots from `/props`, exact token counts from `/tokenize`, KV-cache reuse, `/health` pings, router mode.
+- **Prompt budgeting** — every prompt is fitted into the model's window; trims are visible in the compose meter and on the task; a prompt that can't fit fails fast with a clear message.
+- **Compact prompt profile** — auto for ≤ 16k windows; ~5× less protocol boilerplate.
+- **Per-agent output cap** — *Max output tokens* on the agent (also the budgeting reserve).
+- **Helper model** — small model for summaries, notes, suggestions and health classification.
+- **Grammar-enforced JSON + one-shot repair** — plans, agent generation, suggestions, health classification.
+- **Provider slot gate** — extra tasks queue in Phoenix, not inside llama-server.
+- **Compatibility eval** — grade a model (A–D) on Phoenix's real protocols before trusting it.
+
+Design spec and per-phase notes: [`docs/superpowers/specs/2026-08-17-local-models-design.md`](../superpowers/specs/2026-08-17-local-models-design.md), [`…-implementation-plan.md`](../superpowers/specs/2026-08-17-local-models-implementation-plan.md).
