@@ -120,6 +120,24 @@ func (h *Hub) BroadcastAgentEvent(ev agent.StreamEvent, tasks store.TaskRepo) {
 		return
 	}
 
+	// Prompt trimmed to fit the model's context window.
+	if ev.PromptTrimmed != nil {
+		p := ev.PromptTrimmed
+		h.Broadcast(Event{
+			Type: EventTaskPromptTrimmed,
+			Payload: PromptTrimmedPayload{
+				TaskID:        ev.TaskID,
+				AgentID:       ev.AgentID,
+				Model:         p.Model,
+				ContextWindow: p.ContextWindow,
+				Budget:        p.Budget,
+				PromptTokens:  p.PromptTokens,
+				Trims:         p.Trims,
+			},
+		})
+		return
+	}
+
 	// Streaming chunk.
 	if ev.Chunk != nil {
 		h.Broadcast(Event{

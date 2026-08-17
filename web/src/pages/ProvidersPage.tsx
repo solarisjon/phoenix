@@ -754,6 +754,29 @@ function ModelPoolSection({ providerId, initialModels }: {
                           placeholder="0.003"
                         />
                       </div>
+                      <div>
+                        <Label htmlFor={`ctx-${modelId}`} className="text-xs">Context window (tokens)</Label>
+                        <Input
+                          id={`ctx-${modelId}`}
+                          type="number"
+                          value={entry.context_window || ''}
+                          onChange={e => updateModel(modelId, 'context_window', parseInt(e.target.value, 10) || 0)}
+                          placeholder="auto (probed from provider)"
+                        />
+                        <p className="text-xs text-slate-600 mt-0.5">Phoenix trims prompts to fit. Blank = ask the provider (llama.cpp /props, Ollama num_ctx).</p>
+                      </div>
+                      <div>
+                        <Label htmlFor={`profile-${modelId}`} className="text-xs">Prompt profile</Label>
+                        <Select
+                          id={`profile-${modelId}`}
+                          value={entry.prompt_profile ?? ''}
+                          onChange={e => updateModel(modelId, 'prompt_profile', e.target.value)}
+                        >
+                          <option value="">Auto (compact when window ≤ 16k or tier is Fast)</option>
+                          <option value="standard">Standard — full protocol wording</option>
+                          <option value="compact">Compact — terse wording for small models</option>
+                        </Select>
+                      </div>
                       <div className="col-span-2">
                         <Label htmlFor={`desc-${modelId}`} className="text-xs">
                           Capability Description

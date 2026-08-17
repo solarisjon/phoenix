@@ -89,7 +89,9 @@ Cheap fixes that remove the sharpest edges. All behind existing config; nothing 
 
 ---
 
-## Phase 2 — Model profiles & prompt budgeting (2–3 days)
+## Phase 2 — Model profiles & prompt budgeting (2–3 days) — ✅ DONE 2026-08-17 (#107)
+
+> Shipped: `profile.go` (ResolveModelProfile, PromptBudget), `prompt_sections.go` (PromptAssembly/Apply/Fit/Trim/ErrPromptTooLarge), section-based `assembleSystemSections` with compact variants, `buildTaskRequestMeta` + shrinkers (skills outline/brief, memories 50/25 %, follow-up drop-oldest/truncate), forced chain summarisation, migration 056, WS `task.prompt_trimmed`, `Runner.DryRun` behind `POST /api/tasks/estimate`, compose context meter, task-detail trims panel, model-pool Context window / Prompt profile fields. Goldens (`testdata/prompts/*.golden`) pin both profiles. Deviations: delta-recording `Apply()` instead of rewriting every injector as a section builder (same guarantee, far less churn); default output reserve capped at ¼ of small windows (8k → 2 048, budget 5 479); `NEXT:`/`DONE:` short forms NOT introduced — compact react uses the same `NEXT_ACTION:`/`TASK_COMPLETE:` markers. Live-verified against llama-server (Qwen3-0.6B @ 8k): dry-run = real run; skill 4 987 → 765 tokens at the 3 431 budget, untrimmed at 5 479.
 
 ### Step 2.1: `ModelEntry` extensions + resolution
 

@@ -586,6 +586,8 @@ type executionContext struct {
 	proj       *model.Project // may be nil
 	prov       provider.Provider
 	workingDir string
+	modelID    string       // effective model (agent override / monitor model / provider default)
+	profile    ModelProfile // resolved in loadExecutionContext; zero value = no budgeting
 }
 
 // loadExecutionContext resolves the agent, project, and provider for the given task.
@@ -612,7 +614,24 @@ func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*e
 		return nil, fmt.Errorf("provider load failed: %w", err)
 	}
 	ec.prov = prov
+	ec.modelID = modelOverride
+	ec.profile = r.resolveProfile(ctx, agent.ProviderID, prov, modelOverride)
 	return &ec, nil
+}
+
+// resolveProfile looks up the provider record (if a repo is wired) and
+// resolves the model profile used for prompt budgeting and wording.
+func (r *Runner) resolveProfile(ctx context.Context, providerID string, prov provider.Provider, modelID string) ModelProfile {
+	r.mu.Lock()
+	provRepo := r.providers
+	r.mu.Unlock()
+	var rec *model.Provider
+	if provRepo != nil {
+		if p, err := provRepo.Get(ctx, providerID); err == nil {
+			rec = p
+		}
+	}
+	return ResolveModelProfile(ctx, prov, rec, modelID)
 }
 
 // resolveSkillContext loads DB and filesystem skills and determines whether this
@@ -627,101 +646,106 @@ func (r *Runner) resolveSkillContext(ctx context.Context, task *model.Task, proj
 	return ResolveSkillContext(ctx, r.skills, importDirs, workingDir, task, proj)
 }
 
+// PromptMeta describes how a task's prompt was fitted to its model.
+type PromptMeta struct {
+	Profile      ModelProfile
+	PromptTokens int    // tokens of the final rendered prompt (0 if not counted)
+	Budget       int    // token budget (0 = unknown / no budgeting)
+	Trims        []Trim // sections shrunk or dropped to fit
+}
+
 // buildTaskRequest assembles the full provider.TaskRequest for a task, including
 // follow-up chain context, Obsidian vault routing, and memory recall injection.
 func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *executionContext, globalGuardrails string) (provider.TaskRequest, error) {
-	var req provider.TaskRequest
-	var matchedSkills []*model.Skill
-	var allSkills []*model.Skill
-	var skillCtx SkillContext
+	req, _, err := r.buildTaskRequestMeta(ctx, task, ec, globalGuardrails)
+	return req, err
+}
+
+// buildTaskRequestMeta is buildTaskRequest plus the budgeting metadata
+// (profile, token count, trims). It returns ErrPromptTooLarge (wrapped) when
+// the mandatory sections alone exceed the model's context window.
+func (r *Runner) buildTaskRequestMeta(ctx context.Context, task *model.Task, ec *executionContext, globalGuardrails string) (provider.TaskRequest, PromptMeta, error) {
+	meta := PromptMeta{Profile: ec.profile}
+	if meta.Profile.Count == nil {
+		meta.Profile.Count = provider.HeuristicTokenCount
+	}
+	if meta.Profile.Profile == "" {
+		meta.Profile.Profile = model.PromptProfileStandard
+	}
+	opts := PromptOptions{Profile: meta.Profile.Profile}
 
 	builtinCritic := task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil
 	if builtinCritic {
 		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
 		if err != nil || reviewed == nil {
-			return req, fmt.Errorf("builtin critic: reviewed task %s not found: %w", *task.ReviewedTaskID, err)
+			return provider.TaskRequest{}, meta, fmt.Errorf("builtin critic: reviewed task %s not found: %w", *task.ReviewedTaskID, err)
 		}
-		req = BuildBuiltinCriticRequest(reviewed)
-	} else {
-		skillCtx = r.resolveSkillContext(ctx, task, ec.proj, ec.workingDir)
-		allSkills = skillCtx.AllSkills
-		matchedSkills = skillCtx.Matched
-
-		// Global guardrails are injected LAST (see InjectGlobalGuardrails at the
-		// end of this function) so they follow every optional section.
-		req = AssembleRequest(ec.agent, task, ec.proj, "", r.serverURL())
-
-		// Skill mode sections sit directly after the agent's base prompt so
-		// they override routing-focused behaviour without preceding it.
-		if skillCtx.Strategy == SkillStrategyDirect {
-			req = InjectSkillExecutionMode(req, matchedSkills, SkillHaystack(task, ec.proj))
-		} else if skillCtx.Strategy == SkillStrategyOrchestrate && ec.agent.IsOrchestrator {
-			req = InjectSkillOrchestrationMode(req, PrimaryMatchedSkill(matchedSkills))
-		}
-
-		// If this agent is the global orchestrator, append decomposition instructions
-		// for orchestration tasks except direct skill execution.
-		if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration && skillCtx.Strategy != SkillStrategyDirect {
-			allAgents, _ := r.agents.List(ctx, "")
-			r.mu.Lock()
-			provRepo := r.providers
-			r.mu.Unlock()
-			allProviders := []*model.Provider{}
-			if provRepo != nil {
-				allProviders, _ = provRepo.List(ctx, "")
-			}
-			sysSettings, _ := r.settings.Get(ctx)
-			maxDepth, maxPerLevel := 2, 5
-			if sysSettings != nil {
-				if sysSettings.MaxSubtaskDepth > 0 {
-					maxDepth = sysSettings.MaxSubtaskDepth
-				}
-				if sysSettings.MaxSubtasksPerLevel > 0 {
-					maxPerLevel = sysSettings.MaxSubtasksPerLevel
-				}
-			}
-			req = InjectOrchestratorInstructions(req, allAgents, allProviders, maxDepth, maxPerLevel)
-		}
-
-		if task.FollowUpOf != nil {
-			rootID := *task.FollowUpOf
-			chain, chainErr := r.tasks.ListFollowUpChain(ctx, rootID)
-			if chainErr != nil || len(chain) == 0 {
-				if parent, err := r.tasks.Get(ctx, rootID); err == nil && parent != nil {
-					req = InjectFollowUpContext(req, parent)
-				}
-			} else if ec.proj != nil && ec.proj.ContextSummarisation && ShouldSummariseChain(chain) {
-				root := chain[0]
-				summary := root.SummaryCache
-				if summary == "" {
-					oldTurns := chain
-					if len(chain) > contextSummarisationKeepRecent {
-						oldTurns = chain[:len(chain)-contextSummarisationKeepRecent]
-					}
-					summResp, summErr := ec.prov.Execute(ctx, BuildSummaryRequest(oldTurns))
-					if summErr != nil {
-						slog.Warn("runner: context summarisation failed (falling back to verbatim)", "task_id", task.ID, "error", summErr)
-					} else {
-						summary = summResp.Output
-						if saveErr := r.tasks.SaveSummaryCache(ctx, root.ID, summary); saveErr != nil {
-							slog.Error("runner: save summary cache", "task_id", task.ID, "error", saveErr)
-						}
-					}
-				}
-				req = InjectFollowUpChainContext(req, chain, summary)
-			} else {
-				req = InjectFollowUpChainContext(req, chain, "")
-			}
-		}
+		req := BuildBuiltinCriticRequest(reviewed)
+		req.WorkingDir = ec.workingDir
+		meta.PromptTokens = meta.Profile.Count(req.SystemPrompt) + meta.Profile.Count(req.Prompt)
+		return req, meta, nil
 	}
-	req.WorkingDir = ec.workingDir
+
+	skillCtx := r.resolveSkillContext(ctx, task, ec.proj, ec.workingDir)
+	allSkills := skillCtx.AllSkills
+	matchedSkills := skillCtx.Matched
+
+	// Global guardrails are injected LAST (see the end of this function) so
+	// they follow every optional section.
+	pa := NewPromptAssembly(ec.agent, task, ec.proj, "", r.serverURL(), opts)
+
+	// Skill mode sections sit directly after the agent's base prompt so
+	// they override routing-focused behaviour without preceding it.
+	if skillCtx.Strategy == SkillStrategyDirect {
+		pa.Apply("skill_mode", PriorityMandatory, nil, func(q provider.TaskRequest) provider.TaskRequest {
+			return InjectSkillExecutionMode(q, matchedSkills, SkillHaystack(task, ec.proj))
+		})
+	} else if skillCtx.Strategy == SkillStrategyOrchestrate && ec.agent.IsOrchestrator {
+		pa.Apply("skill_mode", PriorityMandatory, nil, func(q provider.TaskRequest) provider.TaskRequest {
+			return InjectSkillOrchestrationMode(q, PrimaryMatchedSkill(matchedSkills))
+		})
+	}
+
+	// If this agent is the global orchestrator, append decomposition instructions
+	// for orchestration tasks except direct skill execution.
+	if ec.agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration && skillCtx.Strategy != SkillStrategyDirect {
+		allAgents, _ := r.agents.List(ctx, "")
+		r.mu.Lock()
+		provRepo := r.providers
+		r.mu.Unlock()
+		allProviders := []*model.Provider{}
+		if provRepo != nil {
+			allProviders, _ = provRepo.List(ctx, "")
+		}
+		sysSettings, _ := r.settings.Get(ctx)
+		maxDepth, maxPerLevel := 2, 5
+		if sysSettings != nil {
+			if sysSettings.MaxSubtaskDepth > 0 {
+				maxDepth = sysSettings.MaxSubtaskDepth
+			}
+			if sysSettings.MaxSubtasksPerLevel > 0 {
+				maxPerLevel = sysSettings.MaxSubtasksPerLevel
+			}
+		}
+		pa.Apply("orchestrator", PriorityMandatory, nil, func(q provider.TaskRequest) provider.TaskRequest {
+			return InjectOrchestratorInstructions(q, allAgents, allProviders, maxDepth, maxPerLevel)
+		})
+	}
+
+	if task.FollowUpOf != nil {
+		r.applyFollowUpContext(ctx, pa, task, ec, meta.Profile)
+	}
+
+	pa.WorkingDir = ec.workingDir
 
 	if ec.proj != nil && ec.proj.ReactMode && !task.IsCriticReview {
 		maxIter := ec.proj.MaxIterations
 		if maxIter <= 0 {
 			maxIter = reactMaxIterationsDefault
 		}
-		req = InjectReactLoopInstructions(req, maxIter, task.LoopIteration)
+		pa.Apply("react_loop", PriorityMandatory, nil, func(q provider.TaskRequest) provider.TaskRequest {
+			return InjectReactLoopInstructionsOpts(q, maxIter, task.LoopIteration, opts)
+		})
 	}
 
 	if r.obsidianVaults != nil && r.settings != nil && !task.IsCriticReview {
@@ -729,14 +753,20 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 			if vaults, err := r.obsidianVaults.ListEnabled(r.bgCtx); err != nil {
 				slog.Warn("runner: obsidian vault list failed", "task_id", task.ID, "error", err)
 			} else if len(vaults) > 0 {
-				req = InjectObsidianVaults(req, vaults)
+				pa.Apply("obsidian", PriorityObsidian, nil, func(q provider.TaskRequest) provider.TaskRequest {
+					return InjectObsidianVaults(q, vaults)
+				})
 			}
 		}
 	}
 
 	if !task.IsCriticReview && len(allSkills) > 0 {
 		var warnings []SkillSizeWarning
-		req, warnings = InjectSkills(req, allSkills, task, ec.proj)
+		pa.Apply("skills", PrioritySkills, skillsShrinker(allSkills, task, ec.proj), func(q provider.TaskRequest) provider.TaskRequest {
+			var out provider.TaskRequest
+			out, warnings = InjectSkills(q, allSkills, task, ec.proj)
+			return out
+		})
 		for _, w := range warnings {
 			slog.Warn("runner: oversized skill injected — small-context models may truncate or ignore it",
 				"task_id", task.ID, "agent_id", ec.agent.ID, "warning", w.String())
@@ -750,17 +780,172 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		if memories, err := memClient.Recall(ctx, ec.agent.ID, task.Title+" "+task.Description); err != nil {
 			slog.Warn("runner: memory recall failed", "task_id", task.ID, "agent_id", ec.agent.ID, "error", err)
 		} else if memories != "" {
-			req = InjectMemories(req, memories)
+			pa.Apply("memories", PriorityMemories, memoriesShrinker(memories), func(q provider.TaskRequest) provider.TaskRequest {
+				return InjectMemories(q, memories)
+			})
 		}
 	}
 
 	// Platform-wide guardrails go last so they genuinely override everything
-	// above. The built-in critic keeps its dedicated prompt untouched (as before).
-	if !builtinCritic {
-		req = InjectGlobalGuardrails(req, globalGuardrails)
+	// above.
+	pa.Apply("global_guardrails", PriorityMandatory, nil, func(q provider.TaskRequest) provider.TaskRequest {
+		return InjectGlobalGuardrails(q, globalGuardrails)
+	})
+
+	// ---- Fit to the model's context window ----
+	meta.Budget = meta.Profile.PromptBudget()
+	trims, fitErr := pa.Fit(meta.Budget, meta.Profile.Count)
+	meta.Trims = trims
+	req := pa.Render()
+	// Keep the model's output cap consistent with the reserve we budgeted for.
+	if meta.Budget > 0 && req.MaxOutputTokens == 0 && meta.Profile.MaxOutputTokens > 0 {
+		req.MaxOutputTokens = meta.Profile.MaxOutputTokens
+	}
+	if meta.Budget > 0 {
+		meta.PromptTokens = pa.TokenCount(meta.Profile.Count)
+	} else {
+		meta.PromptTokens = meta.Profile.Count(req.SystemPrompt) + meta.Profile.Count(req.Prompt)
+	}
+	if len(trims) > 0 {
+		parts := make([]string, 0, len(trims))
+		for _, t := range trims {
+			parts = append(parts, t.String())
+		}
+		slog.Warn("runner: prompt trimmed to fit model context",
+			"task_id", task.ID, "model", meta.Profile.ModelID, "context_window", meta.Profile.ContextWindow,
+			"budget", meta.Budget, "prompt_tokens", meta.PromptTokens, "trims", strings.Join(parts, "; "))
+	}
+	if fitErr != nil {
+		var tooLarge *ErrPromptTooLarge
+		if errors.As(fitErr, &tooLarge) {
+			tooLarge.ContextWindow = meta.Profile.ContextWindow
+		}
+		return req, meta, fitErr
+	}
+	return req, meta, nil
+}
+
+// applyFollowUpContext records the follow-up chain as a trimmable user-prefix
+// section. Chain summarisation runs when the project opts in OR when the
+// verbatim chain would clearly blow the model's budget (small local models);
+// the shrinker then drops the oldest turns and finally truncates.
+func (r *Runner) applyFollowUpContext(ctx context.Context, pa *PromptAssembly, task *model.Task, ec *executionContext, mp ModelProfile) {
+	rootID := *task.FollowUpOf
+	chain, chainErr := r.tasks.ListFollowUpChain(ctx, rootID)
+	if chainErr != nil || len(chain) == 0 {
+		if parent, err := r.tasks.Get(ctx, rootID); err == nil && parent != nil {
+			pa.Apply("follow_up", PriorityFollowUp, singleParentShrinker(parent, pa.UserBase), func(q provider.TaskRequest) provider.TaskRequest {
+				return InjectFollowUpContext(q, parent)
+			})
+		}
+		return
 	}
 
-	return req, nil
+	wantSummary := ec.proj != nil && ec.proj.ContextSummarisation && ShouldSummariseChain(chain)
+	if !wantSummary && mp.PromptBudget() > 0 && len(chain) > contextSummarisationKeepRecent {
+		// Forced summarisation: the verbatim chain would take more than 40 %
+		// of the budget on this model.
+		var chars int
+		for _, t := range chain {
+			chars += len(extractOutputText(t.Output))
+		}
+		if provider.HeuristicTokenCount(strings.Repeat("x", chars)) > mp.PromptBudget()*4/10 {
+			wantSummary = true
+		}
+	}
+
+	summary := ""
+	if wantSummary {
+		root := chain[0]
+		summary = root.SummaryCache
+		if summary == "" {
+			oldTurns := chain
+			if len(chain) > contextSummarisationKeepRecent {
+				oldTurns = chain[:len(chain)-contextSummarisationKeepRecent]
+			}
+			summResp, summErr := ec.prov.Execute(ctx, BuildSummaryRequest(oldTurns))
+			if summErr != nil {
+				slog.Warn("runner: context summarisation failed (falling back to verbatim)", "task_id", task.ID, "error", summErr)
+			} else {
+				summary = summResp.Output
+				if saveErr := r.tasks.SaveSummaryCache(ctx, root.ID, summary); saveErr != nil {
+					slog.Error("runner: save summary cache", "task_id", task.ID, "error", saveErr)
+				}
+			}
+		}
+	}
+	pa.Apply("follow_up", PriorityFollowUp, chainShrinker(chain, summary, pa.UserBase), func(q provider.TaskRequest) provider.TaskRequest {
+		return InjectFollowUpChainContext(q, chain, summary)
+	})
+}
+
+// ---- Shrinkers ----
+
+// skillsShrinker re-renders the skills section smaller: level 1 = description
+// + first heading section of each skill; level 2 = description only; then drop.
+func skillsShrinker(skills []*model.Skill, t *model.Task, proj *model.Project) Shrinker {
+	return func(level int) (string, bool) {
+		if level > 2 {
+			return "", false
+		}
+		req, _ := InjectSkills(provider.TaskRequest{}, skills, t, proj, SkillRenderLevel(level))
+		return req.SystemPrompt, req.SystemPrompt != ""
+	}
+}
+
+// memoriesShrinker keeps the head of the memories block: 50 %, then 25 %, then drop.
+func memoriesShrinker(memories string) Shrinker {
+	return func(level int) (string, bool) {
+		var frac float64
+		switch level {
+		case 1:
+			frac = 0.5
+		case 2:
+			frac = 0.25
+		default:
+			return "", false
+		}
+		return InjectMemories(provider.TaskRequest{}, truncateHead(memories, frac)).SystemPrompt, true
+	}
+}
+
+// chainShrinker drops the oldest verbatim turns one at a time (keeping the
+// most recent), then truncates the remaining context, then drops it.
+func chainShrinker(chain []*model.Task, summary, userBase string) Shrinker {
+	return func(level int) (string, bool) {
+		keep := len(chain) - level
+		if keep >= 1 {
+			recent := chain[len(chain)-keep:]
+			out := InjectFollowUpChainContext(provider.TaskRequest{Prompt: userBase}, recent, summary).Prompt
+			return strings.TrimSuffix(out, userBase), true
+		}
+		// One turn left already: truncate it hard before giving up.
+		if keep == 0 && len(chain) > 0 {
+			last := chain[len(chain)-1:]
+			out := InjectFollowUpChainContext(provider.TaskRequest{Prompt: userBase}, last, "").Prompt
+			prefix := strings.TrimSuffix(out, userBase)
+			return truncateHead(prefix, 0.3), true
+		}
+		return "", false
+	}
+}
+
+// singleParentShrinker truncates a lone parent-output block, then drops it.
+func singleParentShrinker(parent *model.Task, userBase string) Shrinker {
+	return func(level int) (string, bool) {
+		var frac float64
+		switch level {
+		case 1:
+			frac = 0.5
+		case 2:
+			frac = 0.2
+		default:
+			return "", false
+		}
+		out := InjectFollowUpContext(provider.TaskRequest{Prompt: userBase}, parent).Prompt
+		prefix := strings.TrimSuffix(out, userBase)
+		return truncateHead(prefix, frac), true
+	}
 }
 
 // streamResult holds the collected output and usage from a provider stream.
@@ -1014,10 +1199,26 @@ func (r *Runner) execute(ctx context.Context, task *model.Task) {
 		}
 	}
 
-	req, err := r.buildTaskRequest(ctx, task, ec, globalGuardrails)
+	req, pmeta, err := r.buildTaskRequestMeta(ctx, task, ec, globalGuardrails)
+	// Persist what we know about the prompt even if we fail below.
+	task.PromptTokens = pmeta.PromptTokens
+	task.PromptTrims = marshalTrims(pmeta.Trims)
 	if err != nil {
 		r.failTask(ctx, task, err)
 		return
+	}
+	if len(pmeta.Trims) > 0 {
+		r.emit(StreamEvent{
+			TaskID:  task.ID,
+			AgentID: task.AgentID,
+			PromptTrimmed: &PromptTrimInfo{
+				Model:         pmeta.Profile.ModelID,
+				ContextWindow: pmeta.Profile.ContextWindow,
+				Budget:        pmeta.Budget,
+				PromptTokens:  pmeta.PromptTokens,
+				Trims:         pmeta.Trims,
+			},
+		})
 	}
 
 	prov := ec.prov
@@ -1309,4 +1510,81 @@ func (r *Runner) setStatus(ctx context.Context, task *model.Task, status model.T
 		task.CompletedAt = completedAt
 	}
 	return r.tasks.Update(ctx, task)
+}
+
+// marshalTrims encodes prompt trims for the tasks.prompt_trims column.
+func marshalTrims(trims []Trim) string {
+	if len(trims) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(trims)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
+}
+
+// DryRunResult is what DryRun reports about a would-be task's prompt.
+type DryRunResult struct {
+	PromptTokens  int    `json:"prompt_tokens"`
+	ContextWindow int    `json:"context_window"` // 0 = unknown (no budgeting)
+	Budget        int    `json:"budget"`         // tokens available for the prompt (0 = unknown)
+	Fits          bool   `json:"fits"`           // false only when mandatory sections alone don't fit
+	Trims         []Trim `json:"trims"`          // what budgeting would shrink/drop
+	Local         bool   `json:"local"`
+	ExactTokens   bool   `json:"exact_tokens"`
+	Profile       string `json:"profile"` // "standard" | "compact"
+	Model         string `json:"model"`
+	Error         string `json:"error,omitempty"` // human-readable when !Fits
+}
+
+// DryRun assembles the exact prompt a task with these fields would be sent
+// with — same injectors, skills, memories, and budgeting as a real run — and
+// reports its size against the agent's model, without executing anything or
+// writing to the database. Used by the compose panel's context meter.
+func (r *Runner) DryRun(ctx context.Context, agentID, projectID, title, description string) (DryRunResult, error) {
+	task := &model.Task{
+		ID:          "dry-run",
+		ProjectID:   projectID,
+		AgentID:     agentID,
+		Title:       title,
+		Description: description,
+		Input:       "{}",
+		Status:      model.TaskStatusPending,
+	}
+	ec, err := r.loadExecutionContext(ctx, task)
+	if err != nil {
+		return DryRunResult{}, err
+	}
+	globalGuardrails := ""
+	if r.settings != nil {
+		if s, err := r.settings.Get(ctx); err == nil && s != nil && s.GlobalGuardrailsEnabled {
+			globalGuardrails = s.GlobalGuardrails
+		}
+	}
+	_, meta, buildErr := r.buildTaskRequestMeta(ctx, task, ec, globalGuardrails)
+	res := DryRunResult{
+		PromptTokens:  meta.PromptTokens,
+		ContextWindow: meta.Profile.ContextWindow,
+		Budget:        meta.Budget,
+		Fits:          true,
+		Trims:         meta.Trims,
+		Local:         meta.Profile.Local,
+		ExactTokens:   meta.Profile.ExactTokens,
+		Profile:       string(meta.Profile.Profile),
+		Model:         meta.Profile.ModelID,
+	}
+	if res.Trims == nil {
+		res.Trims = []Trim{}
+	}
+	if buildErr != nil {
+		var tooLarge *ErrPromptTooLarge
+		if errors.As(buildErr, &tooLarge) {
+			res.Fits = false
+			res.Error = tooLarge.Error()
+			return res, nil
+		}
+		return res, buildErr
+	}
+	return res, nil
 }

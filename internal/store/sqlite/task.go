@@ -21,7 +21,8 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
 	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on, loop_iteration,
-	task_type, orchestration_plan, step_slug, deliverables_json, derived_health, health_reason `
+	task_type, orchestration_plan, step_slug, deliverables_json, derived_health, health_reason,
+	prompt_tokens, prompt_trims, repair_attempts `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -191,14 +192,14 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 		  health_signal = ?, guardrail_reason = ?, last_error = ?,
 		  is_critic_review = ?, reviewed_task_id = ?, prompt_hash = ?,
 		  orchestration_plan = ?, step_slug = ?, deliverables_json = ?, derived_health = ?,
-		  health_reason = ?
+		  health_reason = ?, prompt_tokens = ?, prompt_trims = ?, repair_attempts = ?
 		WHERE id = ?`,
 		string(t.Status), t.Output, t.CostUSD, t.TokensIn, t.TokensOut, dismissed,
 		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt,
 		t.HealthSignal, t.GuardrailReason, t.LastError, isCriticReview, nullString(t.ReviewedTaskID), t.PromptHash,
 		t.OrchestrationPlan, t.StepSlug, t.DeliverablesJSON, t.DerivedHealth,
-		t.HealthReason, t.ID)
+		t.HealthReason, t.PromptTokens, nonEmptyJSONArray(t.PromptTrims), t.RepairAttempts, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
@@ -412,6 +413,7 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 		&dest.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
 		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn, &dest.LoopIteration,
 		&taskType, &orchestrationPlan, &stepSlug, &deliverablesJSON, &derivedHealth, &dest.HealthReason,
+		&dest.PromptTokens, &dest.PromptTrims, &dest.RepairAttempts,
 	); err != nil {
 		return err
 	}
@@ -572,4 +574,12 @@ func (r *TaskRepo) DependenciesSatisfied(ctx context.Context, ids []string) (boo
 		}
 	}
 	return true, nil
+}
+
+// nonEmptyJSONArray normalises an optional JSON-array column value.
+func nonEmptyJSONArray(s string) string {
+	if s == "" {
+		return "[]"
+	}
+	return s
 }

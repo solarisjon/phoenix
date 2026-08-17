@@ -22,6 +22,11 @@ export interface ModelEntry {
   input_cost_per_1k: number
   output_cost_per_1k: number
   probed_at?: string
+  // Local-models profile (optional; blank = auto / probed from the provider)
+  context_window?: number
+  max_output_tokens?: number
+  prompt_profile?: '' | 'standard' | 'compact'
+  reasoning?: boolean
 }
 
 export interface Provider {
@@ -137,6 +142,33 @@ export interface OrchestrationPlan {
   subtasks: OrchestrationSubtask[]
 }
 
+/** One prompt-budgeting action recorded on a task (see tasks.prompt_trims). */
+export interface PromptTrim {
+  section: string
+  action: 'shrunk' | 'dropped'
+  from_tokens: number
+  to_tokens: number
+  level?: number
+}
+
+/** POST /api/tasks/estimate — cost estimate plus (when the runner can dry-run) context fit. */
+export interface TaskEstimate {
+  supported: boolean
+  local?: boolean
+  prompt_tokens: number
+  estimated_output_tokens: { low: number; high: number }
+  estimated_cost_usd: { low: number; high: number }
+  provider: { type: string; model: string }
+  // Present when the prompt was dry-run through the runner:
+  context_window?: number   // 0 = unknown
+  budget?: number
+  fits?: boolean
+  trims?: PromptTrim[]
+  exact_tokens?: boolean
+  profile?: 'standard' | 'compact' | string
+  error?: string
+}
+
 export interface Task {
   id: string
   project_id: string
@@ -154,6 +186,9 @@ export interface Task {
   source: string
   health_signal: 'all_clear' | 'needs_attention' | 'failed' | null
   health_reason?: string  // HEALTH_REASON text, or why the signal was inferred (empty when not a monitor run)
+  prompt_tokens?: number  // tokens of the assembled prompt as sent (0 = unknown)
+  prompt_trims?: string   // JSON array of PromptTrim (what budgeting shrank/dropped); "[]" when none
+  repair_attempts?: number
   guardrail_reason: string | null
   dismissed: boolean
   is_critic_review: boolean
@@ -630,14 +665,8 @@ export const api = {
     update: (id: string, data: { title?: string; description?: string }) =>
       request<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     search: (q: string) => request<Task[]>(`/tasks/search?q=${encodeURIComponent(q)}`),
-    estimate: (req: { agent_id: string; title?: string; description?: string }) =>
-      request<{
-        supported: boolean
-        prompt_tokens: number
-        estimated_output_tokens: { low: number; high: number }
-        estimated_cost_usd: { low: number; high: number }
-        provider: { type: string; model: string }
-      }>('/tasks/estimate', { method: 'POST', body: JSON.stringify(req) }),
+    estimate: (req: { agent_id: string; project_id?: string; title?: string; description?: string }) =>
+      request<TaskEstimate>('/tasks/estimate', { method: 'POST', body: JSON.stringify(req) }),
     generateDescription: (title: string, hint?: string, providerId?: string) =>
       request<{ description: string }>('/tasks/generate-description', {
         method: 'POST',

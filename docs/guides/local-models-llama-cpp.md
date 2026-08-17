@@ -168,7 +168,9 @@ Until the roadmap items land, these settings and habits make the biggest differe
 
 **Set `max_tokens`.** llama-server's default `n_predict` is unlimited; a model that loops will run until the slot's context is exhausted. `4096` is plenty for most Phoenix tasks. (Since Phase 0 the `llm` provider form has *Max output tokens* and *Temperature* fields and sends them on the wire.)
 
-**Watch the slot context.** If tasks fail with a 400 mentioning context size, or outputs stop mid-sentence, the prompt + output exceeded `n_ctx / parallel`. Raise `--ctx-size`, lower `--parallel`, or trim the agent's prompt. (Automatic prompt budgeting against the probed context window is Phase 2 of the roadmap.)
+**Prompt budgeting is automatic.** Phoenix reads the model's context window (from `/props`, or the *Context window* field on the model-pool row) and fits every prompt into it before sending: Obsidian routing and delegation instructions go first, then memories are truncated, then skills are cut to an outline / description, then older follow-up turns are dropped. Anything trimmed is shown on the task ("Prompt trimmed…") and in the compose panel's **≈ Estimate** context meter *before* you run. If the agent's behaviour + task text alone don't fit, the task fails immediately with a clear message instead of a mid-sentence cut-off. Small windows (≤ 16k) also get the **compact prompt profile** automatically — the protocol wording shrinks from ~350 to ~75 tokens; pin *standard*/*compact* per model in the pool if you disagree with auto.
+
+**Watch the slot context anyway.** If tasks still fail with a 400 mentioning context size, `--ctx-size / --parallel` is smaller than what `/props` reports as usable, or the model's reply overran; lower *Max output tokens* on the model-pool row (default reserve is ¼ of the window on small models) or raise `--ctx-size`.
 
 **Structured JSON.** The native provider passes a JSON schema to llama-server (`response_format: json_schema`, compiled to a GBNF grammar) whenever Phoenix sets one on a request. Wiring the orchestrator plan, agent generation and health classifier to actually send schemas is Phase 4 of the roadmap.
 

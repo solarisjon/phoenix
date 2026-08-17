@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/solarisjon/phoenix/internal/agent"
 	"net/http"
 	"strings"
 
@@ -39,6 +40,7 @@ func (r createTaskRequest) validate() string {
 func (s *Server) estimateTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AgentID     string `json:"agent_id"`
+		ProjectID   string `json:"project_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 	}
@@ -52,15 +54,32 @@ func (s *Server) estimateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	systemPrompt := agent.Behaviour
-	if systemPrompt == "" {
-		systemPrompt = agent.Instructions
+	// Preferred path: dry-run the real prompt assembly (skills, memories,
+	// guardrails, budgeting) through the runner so the number matches what
+	// will actually be sent — and so local models report context fit.
+	var dry *dryRunResult
+	if s.runner != nil {
+		if res, derr := s.runner.DryRun(r.Context(), req.AgentID, req.ProjectID, req.Title, req.Description); derr == nil {
+			dry = &dryRunResult{res}
+		}
 	}
-	userPrompt := req.Title
-	if req.Description != "" {
-		userPrompt += "\n\n" + req.Description
+
+	promptTokens := 0
+	if dry != nil {
+		promptTokens = dry.PromptTokens
 	}
-	promptTokens := (len(systemPrompt) + len(userPrompt)) / 4
+	if promptTokens <= 0 {
+		// Fallback: rough heuristic over behaviour + task text.
+		systemPrompt := agent.Behaviour
+		if systemPrompt == "" {
+			systemPrompt = agent.Instructions
+		}
+		userPrompt := req.Title
+		if req.Description != "" {
+			userPrompt += "\n\n" + req.Description
+		}
+		promptTokens = (len(systemPrompt) + len(userPrompt)) / 4
+	}
 	if promptTokens < 1 {
 		promptTokens = 1
 	}
@@ -77,33 +96,56 @@ func (s *Server) estimateTask(w http.ResponseWriter, r *http.Request) {
 	if agent.ModelOverride != "" {
 		modelName = agent.ModelOverride
 	}
+	if dry != nil && dry.Model != "" {
+		modelName = dry.Model
+	}
 
 	outputLow := promptTokens / 2
 	outputHigh := promptTokens * 3
 
 	var costLow, costHigh float64
-	if override, ok := s.pricingReg.GetOverride(agent.ProviderID); ok {
-		inP := override.InputPerMToken / 1_000_000
-		outP := override.OutputPerMToken / 1_000_000
-		costLow = float64(promptTokens)*inP + float64(outputLow)*outP
-		costHigh = float64(promptTokens)*inP + float64(outputHigh)*outP
-	} else if modelName != "" {
-		if mp, ok := s.pricingReg.GetPrice(modelName); ok {
-			inP := mp.InputPerMToken / 1_000_000
-			outP := mp.OutputPerMToken / 1_000_000
+	local := dry != nil && dry.Local
+	if !local {
+		if override, ok := s.pricingReg.GetOverride(agent.ProviderID); ok {
+			inP := override.InputPerMToken / 1_000_000
+			outP := override.OutputPerMToken / 1_000_000
 			costLow = float64(promptTokens)*inP + float64(outputLow)*outP
 			costHigh = float64(promptTokens)*inP + float64(outputHigh)*outP
+		} else if modelName != "" {
+			if mp, ok := s.pricingReg.GetPrice(modelName); ok {
+				inP := mp.InputPerMToken / 1_000_000
+				outP := mp.OutputPerMToken / 1_000_000
+				costLow = float64(promptTokens)*inP + float64(outputLow)*outP
+				costHigh = float64(promptTokens)*inP + float64(outputHigh)*outP
+			}
 		}
 	}
 
-	respond(w, http.StatusOK, map[string]interface{}{
-		"supported":               costLow > 0 || costHigh > 0,
+	out := map[string]interface{}{
+		// supported = we can say something about cost: priced, or known-free (local).
+		"supported":               costLow > 0 || costHigh > 0 || local,
+		"local":                   local,
 		"prompt_tokens":           promptTokens,
 		"estimated_output_tokens": map[string]int{"low": outputLow, "high": outputHigh},
 		"estimated_cost_usd":      map[string]float64{"low": costLow, "high": costHigh},
 		"provider":                map[string]string{"type": providerType, "model": modelName},
-	})
+	}
+	if dry != nil {
+		out["context_window"] = dry.ContextWindow
+		out["budget"] = dry.Budget
+		out["fits"] = dry.Fits
+		out["trims"] = dry.Trims
+		out["exact_tokens"] = dry.ExactTokens
+		out["profile"] = dry.Profile
+		if dry.Error != "" {
+			out["error"] = dry.Error
+		}
+	}
+	respond(w, http.StatusOK, out)
 }
+
+// dryRunResult is a tiny wrapper so estimateTask can hold a nil-able result.
+type dryRunResult struct{ agent.DryRunResult }
 
 // generateTaskDescription uses an LLM to draft a detailed description for a task.
 func (s *Server) generateTaskDescription(w http.ResponseWriter, r *http.Request) {

@@ -18,6 +18,15 @@ type BudgetInfo struct {
 	Period    string
 }
 
+// PromptTrimInfo describes a prompt that was shrunk to fit a model's context.
+type PromptTrimInfo struct {
+	Model         string
+	ContextWindow int
+	Budget        int
+	PromptTokens  int
+	Trims         []Trim
+}
+
 // StreamEvent is emitted during task execution and consumed by the WebSocket hub.
 type StreamEvent struct {
 	TaskID  string
@@ -26,7 +35,8 @@ type StreamEvent struct {
 	Chunk          *string // partial output text
 	StatusDone     *model.TaskStatus
 	Err            error
-	BudgetExceeded *BudgetInfo // non-nil when the project budget was exceeded
+	BudgetExceeded *BudgetInfo     // non-nil when the project budget was exceeded
+	PromptTrimmed  *PromptTrimInfo // non-nil when sections were trimmed to fit the context window
 }
 
 // EventHandler is called with each StreamEvent during task execution.

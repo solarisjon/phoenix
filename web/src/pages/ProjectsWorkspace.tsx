@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider, type TaskTemplate, type Skill } from '@/lib/api'
+import { api, type Project, type Task, type Agent, type ProjectSummary, type ProjectFileEntry, type Provider, type TaskTemplate, type Skill, type TaskEstimate, type PromptTrim } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MarkdownOutput } from '@/components/ui/markdown-output'
@@ -1156,6 +1156,9 @@ function TaskDetailView({ task, agents, onClose, onUpdated }: TaskDetailViewProp
           </p>
         )}
 
+        {/* Prompt trimmed to fit a small model's context window */}
+        <PromptTrimsPanel task={task} />
+
         {/* Guardrail triggered */}
         {task.guardrail_reason && (
           <div className="rounded border border-amber-600/30 bg-amber-900/20 px-3 py-2">
@@ -1386,6 +1389,66 @@ interface TaskComposeFormProps {
   onCancel: () => void
 }
 
+/** Context-window meter for the compose panel: prompt tokens vs the model's budget. */
+function ContextMeter({ est }: { est: TaskEstimate }) {
+  if (!est.context_window || !est.budget) return null
+  const used = est.prompt_tokens
+  const pct = Math.min(100, Math.round((used / est.budget) * 100))
+  const trims = est.trims ?? []
+  const tone = !est.fits ? 'red' : trims.length > 0 ? 'amber' : 'emerald'
+  const bar = tone === 'red' ? 'bg-red-500' : tone === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'
+  const text = tone === 'red' ? 'text-red-400' : tone === 'amber' ? 'text-amber-400' : 'text-slate-400'
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className={cn('font-medium', text)}>
+          Context: {used.toLocaleString()} / {est.budget.toLocaleString()} tokens
+          <span className="text-slate-500 font-normal"> (window {est.context_window.toLocaleString()})</span>
+        </span>
+        <span className={text}>{pct}%</span>
+      </div>
+      <div className="mt-1 h-1.5 w-full rounded-full bg-slate-700 overflow-hidden">
+        <div className={cn('h-full rounded-full', bar)} style={{ width: `${pct}%` }} />
+      </div>
+      {!est.fits && est.error && (
+        <p className="mt-1 text-red-400">{est.error}</p>
+      )}
+      {est.fits && trims.length > 0 && (
+        <p className="mt-1 text-amber-400">
+          Will be trimmed to fit: {trims.map(describeTrim).join('; ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+const TRIM_LABELS: Record<string, string> = {
+  skills: 'skill instructions', memories: 'memories', follow_up: 'earlier conversation',
+  obsidian: 'Obsidian routing', spawn: 'delegation instructions', hire: 'hiring instructions',
+}
+function describeTrim(t: PromptTrim): string {
+  const label = TRIM_LABELS[t.section] ?? t.section
+  return t.action === 'dropped'
+    ? `${label} dropped (${t.from_tokens.toLocaleString()} tokens)`
+    : `${label} ${t.from_tokens.toLocaleString()}→${t.to_tokens.toLocaleString()} tokens`
+}
+
+/** "Prompt trimmed" notice for a completed/failed task (reads task.prompt_trims). */
+export function PromptTrimsPanel({ task }: { task: Task }) {
+  let trims: PromptTrim[] = []
+  try { trims = JSON.parse(task.prompt_trims || '[]') } catch { /* ignore */ }
+  if (trims.length === 0) return null
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+      <p className="font-medium">Prompt trimmed to fit the model's context window</p>
+      <p className="mt-0.5 text-amber-300/80">
+        {trims.map(describeTrim).join('; ')}
+        {task.prompt_tokens ? ` · sent ${task.prompt_tokens.toLocaleString()} prompt tokens` : ''}
+      </p>
+    </div>
+  )
+}
+
 // applyTemplateVars replaces {{date}} and {{project_name}} in a string.
 function applyTemplateVars(text: string, vars: Record<string, string>): string {
   return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`)
@@ -1412,16 +1475,9 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
   const [templateSaved, setTemplateSaved] = useState(false)
   const [orchestrationEnabled, setOrchestrationEnabled] = useState(false)
 
-  // Cost estimate
-  type EstimateResult = {
-    supported: boolean
-    prompt_tokens: number
-    estimated_output_tokens: { low: number; high: number }
-    estimated_cost_usd: { low: number; high: number }
-    provider: { type: string; model: string }
-  }
+  // Cost / context estimate (dry-runs the real prompt assembly)
   const [estimating, setEstimating] = useState(false)
-  const [estimateResult, setEstimateResult] = useState<EstimateResult | null>(null)
+  const [estimateResult, setEstimateResult] = useState<TaskEstimate | null>(null)
 
   // Task dependency chain
   const [dependsOn, setDependsOn] = useState<string[]>([])
@@ -1492,7 +1548,7 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
     setEstimating(true)
     setEstimateResult(null)
     try {
-      const res = await api.tasks.estimate({ agent_id: agentId, title: title.trim(), description: description.trim() })
+      const res = await api.tasks.estimate({ agent_id: agentId, project_id: project.id, title: title.trim(), description: description.trim() })
       setEstimateResult(res)
     } catch { /* ignore */ } finally {
       setEstimating(false)
@@ -1723,37 +1779,39 @@ function TaskComposeForm({ project, projectAgents, tasks, onCreated, onCancel }:
           </div>
         )}
 
-        {/* Cost estimate */}
+        {/* Cost / context estimate */}
         <div>
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-500">Want to estimate cost before running?</span>
+            <span className="text-xs text-slate-500">Estimate cost and context fit before running?</span>
             <button
               type="button"
               onClick={estimateTask}
               disabled={estimating || !agentId}
               className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40 transition-colors"
             >
-              {estimating ? 'Estimating…' : '≈ Estimate cost'}
+              {estimating ? 'Estimating…' : '≈ Estimate'}
             </button>
           </div>
           {estimateResult && (
-            <div className="mt-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs space-y-0.5">
-              {estimateResult.supported ? (
-                <>
-                  <p className="text-slate-300">
-                    Cost: <span className="text-emerald-400 font-medium">
-                      {formatCost(estimateResult.estimated_cost_usd.low)}–{formatCost(estimateResult.estimated_cost_usd.high)}
-                    </span>
-                  </p>
-                  <p className="text-slate-500">
-                    ~{estimateResult.prompt_tokens.toLocaleString()} prompt tokens
-                    · {estimateResult.estimated_output_tokens.low.toLocaleString()}–{estimateResult.estimated_output_tokens.high.toLocaleString()} output tokens
-                    · {estimateResult.provider.model || estimateResult.provider.type}
-                  </p>
-                </>
+            <div className="mt-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-xs space-y-1">
+              {estimateResult.local ? (
+                <p className="text-slate-300">Cost: <span className="text-emerald-400 font-medium">Free</span> <span className="text-slate-500">(local model)</span></p>
+              ) : estimateResult.supported ? (
+                <p className="text-slate-300">
+                  Cost: <span className="text-emerald-400 font-medium">
+                    {formatCost(estimateResult.estimated_cost_usd.low)}–{formatCost(estimateResult.estimated_cost_usd.high)}
+                  </span>
+                </p>
               ) : (
                 <p className="text-slate-500">Pricing not available for this provider/model.</p>
               )}
+              <ContextMeter est={estimateResult} />
+              <p className="text-slate-500">
+                {estimateResult.exact_tokens ? '' : '~'}{estimateResult.prompt_tokens.toLocaleString()} prompt tokens
+                · {estimateResult.estimated_output_tokens.low.toLocaleString()}–{estimateResult.estimated_output_tokens.high.toLocaleString()} output tokens
+                · {estimateResult.provider.model || estimateResult.provider.type}
+                {estimateResult.profile === 'compact' && <span className="ml-1 text-violet-400" title="Compact prompt profile: terser protocol wording for small models">· compact prompt</span>}
+              </p>
             </div>
           )}
         </div>

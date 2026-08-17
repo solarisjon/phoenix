@@ -10,6 +10,12 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider"
 )
 
+// PromptOptions tunes prompt assembly for the model a task will run on.
+type PromptOptions struct {
+	// Profile selects standard (default) or compact protocol wording.
+	Profile model.PromptProfile
+}
+
 // AssembleRequest builds a provider.TaskRequest from an agent, task, and optional project.
 // The system prompt combines persona, instructions, and guardrails.
 // If the project has a non-empty Objective it is prepended to the user prompt so every
@@ -17,57 +23,132 @@ import (
 // serverURL is the Phoenix API base URL injected into spawn/hire prompts;
 // an empty string falls back to %s.
 func AssembleRequest(a *model.Agent, t *model.Task, proj *model.Project, globalGuardrails, serverURL string) provider.TaskRequest {
-	return provider.TaskRequest{
-		SystemPrompt: assembleSystemPrompt(a, t, globalGuardrails, serverURL),
-		Prompt:       assembleUserPrompt(t, proj),
-		Context:      nil, // Phase 1: single-turn. Multi-turn added in later phases.
+	return AssembleRequestOpts(a, t, proj, globalGuardrails, serverURL, PromptOptions{})
+}
+
+// AssembleRequestOpts is AssembleRequest with explicit PromptOptions.
+func AssembleRequestOpts(a *model.Agent, t *model.Task, proj *model.Project, globalGuardrails, serverURL string, opts PromptOptions) provider.TaskRequest {
+	return NewPromptAssembly(a, t, proj, globalGuardrails, serverURL, opts).Render()
+}
+
+// NewPromptAssembly builds the base sections (system + user) for a task. The
+// runner then Apply()s the optional injectors on top and Fit()s the result to
+// the model's context window. Render() of an untouched assembly equals
+// AssembleRequest's output.
+func NewPromptAssembly(a *model.Agent, t *model.Task, proj *model.Project, globalGuardrails, serverURL string, opts PromptOptions) *PromptAssembly {
+	return &PromptAssembly{
+		Base:     assembleSystemSections(a, t, globalGuardrails, serverURL, opts),
+		UserBase: assembleUserPrompt(t, proj),
 	}
 }
 
 // assembleSystemPrompt combines behaviour (or legacy persona+instructions),
 // soft guardrails, hard guardrails, and optional spawn/hire instructions into a single system prompt.
 func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serverURL string) string {
+	return renderSections(assembleSystemSections(a, t, globalGuardrails, serverURL, PromptOptions{}))
+}
+
+// renderSections joins base sections exactly like the original builder did.
+func renderSections(secs []PromptSection) string {
+	var b strings.Builder
+	for _, s := range secs {
+		b.WriteString(s.Text)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// assembleSystemSections returns the base system prompt as ordered sections.
+// Each section's Text carries the exact bytes (including trailing separators)
+// the string builder used to write, so join+TrimSpace is byte-identical to the
+// pre-section implementation (see prompt_golden_test.go).
+func assembleSystemSections(a *model.Agent, t *model.Task, globalGuardrails, serverURL string, opts PromptOptions) []PromptSection {
 	if serverURL == "" {
 		serverURL = "%s"
 	}
-	var b strings.Builder
+	compact := opts.Profile == model.PromptProfileCompact
+	var secs []PromptSection
+	add := func(key string, priority int, text string) {
+		secs = append(secs, PromptSection{Key: key, Priority: priority, Text: text})
+	}
 
 	if a.Behaviour != "" {
-		b.WriteString("## Behaviour\n")
-		b.WriteString(a.Behaviour)
-		b.WriteString("\n\n")
+		add("behaviour", PriorityMandatory, "## Behaviour\n"+a.Behaviour+"\n\n")
 	} else {
 		if a.Persona != "" {
-			b.WriteString("## Persona\n")
-			b.WriteString(a.Persona)
-			b.WriteString("\n\n")
+			add("persona", PriorityMandatory, "## Persona\n"+a.Persona+"\n\n")
 		}
 		if a.Instructions != "" {
-			b.WriteString("## Instructions\n")
-			b.WriteString(a.Instructions)
-			b.WriteString("\n\n")
+			add("instructions", PriorityMandatory, "## Instructions\n"+a.Instructions+"\n\n")
 		}
 	}
 
 	if a.Guardrails != "" {
-		b.WriteString("## Soft Guardrails (Advisory)\n")
-		b.WriteString("These are guidance constraints. Try to follow them; if you cannot, document why in your output.\n")
-		b.WriteString(a.Guardrails)
-		b.WriteString("\n\n")
+		add("soft_guardrails", PriorityMandatory,
+			"## Soft Guardrails (Advisory)\n"+
+				"These are guidance constraints. Try to follow them; if you cannot, document why in your output.\n"+
+				a.Guardrails+"\n\n")
 	}
 
 	if a.HardGuardrails != "" {
-		b.WriteString("## Hard Guardrails (Mandatory — Stop and Request Approval)\n")
-		b.WriteString("If your task would violate any of the following rules, you MUST stop immediately and output EXACTLY the following as the first line of your response (and nothing else on that line):\n\n")
-		b.WriteString("  GUARDRAIL_TRIGGERED: <one-sentence reason describing the specific action that triggered this guardrail>\n\n")
-		b.WriteString("Do NOT proceed with the action. Wait for human approval before continuing.\n\n")
-		b.WriteString(a.HardGuardrails)
-		b.WriteString("\n\n")
+		add("hard_guardrails", PriorityMandatory,
+			"## Hard Guardrails (Mandatory — Stop and Request Approval)\n"+
+				"If your task would violate any of the following rules, you MUST stop immediately and output EXACTLY the following as the first line of your response (and nothing else on that line):\n\n"+
+				"  GUARDRAIL_TRIGGERED: <one-sentence reason describing the specific action that triggered this guardrail>\n\n"+
+				"Do NOT proceed with the action. Wait for human approval before continuing.\n\n"+
+				a.HardGuardrails+"\n\n")
+	}
+
+	// Spawn/hire instructions are only kept under budget pressure when the
+	// task itself talks about delegating or hiring.
+	spawnHirePriority := PrioritySpawnHire
+	if mentionsDelegation(t) {
+		spawnHirePriority = PriorityMandatory
 	}
 
 	if a.CanSpawnAgents {
-		b.WriteString("## Delegating to Existing Agents\n")
-		b.WriteString(fmt.Sprintf(`You are permitted to delegate work to other agents by calling the Phoenix API.`+"\n"+
+		add("spawn", spawnHirePriority, spawnSection(a, t, serverURL, compact))
+	}
+
+	if a.CanHireAgents {
+		add("hire", spawnHirePriority, hireSection(a, t, serverURL, compact))
+	}
+
+	// Every agent gets the memo capability injected — it's always available.
+	// Monitor tasks (source=="monitor") get a stronger, mandatory instruction
+	// plus the HEALTH_SIGNAL structured output requirement.
+	add("protocol.memo", PriorityMandatory, memoSection(t, compact))
+	add("protocol.artifacts", PriorityMandatory, artifactsSection(t, compact))
+
+	if globalGuardrails != "" {
+		add("global_guardrails", PriorityMandatory, "\n"+globalGuardrailsSection(globalGuardrails))
+	}
+
+	return secs
+}
+
+// mentionsDelegation reports whether the task text asks for delegation or
+// hiring, in which case the spawn/hire sections must survive budgeting.
+func mentionsDelegation(t *model.Task) bool {
+	if t == nil {
+		return false
+	}
+	h := strings.ToLower(t.Title + " " + t.Description)
+	for _, kw := range []string{"delegat", "spawn", "hire", "recruit", "hand off", "handoff", "assign to"} {
+		if strings.Contains(h, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func spawnSection(a *model.Agent, t *model.Task, serverURL string, compact bool) string {
+	if compact {
+		return "## Delegating to Existing Agents\n" +
+			fmt.Sprintf("You may delegate work to another agent: POST %s/api/agents/spawn with JSON fields source_agent_id=%q, target_agent_id, project_id=%q, title, description. Only when genuinely needed.", serverURL, a.ID, t.ProjectID) +
+			"\n\n"
+	}
+	return "## Delegating to Existing Agents\n" +
+		fmt.Sprintf(`You are permitted to delegate work to other agents by calling the Phoenix API.`+"\n"+
 			`To spawn a task for another agent, make an HTTP POST to %s/api/agents/spawn with JSON body:`+"\n\n"+
 			"```json\n"+
 			"{\n"+
@@ -79,13 +160,18 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serve
 			"}\n"+
 			"```\n"+
 			`The API returns the created task. Only spawn tasks when explicitly needed to complete your work.`,
-			serverURL, a.ID, t.ProjectID))
-		b.WriteString("\n\n")
-	}
+			serverURL, a.ID, t.ProjectID) +
+		"\n\n"
+}
 
-	if a.CanHireAgents {
-		b.WriteString("## Hiring New Agents\n")
-		b.WriteString(fmt.Sprintf(
+func hireSection(a *model.Agent, t *model.Task, serverURL string, compact bool) string {
+	if compact {
+		return "## Hiring New Agents\n" +
+			fmt.Sprintf("You may propose a new agent when no existing one fits: first GET %s/api/agents to check; then POST %s/api/agent-drafts with JSON fields created_by_agent_id=%q, created_by_task_id=%q, name, persona, instructions, guardrails. A human approves drafts. Only when asked to recruit or when no agent can do the work.", serverURL, serverURL, a.ID, t.ID) +
+			"\n"
+	}
+	return "## Hiring New Agents\n" +
+		fmt.Sprintf(
 			`You are permitted to recruit and create new agents by calling the Phoenix API.`+"\n\n"+
 				`**Step 1 — Check existing agents first:**`+"\n"+
 				`Before proposing a hire, call GET %s/api/agents to list all existing agents.`+"\n"+
@@ -105,15 +191,30 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serve
 				`The draft will be sent to a human for review and approval before the agent is activated.`+"\n"+
 				`You do not need to assign a provider or project — the human handles that at approval time.`+"\n"+
 				`Only propose a hire when explicitly asked to recruit, or when your task requires a capability that no existing agent can fulfill.`,
-			serverURL, serverURL, a.ID, t.ID))
-		b.WriteString("\n")
-	}
+			serverURL, serverURL, a.ID, t.ID) +
+		"\n"
+}
 
-	// Every agent gets the memo capability injected — it's always available.
-	// Monitor tasks (source=="monitor") get a stronger, mandatory instruction
-	// plus the HEALTH_SIGNAL structured output requirement.
+// memoSection renders the "## Briefing Memos" block (leading newline as in
+// the original builder). Monitor tasks get the mandatory HEALTH_SIGNAL contract.
+func memoSection(t *model.Task, compact bool) string {
+	var b strings.Builder
 	b.WriteString("\n## Briefing Memos\n")
-	if t.Source == "monitor" {
+	switch {
+	case t.Source == "monitor" && compact:
+		b.WriteString(`Finish your response with exactly these lines, copied verbatim (they are parsed by the platform):
+
+HEALTH_SIGNAL: <all_clear|needs_attention|failed>
+HEALTH_REASON: <one sentence>
+
+all_clear = nothing wrong; needs_attention = something needs a human; failed = a critical failure right now.
+Then add one short memo:
+
+MEMO_START
+Title: <one line>
+<2-5 lines: key findings and anything needing attention>
+MEMO_END`)
+	case t.Source == "monitor":
 		b.WriteString(`You MUST end your response with a health signal declaration and a briefing memo. Use these exact formats — copy the marker words verbatim, on their own lines, without rewording or formatting them.
 
 Emit exactly one of these three lines (the platform parses it):
@@ -140,7 +241,14 @@ MEMO_END
 
 Include findings even if the run is routine — the memo is the human's window into what you observed.
 You can include multiple MEMO blocks for distinct topics.`)
-	} else {
+	case compact:
+		b.WriteString(`Only if you have a finding the user must see (not for routine confirmations), add at the end:
+
+MEMO_START
+Title: <one line>
+<short body>
+MEMO_END`)
+	default:
 		b.WriteString(`If your task produces findings, actions, summaries, or anything the user should read, you MAY embed one or more briefing memos directly in your output using this exact format:
 
 MEMO_START
@@ -153,8 +261,31 @@ Omit the Priority line for normal priority. You can include multiple MEMO blocks
 Only post a memo when there is genuinely something worth surfacing — not for routine confirmations or status updates.`)
 	}
 	b.WriteString("\n")
+	return b.String()
+}
 
-	b.WriteString(`
+// artifactsSection renders the "## Artifacts" block. In compact profile it is
+// only included when the task looks like it produces a durable output.
+func artifactsSection(t *model.Task, compact bool) string {
+	if compact {
+		if !mentionsDurableOutput(t) {
+			return ""
+		}
+		return `
+## Artifacts
+
+If you actually create or modify a file, page or ticket, declare it (one block per artifact, markers verbatim):
+
+ARTIFACT_START
+Type: file        (or url, jira, confluence, html)
+Path: /absolute/path   (use URL: for non-file types)
+Title: <short name>
+ARTIFACT_END
+
+Never declare pre-existing things you only referenced.
+`
+	}
+	return `
 ## Artifacts
 
 If your task creates or produces a file, web page, Jira ticket, Confluence page, or any other concrete output, declare it using an ARTIFACT block so the human can find it easily. Embed one block per artifact directly in your output:
@@ -175,14 +306,23 @@ ARTIFACT_END
 
 Supported types: file, url, jira, confluence, html
 Only emit an ARTIFACT block when you have actually created or modified something — not for pre-existing resources you merely referenced.
-`)
+`
+}
 
-	if globalGuardrails != "" {
-		b.WriteString("\n")
-		b.WriteString(globalGuardrailsSection(globalGuardrails))
+// mentionsDurableOutput is the compact-profile heuristic for whether a task is
+// likely to produce a file/page/ticket worth declaring as an artifact.
+func mentionsDurableOutput(t *model.Task) bool {
+	if t == nil {
+		return false
 	}
-
-	return strings.TrimSpace(b.String())
+	h := strings.ToLower(t.Title + " " + t.Description)
+	// "report"/"note" are deliberately absent — too common in monitor prose.
+	for _, kw := range []string{"write", "create", "save", "document", "file", "page", "ticket", "export", "generate", "draft", "artifact", "publish"} {
+		if strings.Contains(h, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // globalGuardrailsSection renders the platform-wide guardrails block.
@@ -406,9 +546,26 @@ Only write to Obsidian when the content is genuinely worth preserving as a perma
 // for projects running in react_mode. Agents use NEXT_ACTION/END_NEXT_ACTION to
 // continue the loop and TASK_COMPLETE to signal they are done.
 func InjectReactLoopInstructions(req provider.TaskRequest, maxIterations, currentIteration int) provider.TaskRequest {
+	return InjectReactLoopInstructionsOpts(req, maxIterations, currentIteration, PromptOptions{})
+}
+
+// InjectReactLoopInstructionsOpts is InjectReactLoopInstructions with a prompt
+// profile. The compact form is a two-line contract; the parsers accept both.
+func InjectReactLoopInstructionsOpts(req provider.TaskRequest, maxIterations, currentIteration int, opts PromptOptions) provider.TaskRequest {
 	remaining := maxIterations - currentIteration - 1
 	var b strings.Builder
 	b.WriteString(req.SystemPrompt)
+	if opts.Profile == model.PromptProfileCompact {
+		b.WriteString(fmt.Sprintf(`
+
+## Autonomous Loop Mode
+Iteration %d of %d. End your response with exactly ONE of these (markers verbatim, on their own line):
+NEXT_ACTION: <what you will do next and why>
+TASK_COMPLETE: <one-sentence summary of what was accomplished>
+%d iteration(s) remain after this one; no marker = the loop stops.`, currentIteration+1, maxIterations, remaining))
+		req.SystemPrompt = b.String()
+		return req
+	}
 	b.WriteString(fmt.Sprintf(`
 
 ## Autonomous Loop Mode
@@ -452,6 +609,17 @@ func (w SkillSizeWarning) String() string {
 	return fmt.Sprintf("skill %q is ~%d tokens (threshold %d)", w.Skill, w.Tokens, skillTokenWarnThreshold)
 }
 
+// SkillRenderLevel controls how much of each skill is injected. Level 0 is
+// the full instructions; budgeting asks for smaller levels when the prompt
+// doesn't fit the model's context window.
+type SkillRenderLevel int
+
+const (
+	SkillRenderFull    SkillRenderLevel = 0 // description + full instructions
+	SkillRenderOutline SkillRenderLevel = 1 // description + the first heading section of the instructions
+	SkillRenderBrief   SkillRenderLevel = 2 // description only (or first paragraph when there is none)
+)
+
 // InjectSkills appends the instructions for any skill that is relevant to this
 // task: either bound as the project's default (proj.DefaultSkillID), or
 // mentioned by slug in the task's title/description or the project's
@@ -459,12 +627,18 @@ func (w SkillSizeWarning) String() string {
 // Phoenix-native mechanism, so they work identically no matter which
 // provider/CLI actually executes the task.
 //
-// The returned warnings flag skills whose instructions are large enough to
-// crowd a small model's context window (see skillTokenWarnThreshold).
-func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task, proj *model.Project) (provider.TaskRequest, []SkillSizeWarning) {
+// The optional level renders a smaller form of each skill (see
+// SkillRenderLevel). The returned warnings flag skills whose instructions
+// are large enough to crowd a small model's context window (see
+// skillTokenWarnThreshold).
+func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task, proj *model.Project, level ...SkillRenderLevel) (provider.TaskRequest, []SkillSizeWarning) {
 	matched := MatchSkills(skills, t, proj)
 	if len(matched) == 0 {
 		return req, nil
+	}
+	lvl := SkillRenderFull
+	if len(level) > 0 {
+		lvl = level[0]
 	}
 
 	var warnings []SkillSizeWarning
@@ -479,20 +653,56 @@ func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task
 			b.WriteString(sk.Description)
 			b.WriteString("\n\n")
 		}
-		b.WriteString(sk.Instructions)
-		b.WriteString("\n\n")
+		instr := renderSkillInstructions(sk, lvl)
+		if instr != "" {
+			b.WriteString(instr)
+			b.WriteString("\n\n")
+		}
 
-		tokens := (len(sk.Description) + len(sk.Instructions)) / 4
+		tokens := (len(sk.Description) + len(instr)) / 4
 		total += tokens
-		if tokens > skillTokenWarnThreshold {
+		if lvl == SkillRenderFull && tokens > skillTokenWarnThreshold {
 			warnings = append(warnings, SkillSizeWarning{Skill: sk.Name, Tokens: tokens})
 		}
 	}
-	if total > skillTokenWarnThreshold && len(matched) > 1 {
+	if lvl == SkillRenderFull && total > skillTokenWarnThreshold && len(matched) > 1 {
 		warnings = append(warnings, SkillSizeWarning{Tokens: total})
 	}
 	req.SystemPrompt = strings.TrimRight(b.String(), "\n")
 	return req, warnings
+}
+
+// renderSkillInstructions returns the skill's instructions at the given level.
+func renderSkillInstructions(sk *model.Skill, lvl SkillRenderLevel) string {
+	instr := strings.TrimSpace(sk.Instructions)
+	switch lvl {
+	case SkillRenderFull:
+		return sk.Instructions
+	case SkillRenderOutline:
+		// Everything up to the second Markdown heading (i.e. intro + first section).
+		lines := strings.Split(instr, "\n")
+		headings := 0
+		for i, l := range lines {
+			if strings.HasPrefix(strings.TrimSpace(l), "#") {
+				headings++
+				if headings == 2 {
+					return strings.TrimSpace(strings.Join(lines[:i], "\n")) + "\n[… remaining skill sections omitted to fit the model's context window]"
+				}
+			}
+		}
+		if len(instr) > 2000 { // no headings to cut on: keep the head
+			return truncateHead(instr, 0.4)
+		}
+		return instr
+	default: // SkillRenderBrief
+		if sk.Description != "" {
+			return "[Skill instructions omitted to fit the model's context window — follow the description above.]"
+		}
+		if para := strings.SplitN(instr, "\n\n", 2)[0]; para != "" {
+			return truncateHead(para, 1) + "\n[… skill instructions omitted to fit the model's context window]"
+		}
+		return ""
+	}
 }
 
 // InjectMemories appends a ## Persistent Memory section to the system prompt

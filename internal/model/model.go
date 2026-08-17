@@ -63,7 +63,32 @@ type ModelEntry struct {
 	InputCostPer1K  float64             `json:"input_cost_per_1k"`
 	OutputCostPer1K float64             `json:"output_cost_per_1k"`
 	ProbedAt        *time.Time          `json:"probed_at,omitempty"`
+
+	// ---- Local-models profile (all optional; JSON-additive, no migration) ----
+
+	// ContextWindow is the usable prompt+output token budget for this model.
+	// 0 = unknown → the provider's Capabilities probe (llama.cpp /props,
+	// Ollama num_ctx) is consulted, else no budgeting.
+	ContextWindow int `json:"context_window,omitempty"`
+	// MaxOutputTokens reserved for the model's reply when budgeting.
+	// 0 = provider/adapter default (4096 for local adapters).
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// PromptProfile selects the prompt wording: "" (auto), "standard" or
+	// "compact". Auto picks compact for small context windows / fast tier.
+	PromptProfile PromptProfile `json:"prompt_profile,omitempty"`
+	// Reasoning marks a thinking model (chain-of-thought must be budgeted).
+	Reasoning bool `json:"reasoning,omitempty"`
 }
+
+// PromptProfile selects how verbose the protocol sections of the system
+// prompt are. Small models get a smaller contract.
+type PromptProfile string
+
+const (
+	PromptProfileAuto     PromptProfile = ""         // decide from context window / tier
+	PromptProfileStandard PromptProfile = "standard" // today's full wording
+	PromptProfileCompact  PromptProfile = "compact"  // terse, single-protocol wording for small models
+)
 
 // TaskType distinguishes the role of a task in the orchestration pipeline.
 type TaskType string
@@ -269,6 +294,9 @@ type Task struct {
 	Source            string     `json:"source"`           // free-text provenance, empty if human-created
 	HealthSignal      *string    `json:"health_signal"`    // monitor runs: "all_clear" | "needs_attention" | "failed"
 	HealthReason      string     `json:"health_reason"`    // monitor runs: HEALTH_REASON text, or why the signal was inferred
+	PromptTokens      int        `json:"prompt_tokens"`    // tokens of the assembled prompt as sent (0 = unknown)
+	PromptTrims       string     `json:"prompt_trims"`     // JSON array of prompt budgeting trims (migration 056); "[]" when none
+	RepairAttempts    int        `json:"repair_attempts"`  // one-shot structured-output repair calls made
 	GuardrailReason   *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
 	LastError         string     `json:"last_error"`       // most recent failure message; preserved across retries
 	Dismissed         bool       `json:"dismissed"`        // hidden from inbox but kept for audit
