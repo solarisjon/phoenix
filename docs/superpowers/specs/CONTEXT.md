@@ -451,7 +451,14 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 - **Keyword health scan removed.** `deriveHealthSignal` returns `""` when no marker; `Runner.classifyHealth` then runs a `HealthSchema`-constrained classification on the helper model (fallback: task provider) with one repair; if that fails → `needs_attention` with an explicit reason (never a silent all_clear). Classifier prompt has concrete rules of thumb (resource > ~90 %, growing/degrading → needs_attention). Live: 14B helper classifies correctly; 0.6B does not — helper should be ≥ 3–4B.
 - UI: task detail shows "Structured output repaired" when `repair_attempts > 0`.
 
-Remaining gaps (Phases 5–6): `SelectModelForDomain` result discarded when an existing agent matches; `SelectOrchestrationModel` has no caller; no retry on malformed structured output; `agents.max_tokens_per_run` (migration 030) is dead.
+**Local-models Phase 5 (done 2026-08-17, #109):** model evaluation harness.
+- `internal/agent/eval/` — `Run(ctx, prov, Options) Report`: 8 scored cases built with the production prompt code and checked with the production parsers (`agent.Parse*` wrappers in `evalexport.go`): `marker_memo`, `marker_health`, `marker_react`, `json_plan_schema`, `json_plan_freeform`, `guardrail_stop`, `long_prompt_follow` (filler sized to the window), `format_under_pressure`; plus a `perf` case (streaming TTFT, tok/s, cold vs warm). Marker + guardrail cases weigh 2. Grade A ≥ 90, B ≥ 75, C ≥ 50. Suggested profile: compact when window ≤ 16k or any marker case failed; suggested tier: "standard" only for a clean A (guardrail + long-prompt + schema plan pass), else "fast".
+- CLI: `phoenix eval-model --provider <id|name> [--model M] [--profile compact|standard] [--skip-perf] [--json] [--save]` (exit 3 when score < 50).
+- API: `POST /api/providers/{id}/eval {model?, profile?, skip_perf?}` → 202 `{id,status:"running"…}` (in-memory run table); `GET /api/providers/{id}/eval/{runID}`; WS `provider.eval_progress`. On completion the result is stored as `ModelEntry.Compatibility` (creating the pool entry with the suggested tier/profile if absent).
+- UI (Providers → Model Pool): "Phoenix A · 100" badge (click for per-case detail + "Apply to this row" for suggested tier/profile), "⚖ Run eval" with live progress.
+- Live results (llama-server router): Qwen2.5-14B-Instruct Q4_K_M → **100/A** in ~2.5 min (~10 tok/s); Qwen3-0.6B Q8_0 → **84/B** (fails `guardrail_stop` — ignores hard guardrails), ~120 tok/s.
+
+Remaining gaps (Phase 6): `SelectModelForDomain` result discarded when an existing agent matches; `SelectOrchestrationModel` has no caller; no retry on malformed structured output; `agents.max_tokens_per_run` (migration 030) is dead.
 
 ---
 

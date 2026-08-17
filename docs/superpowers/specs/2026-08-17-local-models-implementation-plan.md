@@ -181,7 +181,9 @@ Cheap fixes that remove the sharpest edges. All behind existing config; nothing 
 
 ---
 
-## Phase 5 — Model evaluation harness (2 days)
+## Phase 5 — Model evaluation harness (2 days) — ✅ DONE 2026-08-17 (#109)
+
+> Shipped: `internal/agent/eval` (8 cases + perf, production prompts + parsers via `agent.Parse*`), `phoenix eval-model` CLI, async `POST /api/providers/{id}/eval` + `GET …/eval/{runID}` + WS progress, `ModelEntry.Compatibility`, Providers-page badge/details/apply. Live: 14B = 100/A, 0.6B = 84/B (fails guardrail stop). Deviation: no upfront token-cost confirmation for hosted providers in the UI — the button tooltip states "~10 short calls"; the perf case can be skipped via `skip_perf`.
 
 ### Step 5.1: Suite + runner
 

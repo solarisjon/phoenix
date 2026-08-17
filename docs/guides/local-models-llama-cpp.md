@@ -144,6 +144,16 @@ Click **Test** on the provider card (hits `/health` — instant, no inference). 
 
 **Settings → System → Helper Model.** Phoenix runs a lot of small side jobs — follow-up conversation summaries, Obsidian note generation, "suggest a description", next-action suggestions, and **classifying a monitor's health when the agent didn't emit `HEALTH_SIGNAL`**. Point them at a small fast model (a 3–4B llama.cpp provider is the sweet spot) so they never wait behind, or run on, the big model your agents use. Don't go below ~3B: in testing a 0.6B helper called "root volume at 97% and growing" all-clear, while a 14B got it right — the classifier is only as good as the helper. Leave it on *Auto* and Phoenix picks the cheapest model tagged **Fast** in any provider's model pool (all local models cost 0, so tag your small one Fast). In llama-server router mode this is a natural fit: create one Phoenix provider per model and set the small one as helper.
 
+### Check "Phoenix compatibility" before trusting a model
+
+**Providers → (edit provider) → Model Pool → ⚖ Run eval** on any model — or from a shell:
+
+```bash
+./phoenix eval-model --provider "llama-router" --model "Qwen/Qwen3-8B-GGUF:Q4_K_M" --save
+```
+
+It runs ~10 short prompts through Phoenix's *real* prompt assembly and parsers and reports whether the model emits memo blocks, `HEALTH_SIGNAL`, ReAct markers, valid plan JSON (with and without a schema), **stops on a hard guardrail**, follows an instruction buried in a long prompt, and keeps the health marker when several protocols are on at once — plus tokens/s and time-to-first-token. You get a grade (A–D), per-case detail, and suggested prompt profile / tier you can apply to the pool row with one click. Free on local models. Reference points from a 24 GB Mac: Qwen2.5-14B Q4_K_M → 100/A at ~10 tok/s; Qwen3-0.6B → 84/B (ignores hard guardrails) at ~120 tok/s.
+
 ### Populate the model pool (optional but recommended)
 
 If you use the orchestrator / dynamic model selection, add entries to the provider's **Allowed Models** with a sensible `capability_tier`:

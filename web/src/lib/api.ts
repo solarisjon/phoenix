@@ -27,6 +27,38 @@ export interface ModelEntry {
   max_output_tokens?: number
   prompt_profile?: '' | 'standard' | 'compact'
   reasoning?: boolean
+  compatibility?: ModelCompatibility  // last "Phoenix compatibility" eval, if any
+}
+
+/** Stored summary of a model evaluation run (internal/agent/eval). */
+export interface ModelCompatibility {
+  score: number
+  grade: 'A' | 'B' | 'C' | 'D' | string
+  profile: string
+  suggested_profile: '' | 'standard' | 'compact' | string
+  suggested_tier: ModelCapabilityTier | string
+  summary: string
+  cases: Record<string, boolean>
+  tokens_per_sec?: number
+  ttft_ms?: number
+  probed_at: string
+}
+
+export interface EvalRun {
+  id: string
+  provider_id: string
+  model: string
+  status: 'running' | 'done' | 'error'
+  progress: string
+  index: number
+  total: number
+  error?: string
+  report?: {
+    score: number; grade: string; summary: string
+    cases: { name: string; passed: boolean; detail: string; duration_ms: number }[]
+    perf?: { tokens_per_sec: number; ttft_ms: number; cold_ms: number; warm_ms: number; error?: string }
+    suggested_profile: string; suggested_tier: string
+  }
 }
 
 export interface Provider {
@@ -553,6 +585,9 @@ export const api = {
       request<{ status: string }>(`/providers/${id}/allowed-models`, { method: 'PUT', body: JSON.stringify({ allowed_models: models }) }),
     probeModel: (id: string, modelId: string) =>
       request<ModelEntry>(`/providers/${id}/probe-model`, { method: 'POST', body: JSON.stringify({ model_id: modelId }) }),
+    startEval: (id: string, body: { model?: string; profile?: string; skip_perf?: boolean }) =>
+      request<EvalRun>(`/providers/${id}/eval`, { method: 'POST', body: JSON.stringify(body) }),
+    getEval: (id: string, runId: string) => request<EvalRun>(`/providers/${id}/eval/${runId}`),
   },
   agents: {
     list: () => request<Agent[]>('/agents'),

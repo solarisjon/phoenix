@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, type Provider, type ModelEntry, type ModelCapabilityTier } from '@/lib/api'
+import { api, type Provider, type ModelEntry, type ModelCapabilityTier, type EvalRun } from '@/lib/api'
 import { Card, CardBody } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -584,6 +584,62 @@ function parseConfig(type: string, configJSON: string): LLMConfig | CodingAgentC
   }
 }
 
+const GRADE_CLASS: Record<string, string> = {
+  A: 'bg-emerald-900/40 text-emerald-300 border-emerald-700/50',
+  B: 'bg-sky-900/40 text-sky-300 border-sky-700/50',
+  C: 'bg-amber-900/40 text-amber-300 border-amber-700/50',
+  D: 'bg-red-900/40 text-red-300 border-red-700/50',
+}
+
+/** Letter-grade badge from a stored compatibility eval. */
+function CompatBadge({ comp, onClick }: { comp: import('@/lib/api').ModelCompatibility; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${comp.summary}\nEvaluated ${new Date(comp.probed_at).toLocaleString()} (${comp.profile} profile). Click for details.`}
+      className={cn('text-[11px] font-semibold px-1.5 py-0.5 rounded border leading-none', GRADE_CLASS[comp.grade] ?? GRADE_CLASS.D)}
+    >
+      Phoenix {comp.grade} · {comp.score}
+    </button>
+  )
+}
+
+const CASE_LABELS: Record<string, string> = {
+  marker_memo: 'Memo block', marker_health: 'HEALTH_SIGNAL', marker_react: 'ReAct NEXT/DONE',
+  json_plan_schema: 'Plan JSON (schema)', json_plan_freeform: 'Plan JSON (freeform)',
+  guardrail_stop: 'Stops on hard guardrail', long_prompt_follow: 'Follows buried instruction',
+  format_under_pressure: 'HEALTH_SIGNAL with many protocols on',
+}
+
+/** Expanded eval details with an "apply suggestions" action. */
+function CompatDetails({ comp, inPool, onApply }: { comp: import('@/lib/api').ModelCompatibility; inPool: boolean; onApply: () => void }) {
+  const cases = Object.entries(comp.cases ?? {})
+  return (
+    <div className="rounded-md border border-slate-700 bg-slate-900/60 p-3 text-xs space-y-2">
+      <p className="text-slate-300">{comp.summary}</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+        {cases.map(([name, ok]) => (
+          <div key={name} className={ok ? 'text-emerald-400' : 'text-red-400'}>
+            {ok ? '✔' : '✘'} {CASE_LABELS[name] ?? name}
+          </div>
+        ))}
+      </div>
+      {(comp.tokens_per_sec ?? 0) > 0 && (
+        <p className="text-slate-500">~{Math.round(comp.tokens_per_sec ?? 0)} tok/s · first token {comp.ttft_ms} ms</p>
+      )}
+      <div className="flex items-center gap-3 pt-1">
+        <span className="text-slate-500">
+          Suggests: profile <span className="text-slate-300">{comp.suggested_profile || 'standard'}</span>, tier <span className="text-slate-300">{comp.suggested_tier}</span>
+        </span>
+        {inPool && (
+          <button type="button" onClick={onApply} className="text-violet-400 hover:text-violet-300">Apply to this row</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const TIER_LABELS: Record<ModelCapabilityTier, string> = {
   fast: 'Fast',
   standard: 'Standard',
@@ -602,6 +658,44 @@ function ModelPoolSection({ providerId, initialModels }: {
   const [probingId, setProbingId] = useState<string | null>(null)
   const [loadingModels, setLoadingModels] = useState(true)
   const [error, setError] = useState('')
+  const [evalRuns, setEvalRuns] = useState<Record<string, EvalRun>>({}) // model_id → run
+  const [evalOpen, setEvalOpen] = useState<string | null>(null)          // model_id whose report is expanded
+
+  const runEval = async (modelId: string) => {
+    setError('')
+    try {
+      const run = await api.providers.startEval(providerId, { model: modelId })
+      setEvalRuns(prev => ({ ...prev, [modelId]: run }))
+      const poll = async () => {
+        try {
+          const r = await api.providers.getEval(providerId, run.id)
+          setEvalRuns(prev => ({ ...prev, [modelId]: r }))
+          if (r.status === 'running') { setTimeout(poll, 2000); return }
+          // Finished: reload the provider so the stored compatibility appears.
+          const fresh = await api.providers.get(providerId)
+          setPoolModels(fresh.allowed_models ?? [])
+          setEvalOpen(modelId)
+        } catch (e: unknown) {
+          setError(`Eval polling failed: ${getErrorMessage(e)}`)
+        }
+      }
+      setTimeout(poll, 2000)
+    } catch (e: unknown) {
+      setError(`Eval failed to start: ${getErrorMessage(e)}`)
+    }
+  }
+
+  const applySuggestions = (modelId: string) => {
+    setPoolModels(prev => prev.map(m => {
+      if (m.model_id !== modelId || !m.compatibility) return m
+      const c = m.compatibility
+      return {
+        ...m,
+        capability_tier: (c.suggested_tier as ModelCapabilityTier) || m.capability_tier,
+        prompt_profile: (c.suggested_profile as ModelEntry['prompt_profile']) ?? m.prompt_profile,
+      }
+    }))
+  }
 
   useEffect(() => {
     api.providers.listModels(providerId)
@@ -696,8 +790,9 @@ function ModelPoolSection({ providerId, initialModels }: {
                   className="mt-1 rounded"
                 />
                 <div className="flex-1 min-w-0 space-y-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-mono text-slate-200 truncate">{modelId}</span>
+                    {entry?.compatibility && <CompatBadge comp={entry.compatibility} onClick={() => setEvalOpen(evalOpen === modelId ? null : modelId)} />}
                     {inPool && (
                       <button
                         onClick={() => probeModel(modelId)}
@@ -707,7 +802,21 @@ function ModelPoolSection({ providerId, initialModels }: {
                         {probingId === modelId ? '⏳ Probing…' : '◎ Probe'}
                       </button>
                     )}
+                    <button
+                      onClick={() => runEval(modelId)}
+                      disabled={evalRuns[modelId]?.status === 'running'}
+                      title="Run the Phoenix compatibility evaluation: does this model emit MEMO/HEALTH_SIGNAL/NEXT_ACTION markers, valid plan JSON, stop on hard guardrails, follow long prompts? Local models: free. Hosted: ~10 short calls."
+                      className="text-xs text-sky-400 hover:text-sky-300 flex-shrink-0 disabled:opacity-50"
+                    >
+                      {evalRuns[modelId]?.status === 'running'
+                        ? `⏳ Evaluating ${evalRuns[modelId].index + 1}/${evalRuns[modelId].total || '?'} ${evalRuns[modelId].progress}…`
+                        : '⚖ Run eval'}
+                    </button>
                   </div>
+                  {evalRuns[modelId]?.status === 'error' && <p className="text-xs text-red-400">{evalRuns[modelId].error}</p>}
+                  {evalOpen === modelId && entry?.compatibility && (
+                    <CompatDetails comp={entry.compatibility} inPool={inPool} onApply={() => applySuggestions(modelId)} />
+                  )}
 
                   {inPool && entry && (
                     <div className="grid grid-cols-2 gap-3">

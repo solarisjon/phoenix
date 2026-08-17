@@ -153,6 +153,8 @@ func (s *Server) buildRouter() http.Handler {
 			r.Put("/providers/{id}/pricing", s.updateProviderPricing)
 			r.Put("/providers/{id}/allowed-models", s.updateProviderAllowedModels)
 			r.Post("/providers/{id}/probe-model", s.probeProviderModel)
+			r.Post("/providers/{id}/eval", s.startProviderEval)
+			r.Get("/providers/{id}/eval/{runID}", s.getProviderEval)
 			r.Post("/providers/{id}/resync", s.resyncProvider)
 			r.Post("/providers/{id}/test", s.testProvider)
 			r.Get("/providers/{id}/health", s.healthProvider)

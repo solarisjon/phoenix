@@ -78,6 +78,24 @@ type ModelEntry struct {
 	PromptProfile PromptProfile `json:"prompt_profile,omitempty"`
 	// Reasoning marks a thinking model (chain-of-thought must be budgeted).
 	Reasoning bool `json:"reasoning,omitempty"`
+	// Compatibility is the last "Phoenix compatibility" evaluation of this
+	// model (internal/agent/eval): how reliably it emits the platform's
+	// protocol markers and JSON. Nil = never evaluated.
+	Compatibility *ModelCompatibility `json:"compatibility,omitempty"`
+}
+
+// ModelCompatibility is the stored summary of an eval run.
+type ModelCompatibility struct {
+	Score            int             `json:"score"` // 0–100
+	Grade            string          `json:"grade"` // A | B | C | D
+	Profile          string          `json:"profile"`
+	SuggestedProfile string          `json:"suggested_profile"`
+	SuggestedTier    string          `json:"suggested_tier"`
+	Summary          string          `json:"summary"`
+	Cases            map[string]bool `json:"cases"` // case name → passed
+	TokensPerSec     float64         `json:"tokens_per_sec,omitempty"`
+	TTFTMs           int64           `json:"ttft_ms,omitempty"`
+	ProbedAt         time.Time       `json:"probed_at"`
 }
 
 // PromptProfile selects how verbose the protocol sections of the system

@@ -32,6 +32,11 @@ import (
 )
 
 func main() {
+	// Subcommands (no server): `phoenix eval-model …`
+	if len(os.Args) > 1 && os.Args[1] == "eval-model" {
+		os.Exit(runEvalModel(os.Args[2:]))
+	}
+
 	noPlugins := flag.Bool("no-plugins", false, "disable all plugin dispatch for this session")
 	flag.Parse()
 
