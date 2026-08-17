@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/solarisjon/phoenix/internal/agent"
 	"net/http"
 	"sort"
 	"strings"
@@ -737,41 +738,72 @@ Recent tasks:
 
 Suggest 1 to 3 specific, actionable next tasks for this project. Each suggestion should be something an AI agent could execute — concrete enough to be run as a task.
 
-Return a JSON array. Each item must have "title" (short, max 80 chars) and "description" (1-2 sentences explaining what to do). Example:
-[{"title": "Write article on giving feedback", "description": "Draft a 500-word article covering how to deliver constructive feedback to team members."}]
+Return a JSON object with a "suggestions" array. Each item must have "title" (short, max 80 chars) and "description" (1-2 sentences explaining what to do). Example:
+{"suggestions": [{"title": "Write article on giving feedback", "description": "Draft a 500-word article covering how to deliver constructive feedback to team members."}]}
 
-Return ONLY the JSON array, no prose, no markdown.`, project.Name, objective, historyText)
+Return ONLY the JSON object, no prose, no markdown.`, project.Name, objective, historyText)
 
 	resp, err := prov.Execute(r.Context(), provider.TaskRequest{
-		SystemPrompt: "You are a concise project planning assistant. Return only valid JSON arrays, no markdown.",
-		Prompt:       prompt,
+		SystemPrompt:   "You are a concise project planning assistant. Return only valid JSON, no markdown.",
+		Prompt:         prompt,
+		ResponseSchema: agent.SuggestionsSchema,
 	})
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, fmt.Sprintf("suggestion generation failed: %v", err))
 		return
 	}
 
-	// Parse the JSON response — extract array even if wrapped in markdown fences.
-	raw := strings.TrimSpace(resp.Output)
-	if idx := strings.Index(raw, "["); idx >= 0 {
-		raw = raw[idx:]
+	suggestions := parseSuggestions(resp.Output)
+	if len(suggestions) == 0 {
+		// One repair pass on the same provider.
+		if repaired, rerr := agent.RepairStructured(r.Context(), prov, resp.Output, fmt.Errorf("no suggestions found"), agent.SuggestionsSchema, `the {"suggestions":[…]} object`); rerr == nil {
+			suggestions = parseSuggestions(repaired)
+		}
 	}
-	if idx := strings.LastIndex(raw, "]"); idx >= 0 {
-		raw = raw[:idx+1]
-	}
-
-	type suggestion struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-	}
-	var suggestions []suggestion
-	if err := json.Unmarshal([]byte(raw), &suggestions); err != nil || len(suggestions) == 0 {
+	if len(suggestions) == 0 {
 		// Return a graceful fallback rather than an error.
-		suggestions = []suggestion{{
+		suggestions = []nextActionSuggestion{{
 			Title:       "Review project progress",
 			Description: "Review recent task outputs and identify the next most impactful action for this project.",
 		}}
 	}
 
 	respond(w, http.StatusOK, map[string]any{"suggestions": suggestions})
+}
+
+// nextActionSuggestion is one item returned by suggestProjectNextAction.
+type nextActionSuggestion struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+// parseSuggestions accepts either the schema shape {"suggestions":[…]} or a
+// bare JSON array (older prompt / lenient models), tolerating fences and prose.
+func parseSuggestions(raw string) []nextActionSuggestion {
+	var out []nextActionSuggestion
+	if obj := agent.ExtractJSONObject(raw); obj != "" {
+		var wrapped struct {
+			Suggestions []nextActionSuggestion `json:"suggestions"`
+		}
+		if err := json.Unmarshal([]byte(obj), &wrapped); err == nil && len(wrapped.Suggestions) > 0 {
+			out = wrapped.Suggestions
+		}
+	}
+	if len(out) == 0 {
+		s := strings.TrimSpace(raw)
+		if i := strings.Index(s, "["); i >= 0 {
+			s = s[i:]
+		}
+		if j := strings.LastIndex(s, "]"); j >= 0 {
+			s = s[:j+1]
+		}
+		_ = json.Unmarshal([]byte(s), &out)
+	}
+	res := make([]nextActionSuggestion, 0, len(out))
+	for _, sg := range out {
+		if strings.TrimSpace(sg.Title) != "" {
+			res = append(res, sg)
+		}
+	}
+	return res
 }

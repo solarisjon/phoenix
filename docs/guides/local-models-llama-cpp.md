@@ -142,7 +142,7 @@ Click **Test** on the provider card (hits `/health` — instant, no inference). 
 
 ### Set a helper model (recommended)
 
-**Settings → System → Helper Model.** Phoenix runs a lot of small side jobs — follow-up conversation summaries, Obsidian note generation, "suggest a description", guardrail drafts, next-action suggestions. Point them at a small fast model (a 3–4B llama.cpp provider, or the 0.6B if you just want them instant) so they never wait behind, or run on, the big model your agents use. Leave it on *Auto* and Phoenix picks the cheapest model tagged **Fast** in any provider's model pool (all local models cost 0, so tag your small one Fast). In llama-server router mode this is a natural fit: create one Phoenix provider per model and set the small one as helper.
+**Settings → System → Helper Model.** Phoenix runs a lot of small side jobs — follow-up conversation summaries, Obsidian note generation, "suggest a description", next-action suggestions, and **classifying a monitor's health when the agent didn't emit `HEALTH_SIGNAL`**. Point them at a small fast model (a 3–4B llama.cpp provider is the sweet spot) so they never wait behind, or run on, the big model your agents use. Don't go below ~3B: in testing a 0.6B helper called "root volume at 97% and growing" all-clear, while a 14B got it right — the classifier is only as good as the helper. Leave it on *Auto* and Phoenix picks the cheapest model tagged **Fast** in any provider's model pool (all local models cost 0, so tag your small one Fast). In llama-server router mode this is a natural fit: create one Phoenix provider per model and set the small one as helper.
 
 ### Populate the model pool (optional but recommended)
 
@@ -176,7 +176,7 @@ Until the roadmap items land, these settings and habits make the biggest differe
 
 **Watch the slot context anyway.** If tasks still fail with a 400 mentioning context size, `--ctx-size / --parallel` is smaller than what `/props` reports as usable, or the model's reply overran; lower *Max output tokens* on the model-pool row (default reserve is ¼ of the window on small models) or raise `--ctx-size`.
 
-**Structured JSON.** The native provider passes a JSON schema to llama-server (`response_format: json_schema`, compiled to a GBNF grammar) whenever Phoenix sets one on a request. Wiring the orchestrator plan, agent generation and health classifier to actually send schemas is Phase 4 of the roadmap.
+**Structured JSON is grammar-enforced.** Whenever Phoenix parses a reply as JSON — orchestrator plans, "generate agent", next-action suggestions, the health classifier, Obsidian vault choice — it sends a JSON schema and llama-server compiles it to a GBNF grammar, so the output *cannot* be malformed. If a backend can't enforce it, Phoenix extracts JSON tolerantly and asks once more ("Structured output repaired" on the task).
 
 ---
 

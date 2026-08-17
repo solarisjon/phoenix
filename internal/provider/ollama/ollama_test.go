@@ -277,3 +277,26 @@ func TestNew_DefaultTimeout(t *testing.T) {
 		t.Errorf("default timeout = %v, want 900s", a.client.Timeout)
 	}
 }
+
+func TestStreamExecute_SendsFormatSchema(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"message":{"role":"assistant","content":"{\"ok\":true}"},"done":true}` + "\n"))
+	}))
+	defer srv.Close()
+	a, _ := New(`{"model":"m","base_url":"` + srv.URL + `"}`)
+	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`)
+	if _, err := a.Execute(context.Background(), provider.TaskRequest{Prompt: "hi", ResponseSchema: schema}); err != nil {
+		t.Fatal(err)
+	}
+	f, ok := got["format"].(map[string]any)
+	if !ok || f["type"] != "object" {
+		t.Errorf("format = %v", got["format"])
+	}
+	got = nil
+	_, _ = a.Execute(context.Background(), provider.TaskRequest{Prompt: "hi"})
+	if _, ok := got["format"]; ok {
+		t.Errorf("format must be absent without a schema")
+	}
+}

@@ -126,12 +126,18 @@ func (a *Adapter) Execute(ctx context.Context, req provider.TaskRequest) (provid
 func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (<-chan provider.StreamChunk, error) {
 	messages := a.buildMessages(req)
 
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"model":    a.cfg.Model,
 		"messages": messages,
 		"stream":   true,
 		"options":  a.buildOptions(req),
-	})
+	}
+	// Structured output: Ollama accepts a JSON schema object directly in
+	// "format" (or the string "json" for unconstrained JSON mode).
+	if len(req.ResponseSchema) > 0 {
+		payload["format"] = json.RawMessage(req.ResponseSchema)
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("ollama: marshal request: %w", err)
 	}

@@ -713,3 +713,25 @@ func TestNew_DefaultTimeout_LocalVsHosted(t *testing.T) {
 		t.Errorf("explicit timeout_seconds ignored: %v", a.client.Timeout)
 	}
 }
+
+func TestBuildRequestBody_ResponseSchema(t *testing.T) {
+	a := newAdapter(t, "http://unused")
+	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"]}`)
+	cr := a.buildRequestBody(provider.TaskRequest{Prompt: "hi", ResponseSchema: schema}, false)
+	if cr.ResponseFormat == nil || cr.ResponseFormat.Type != "json_schema" || cr.ResponseFormat.JSONSchema == nil || cr.ResponseFormat.JSONSchema.Strict {
+		t.Fatalf("response_format = %+v", cr.ResponseFormat)
+	}
+	raw, _ := json.Marshal(cr)
+	if !strings.Contains(string(raw), `"response_format":{"type":"json_schema","json_schema":{"name":"phoenix_response","schema":{"type":"object"`) {
+		t.Errorf("wire: %s", raw)
+	}
+	// Anthropic flavour ignores it.
+	an, _ := New(`{"endpoint":"http://unused","api_flavour":"anthropic"}`)
+	if cr := an.buildRequestBody(provider.TaskRequest{Prompt: "hi", ResponseSchema: schema}, false); cr.ResponseFormat != nil {
+		t.Errorf("anthropic flavour must not send response_format")
+	}
+	// Absent when no schema.
+	if cr := a.buildRequestBody(provider.TaskRequest{Prompt: "hi"}, false); cr.ResponseFormat != nil {
+		t.Errorf("response_format must be nil without a schema")
+	}
+}

@@ -1433,18 +1433,32 @@ function describeTrim(t: PromptTrim): string {
     : `${label} ${t.from_tokens.toLocaleString()}→${t.to_tokens.toLocaleString()} tokens`
 }
 
-/** "Prompt trimmed" notice for a completed/failed task (reads task.prompt_trims). */
+/** "Prompt trimmed" / "output repaired" notices for a task (reads task.prompt_trims / repair_attempts). */
 export function PromptTrimsPanel({ task }: { task: Task }) {
   let trims: PromptTrim[] = []
   try { trims = JSON.parse(task.prompt_trims || '[]') } catch { /* ignore */ }
-  if (trims.length === 0) return null
+  const repairs = task.repair_attempts ?? 0
+  if (trims.length === 0 && repairs === 0) return null
   return (
-    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-      <p className="font-medium">Prompt trimmed to fit the model's context window</p>
-      <p className="mt-0.5 text-amber-300/80">
-        {trims.map(describeTrim).join('; ')}
-        {task.prompt_tokens ? ` · sent ${task.prompt_tokens.toLocaleString()} prompt tokens` : ''}
-      </p>
+    <div className="space-y-2">
+      {trims.length > 0 && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <p className="font-medium">Prompt trimmed to fit the model's context window</p>
+          <p className="mt-0.5 text-amber-300/80">
+            {trims.map(describeTrim).join('; ')}
+            {task.prompt_tokens ? ` · sent ${task.prompt_tokens.toLocaleString()} prompt tokens` : ''}
+          </p>
+        </div>
+      )}
+      {repairs > 0 && (
+        <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-200">
+          <p className="font-medium">Structured output repaired</p>
+          <p className="mt-0.5 text-sky-300/80">
+            The model's first reply couldn't be parsed; Phoenix asked once more for the exact JSON
+            ({repairs} repair {repairs === 1 ? 'call' : 'calls'}). Small models do this more often — a helper model or the compact prompt profile helps.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

@@ -300,12 +300,60 @@ func (o *Orchestrator) HandleOrchestrationComplete(ctx context.Context, task *mo
 		var parseErr error
 		plan, parseErr = parseRoutedPlan(outputText)
 		if parseErr != nil {
-			slog.Warn("orchestrator: parse plan failed — task left as completed", "task_id", task.ID, "error", parseErr)
+			// One repair pass on the same provider (it saw the original prompt).
+			plan, parseErr = o.repairPlan(ctx, task, outputText, parseErr)
+		}
+		if parseErr != nil {
+			slog.Warn("orchestrator: parse plan failed after repair — task left as completed", "task_id", task.ID, "error", parseErr)
+			task.LastError = "orchestration plan could not be parsed: " + parseErr.Error()
+			if err := o.tasks.Update(ctx, task); err != nil {
+				slog.Warn("orchestrator: persist parse error", "task_id", task.ID, "error", err)
+			}
 			return
 		}
 	}
 
 	o.persistAndSpawnPlan(ctx, task, plan, settings, skill, importDirs, workingDir)
+}
+
+// repairPlan asks the orchestrator's own provider once to re-emit the plan as
+// schema-valid JSON, records the attempt on the task, and re-parses.
+func (o *Orchestrator) repairPlan(ctx context.Context, task *model.Task, prevOutput string, parseErr error) (*routedPlan, error) {
+	if o.registry == nil {
+		return nil, parseErr
+	}
+	agent, err := o.agents.Get(ctx, task.AgentID)
+	if err != nil || agent == nil {
+		return nil, parseErr
+	}
+	prov, err := o.registry.GetWithOverride(ctx, agent.ProviderID, firstNonEmpty(task.ModelOverride, agent.ModelOverride))
+	if err != nil {
+		return nil, parseErr
+	}
+	task.RepairAttempts++
+	if uerr := o.tasks.Update(ctx, task); uerr != nil {
+		slog.Warn("orchestrator: persist repair attempt", "task_id", task.ID, "error", uerr)
+	}
+	repaired, rerr := RepairStructured(ctx, prov, prevOutput, parseErr, PlanSchema, "the orchestration plan")
+	if rerr != nil {
+		slog.Warn("orchestrator: repair call failed", "task_id", task.ID, "error", rerr)
+		return nil, parseErr
+	}
+	plan, perr := parseRoutedPlan(repaired)
+	if perr != nil {
+		return nil, fmt.Errorf("%v (after repair: %v)", parseErr, perr)
+	}
+	slog.Info("orchestrator: plan repaired", "task_id", task.ID)
+	return plan, nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // SpawnSkillOrchestrationPlan deterministically decomposes a skill into subtasks.
@@ -715,5 +763,7 @@ func BuildOrchestrationTask(original *model.Task, orchestratorAgentID string) *m
 func InjectOrchestratorInstructions(req provider.TaskRequest, agents []*model.Agent, providers []*model.Provider, maxDepth, maxPerLevel int) provider.TaskRequest {
 	section := OrchestratorSystemSection(agents, providers, maxDepth, maxPerLevel)
 	req.SystemPrompt = req.SystemPrompt + "\n\n" + section
+	// The plan is parsed as JSON — let constrained backends guarantee it.
+	req.ResponseSchema = PlanSchema
 	return req
 }

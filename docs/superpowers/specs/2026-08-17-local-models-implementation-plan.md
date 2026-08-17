@@ -155,7 +155,9 @@ Cheap fixes that remove the sharpest edges. All behind existing config; nothing 
 
 ---
 
-## Phase 4 — Structured output & repair (1–2 days)
+## Phase 4 — Structured output & repair (1–2 days) — ✅ DONE 2026-08-17 (#108)
+
+> Shipped: `ResponseSchema` through llm (OpenAI, strict=false) + ollama (`format`) + llamacpp; `schemas.go`; `repair.go` (`RepairStructured`, one call, same provider); orchestrator plan repair (+`repair_attempts`, `last_error`); `generateAgent` + suggestions (object-root schema, tolerant parser) + vault pick; **keyword health scan removed** in favour of `classifyHealth` (marker → helper-model schema call → repair → `needs_attention` with reason). UI "Structured output repaired" notice. Not done: text-only endpoints (task/project/team descriptions, guardrails) intentionally left unconstrained — they return prose, not JSON. Live: classifier correct on 14B helper (0 repairs), unreliable on 0.6B (helper should be ≥ 3–4B).
 
 ### Step 4.1: `ResponseSchema` end-to-end
 

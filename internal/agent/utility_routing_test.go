@@ -163,3 +163,126 @@ func TestResolveSubtaskRouting_ExistingAgentKeepsProvider(t *testing.T) {
 		t.Errorf("coder routing = (%s,%q,%s,%v)", agentID, mo, pid, err)
 	}
 }
+
+// scriptedProvider returns queued outputs in order (for classifier + repair tests).
+type scriptedProvider struct {
+	mockProvider
+	outputs []string
+	prompts []string
+}
+
+func (s *scriptedProvider) Execute(_ context.Context, req provider.TaskRequest) (provider.TaskResponse, error) {
+	s.prompts = append(s.prompts, req.Prompt)
+	if len(s.outputs) == 0 {
+		return provider.TaskResponse{Output: ""}, nil
+	}
+	out := s.outputs[0]
+	s.outputs = s.outputs[1:]
+	return provider.TaskResponse{Output: out}, nil
+}
+
+func newClassifierRunner(t *testing.T, helper provider.Provider) *Runner {
+	t.Helper()
+	provRepo := &multiProviderRepo{recs: []*model.Provider{
+		{ID: "prov-1", Type: model.ProviderTypeLLM, Config: `{}`},
+		{ID: "prov-helper", Type: model.ProviderTypeLLM, Config: `{}`},
+	}}
+	reg := registry.NewRegistry(provRepo)
+	reg.InjectForTest("prov-1", &mockProvider{output: "task"})
+	reg.InjectForTest("prov-helper", helper)
+	settings := &fakeSettingsRepo{s: &model.SystemSettings{UtilityProviderID: "prov-helper"}}
+	r := New(newMemAgentRepo(makeAgent()), newMemTaskRepo(), &mockProjectRepo{}, settings, nil, reg, nil)
+	r.SetProviderRepo(provRepo)
+	return r
+}
+
+func TestClassifyHealth(t *testing.T) {
+	task := &model.Task{ID: "t", Title: "Disk check", Source: "monitor"}
+
+	// 1. Marker present → no LLM call.
+	helper := &scriptedProvider{}
+	r := newClassifierRunner(t, helper)
+	sig, why, rep := r.classifyHealth(context.Background(), task, "prov-1", "all fine\nHEALTH_SIGNAL: all_clear\nHEALTH_REASON: nominal")
+	if sig != "all_clear" || why != "nominal" || rep != 0 || len(helper.prompts) != 0 {
+		t.Errorf("marker path: %q %q %d calls=%d", sig, why, rep, len(helper.prompts))
+	}
+
+	// 2. No marker → classifier on the helper model, schema JSON reply.
+	helper = &scriptedProvider{outputs: []string{`{"signal":"needs_attention","reason":"disk at 95%"}`}}
+	r = newClassifierRunner(t, helper)
+	sig, why, rep = r.classifyHealth(context.Background(), task, "prov-1", "Root volume is at 95% and growing. No errors in logs.")
+	if sig != "needs_attention" || why != "classified: disk at 95%" || rep != 0 {
+		t.Errorf("classifier path: %q %q %d", sig, why, rep)
+	}
+	if len(helper.prompts) != 1 || !strings.Contains(helper.prompts[0], "Root volume is at 95%") {
+		t.Errorf("classifier prompt: %v", helper.prompts)
+	}
+
+	// 3. Classifier replies garbage first, valid after one repair.
+	helper = &scriptedProvider{outputs: []string{"Sure! I think it's fine.", "```json\n{\"signal\": \"all_clear\", \"reason\": \"no issues\"}\n```"}}
+	r = newClassifierRunner(t, helper)
+	sig, why, rep = r.classifyHealth(context.Background(), task, "prov-1", "Everything responded within SLA.")
+	if sig != "all_clear" || why != "classified: no issues" || rep != 1 {
+		t.Errorf("repair path: %q %q %d", sig, why, rep)
+	}
+	if len(helper.prompts) != 2 || !strings.Contains(helper.prompts[1], "could not be used") {
+		t.Errorf("repair prompt missing: %v", helper.prompts)
+	}
+
+	// 4. Classifier fails twice → needs_attention with explicit reason (never a silent all_clear).
+	helper = &scriptedProvider{outputs: []string{"nope", "still nope"}}
+	r = newClassifierRunner(t, helper)
+	sig, why, rep = r.classifyHealth(context.Background(), task, "prov-1", "Some report text.")
+	if sig != "needs_attention" || !strings.Contains(why, "could not be parsed") || rep != 1 {
+		t.Errorf("failure path: %q %q %d", sig, why, rep)
+	}
+
+	// 5. Empty output → needs_attention, no call.
+	helper = &scriptedProvider{}
+	r = newClassifierRunner(t, helper)
+	sig, _, _ = r.classifyHealth(context.Background(), task, "prov-1", "   ")
+	if sig != "needs_attention" || len(helper.prompts) != 0 {
+		t.Errorf("empty output path: %q calls=%d", sig, len(helper.prompts))
+	}
+}
+
+// TestHandleOrchestrationComplete_RepairsPlan: a plan that isn't valid JSON is
+// repaired once on the orchestrator agent's provider; the repaired plan is
+// persisted and repair_attempts is recorded. A second failure leaves the task
+// completed with a clear last_error and no spawn.
+func TestHandleOrchestrationComplete_RepairsPlan(t *testing.T) {
+	orchAgent := &model.Agent{ID: "orch", Name: "Orchestrator", ProviderID: "prov-1", IsOrchestrator: true, Status: model.AgentStatusActive}
+	provRepo := &multiProviderRepo{recs: []*model.Provider{{ID: "prov-1", Type: model.ProviderTypeLLM, Config: `{}`}}}
+	reg := registry.NewRegistry(provRepo)
+	good := `{"confidence":0.9,"rationale":"fine","subtasks":[]}`
+	prov := &scriptedProvider{outputs: []string{good}}
+	reg.InjectForTest("prov-1", prov)
+
+	task := &model.Task{ID: "orch-task", ProjectID: "proj", AgentID: "orch", Title: "Plan it", TaskType: model.TaskTypeOrchestration, Status: model.TaskStatusCompleted}
+	taskRepo := newMemTaskRepo(task)
+	settings := &fakeSettingsRepo{s: &model.SystemSettings{OrchestratorConfidenceThreshold: 0.5}}
+	o := NewOrchestrator(newMemAgentRepo(orchAgent), taskRepo, &mockProjectRepo{}, provRepo, settings, reg, nil)
+
+	// Broken first output (prose + truncated JSON) → repair → good plan.
+	o.HandleOrchestrationComplete(context.Background(), task, "Sure! Here's the plan: {\"confidence\": 0.9, \"rationale\": \"fi", nil, "", nil)
+	got, _ := taskRepo.Get(context.Background(), task.ID)
+	if got.RepairAttempts != 1 {
+		t.Errorf("repair_attempts = %d, want 1", got.RepairAttempts)
+	}
+	if !strings.Contains(got.OrchestrationPlan, `"confidence":0.9`) {
+		t.Errorf("repaired plan not persisted: %q", got.OrchestrationPlan)
+	}
+	if len(prov.prompts) != 1 || !strings.Contains(prov.prompts[0], "could not be used") {
+		t.Errorf("repair prompt = %v", prov.prompts)
+	}
+
+	// Second scenario: repair also fails → last_error set, no plan.
+	task2 := &model.Task{ID: "orch-task-2", ProjectID: "proj", AgentID: "orch", Title: "Plan it", TaskType: model.TaskTypeOrchestration, Status: model.TaskStatusCompleted}
+	_ = taskRepo.Create(context.Background(), task2)
+	prov.outputs = []string{"still not json"}
+	o.HandleOrchestrationComplete(context.Background(), task2, "not json either", nil, "", nil)
+	got2, _ := taskRepo.Get(context.Background(), task2.ID)
+	if got2.RepairAttempts != 1 || got2.OrchestrationPlan != "" || !strings.Contains(got2.LastError, "could not be parsed") {
+		t.Errorf("failed repair: attempts=%d plan=%q last_error=%q", got2.RepairAttempts, got2.OrchestrationPlan, got2.LastError)
+	}
+}

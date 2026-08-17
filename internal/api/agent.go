@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/solarisjon/phoenix/internal/agent"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -223,20 +224,20 @@ Return ONLY valid JSON with exactly these five string fields. No markdown, no ex
 Agent description: %s`, req.Description)
 
 	resp, err := prov.Execute(r.Context(), provider.TaskRequest{
-		SystemPrompt: "You are a precise JSON generator. Always return valid JSON only, with no markdown formatting or extra text.",
-		Prompt:       prompt,
+		SystemPrompt:   "You are a precise JSON generator. Always return valid JSON only, with no markdown formatting or extra text.",
+		Prompt:         prompt,
+		ResponseSchema: agent.AgentGenSchema, // constrained backends guarantee the shape
 	})
 	if err != nil {
 		respondErr(w, http.StatusInternalServerError, fmt.Sprintf("generation failed: %v", err))
 		return
 	}
 
-	// Extract JSON from the response (strip any markdown fences if present).
+	// Extract the JSON object tolerantly (fences, prose prefix, …).
 	output := strings.TrimSpace(resp.Output)
-	output = strings.TrimPrefix(output, "```json")
-	output = strings.TrimPrefix(output, "```")
-	output = strings.TrimSuffix(output, "```")
-	output = strings.TrimSpace(output)
+	if obj := agent.ExtractJSONObject(output); obj != "" {
+		output = obj
+	}
 
 	var result struct {
 		Persona        string `json:"persona"`
@@ -245,7 +246,20 @@ Agent description: %s`, req.Description)
 		HardGuardrails string `json:"hard_guardrails"`
 		Behaviour      string `json:"behaviour"`
 	}
-	if err := json.Unmarshal([]byte(output), &result); err != nil {
+	parseErr := json.Unmarshal([]byte(output), &result)
+	if parseErr != nil {
+		// One repair pass on the same provider.
+		if repaired, rerr := agent.RepairStructured(r.Context(), prov, resp.Output, parseErr, agent.AgentGenSchema, "the agent configuration"); rerr == nil {
+			if obj := agent.ExtractJSONObject(repaired); obj != "" {
+				repaired = obj
+			}
+			if err2 := json.Unmarshal([]byte(repaired), &result); err2 == nil {
+				parseErr = nil
+				output = repaired
+			}
+		}
+	}
+	if parseErr != nil {
 		// Return the raw text so the UI can show it rather than failing silently.
 		respond(w, http.StatusOK, map[string]string{
 			"behaviour":       output,

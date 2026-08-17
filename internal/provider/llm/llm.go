@@ -301,6 +301,21 @@ func (a *Adapter) buildRequestBody(req provider.TaskRequest, stream bool) chatRe
 		cr.MaxTokens = a.maxTokens(req)
 		cr.Temperature = a.temperature(req)
 		cr.Stop = req.StopSequences
+
+		// Structured output: OpenAI-compatible servers (OpenAI, vLLM,
+		// LM Studio, llama-server behind the generic adapter) accept a JSON
+		// schema in response_format. Anthropic's Messages API has no
+		// equivalent field, so the schema is ignored on that flavour and
+		// callers rely on tolerant parsing/repair.
+		if len(req.ResponseSchema) > 0 {
+			cr.ResponseFormat = &openaiwire.ResponseFormat{
+				Type: "json_schema",
+				// strict=false: OpenAI's strict mode rejects schemas it deems
+				// non-conforming with a 400; best-effort adherence + tolerant
+				// parsing/repair is the safer default across compatible servers.
+				JSONSchema: &openaiwire.JSONSchemaSpec{Name: "phoenix_response", Schema: req.ResponseSchema},
+			}
+		}
 	}
 
 	return cr

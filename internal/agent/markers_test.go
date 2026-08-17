@@ -120,8 +120,9 @@ func TestDeriveHealthSignal_Tolerant(t *testing.T) {
 		{"last valid wins", "Format: HEALTH_SIGNAL: <value>\n...\nHEALTH_SIGNAL: failed\nHEALTH_REASON: API down", "failed", "API down"},
 		{"reason a couple of lines later", "HEALTH_SIGNAL: needs_attention\n\nHEALTH_REASON: two errors", "needs_attention", "two errors"},
 		{"trailing punctuation", "HEALTH_SIGNAL: all_clear.", "all_clear", ""},
-		{"no marker, one keyword", "There was one error today.", "all_clear", "no HEALTH_SIGNAL emitted; no alert keywords found"},
-		{"no marker, many keywords", "critical failure: service down and unreachable", "needs_attention", "no HEALTH_SIGNAL emitted; inferred from keywords: critical, failure, fail, down, unreachable"},
+		// No marker → nothing (the classifier decides; the keyword scan is gone).
+		{"no marker, one keyword", "There was one error today.", "", ""},
+		{"no marker, many keywords", "critical failure: service down and unreachable", "", ""},
 		{"paraphrased heading (Qwen2.5-14B)", "The string is not a palindrome.\n\n**Health signal** — needs_attention\n\nHEALTH_REASON: does not read the same backwards.", "needs_attention", "does not read the same backwards."},
 	}
 	for _, c := range cases {

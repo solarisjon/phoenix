@@ -1096,9 +1096,10 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	}
 
 	if task.Source == "monitor" && task.ParentTaskID == nil {
-		sig, reason := deriveHealthSignal(out.fullText)
+		sig, reason, repairs := r.classifyHealth(ctx, task, ec.agent.ProviderID, out.fullText)
 		task.HealthSignal = &sig
 		task.HealthReason = reason
+		task.RepairAttempts += repairs
 		if ec.proj != nil {
 			consecutiveBad := r.updateHeartbeatSignal(ec.proj, sig)
 			if sig != "all_clear" {

@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -383,19 +385,21 @@ Agent: %s
 Output summary: %s
 Vaults:
 %s
-Reply with ONLY the vault name.`, task.Title, agentName, truncateStr(outputText, 800), routing.String())
+Reply with a JSON object {"vault": "<vault name>"} and nothing else.`, task.Title, agentName, truncateStr(outputText, 800), routing.String())
 
+			names := make([]string, 0, len(vaults))
+			for _, v := range vaults {
+				names = append(names, v.Name)
+			}
 			resp, err := prov.Execute(r.bgCtx, provider.TaskRequest{
-				SystemPrompt: "Output only the vault name.",
-				Prompt:       pickPrompt,
+				SystemPrompt:    "Output only the requested JSON object.",
+				Prompt:          pickPrompt,
+				ResponseSchema:  VaultPickSchema(names),
+				MaxOutputTokens: 128,
 			})
 			if err == nil {
-				picked := strings.TrimSpace(resp.Output)
-				for _, v := range vaults {
-					if strings.EqualFold(v.Name, picked) {
-						targetVault = v
-						break
-					}
+				if v := matchVault(vaults, resp.Output); v != nil {
+					targetVault = v
 				}
 			}
 		}
@@ -512,28 +516,22 @@ func truncateStr(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
-// healthKeywordThreshold is the number of DISTINCT alert keywords that must
-// appear in an output lacking a HEALTH_SIGNAL line before the keyword fallback
-// reports needs_attention. A single "error" in "no errors found" is not enough.
-// The fallback is scheduled for removal once the structured health classifier
-// (local-models phase 4) lands.
-const healthKeywordThreshold = 2
-
-// deriveHealthSignal inspects the output text of a completed monitor task and
-// returns one of three health signals plus a human-readable reason:
+// deriveHealthSignal parses the structured health marker from a completed
+// monitor task's output and returns the signal plus a human-readable reason:
 //   - "all_clear"       — completed successfully, no issues detected
 //   - "needs_attention" — completed but issues detected
 //   - "failed"          — task itself failed (set separately in failTask)
 //
-// Structured output is checked first: a line beginning "HEALTH_SIGNAL: <value>"
-// (tolerant of case, Markdown decoration and "needs attention" spelling) wins,
-// and a following "HEALTH_REASON: <text>" line becomes the reason. The LAST
-// valid signal line is used, so a model that restates the format early and
-// emits the real verdict at the end is read correctly.
+// A line beginning "HEALTH_SIGNAL: <value>" (tolerant of case, Markdown
+// decoration, paraphrases like "Health signal — x" and "needs attention"
+// spelling) wins, and a following "HEALTH_REASON: <text>" line becomes the
+// reason. The LAST valid signal line is used, so a model that restates the
+// format early and emits the real verdict at the end is read correctly.
 //
-// When no marker is present the keyword fallback applies (see
-// healthKeywordThreshold) and the reason says so explicitly, so the UI can show
-// that the signal was inferred rather than declared.
+// Returns ("", "") when no valid marker is present — callers then use
+// classifyHealth (an LLM classification on the helper model). The old
+// keyword scan ("error", "issue", … anywhere in the text) is gone: it
+// produced constant false positives and, once demoted, false negatives.
 func deriveHealthSignal(output string) (signal, reason string) {
 	lines := strings.Split(output, "\n")
 	for i, line := range lines {
@@ -565,27 +563,109 @@ func deriveHealthSignal(output string) (signal, reason string) {
 			}
 		}
 	}
-	if signal != "" {
-		return signal, reason
+	return signal, reason
+}
+
+// healthClassification is the JSON the classifier returns (see HealthSchema).
+type healthClassification struct {
+	Signal string `json:"signal"`
+	Reason string `json:"reason"`
+}
+
+// classifyHealth resolves a monitor run's health signal: the structured
+// marker if the model emitted one, otherwise a small schema-constrained
+// classification call over the output on the helper model (falling back to
+// the task's own provider), with one repair pass. When even that fails the
+// run is marked needs_attention with an explicit reason — a silent all_clear
+// is the one outcome a monitoring system must never invent.
+//
+// The returned repairs count is how many RepairStructured calls were made
+// (0 or 1) so the caller can record it on the task.
+func (r *Runner) classifyHealth(ctx context.Context, task *model.Task, agentProviderID, output string) (signal, reason string, repairs int) {
+	if sig, why := deriveHealthSignal(output); sig != "" {
+		return sig, why, 0
+	}
+	if strings.TrimSpace(output) == "" {
+		return "needs_attention", "no HEALTH_SIGNAL emitted and the output was empty", 0
 	}
 
-	// Fallback: keyword scan for agents/models that emitted no marker.
-	lower := strings.ToLower(output)
-	alertKeywords := []string{
-		"error", "warning", "alert", "critical", "failure", "fail", "issue",
-		"problem", "exception", "danger", "anomaly", "breach", "exceeded",
-		"unavailable", "down", "offline", "unreachable", "timeout", "timed out",
+	prov, err := r.utilityProvider(ctx, agentProviderID)
+	if err != nil || prov == nil {
+		return "needs_attention", "no HEALTH_SIGNAL emitted; no helper model available to classify the output", 0
 	}
-	var hits []string
-	for _, kw := range alertKeywords {
-		if strings.Contains(lower, kw) {
-			hits = append(hits, kw)
+
+	req := provider.TaskRequest{
+		SystemPrompt:    "You classify monitoring reports. Output only the requested JSON object.",
+		Prompt:          buildHealthClassifierPrompt(task, output),
+		ResponseSchema:  HealthSchema,
+		MaxOutputTokens: 200,
+	}
+	resp, err := prov.Execute(ctx, req)
+	if err != nil {
+		slog.Warn("runner: health classification failed", "task_id", task.ID, "error", err)
+		return "needs_attention", "no HEALTH_SIGNAL emitted; classification call failed: " + err.Error(), 0
+	}
+	hc, perr := parseHealthClassification(resp.Output)
+	if perr != nil {
+		repairs = 1
+		repaired, rerr := RepairStructured(ctx, prov, resp.Output, perr, HealthSchema, `the {"signal","reason"} health classification`)
+		if rerr == nil {
+			hc, perr = parseHealthClassification(repaired)
 		}
 	}
-	if len(hits) >= healthKeywordThreshold {
-		return "needs_attention", "no HEALTH_SIGNAL emitted; inferred from keywords: " + strings.Join(hits, ", ")
+	if perr != nil {
+		slog.Warn("runner: health classification unparseable", "task_id", task.ID, "error", perr)
+		return "needs_attention", "no HEALTH_SIGNAL emitted; classifier reply could not be parsed", repairs
 	}
-	return "all_clear", "no HEALTH_SIGNAL emitted; no alert keywords found"
+	why := strings.TrimSpace(hc.Reason)
+	if why == "" {
+		why = "classified from the report (no HEALTH_SIGNAL emitted)"
+	} else {
+		why = "classified: " + why
+	}
+	return hc.Signal, why, repairs
+}
+
+func buildHealthClassifierPrompt(task *model.Task, output string) string {
+	body := output
+	if len(body) > 6000 {
+		body = body[:6000] + "\n[… truncated]"
+	}
+	return fmt.Sprintf(`A monitoring agent ran the check "%s" and wrote the report below. Decide the health signal:
+- all_clear       — everything is nominal; nothing needs a human
+- needs_attention — something requires investigation or action
+- failed          — a critical failure is occurring right now
+
+Judge what the report SAYS about the system, not whether the report mentions words like "error". "No errors found" is all_clear.
+
+Reply with a JSON object: {"signal": "<all_clear|needs_attention|failed>", "reason": "<one sentence>"}
+
+Report:
+---
+%s
+---`, task.Title, body)
+}
+
+func parseHealthClassification(raw string) (healthClassification, error) {
+	var hc healthClassification
+	obj := ExtractJSONObject(raw)
+	if obj == "" {
+		return hc, fmt.Errorf("no JSON object in classifier reply")
+	}
+	if err := json.Unmarshal([]byte(obj), &hc); err != nil {
+		return hc, fmt.Errorf("parse classifier reply: %w", err)
+	}
+	switch normaliseEnum(hc.Signal) {
+	case "all_clear":
+		hc.Signal = "all_clear"
+	case "needs_attention":
+		hc.Signal = "needs_attention"
+	case "failed":
+		hc.Signal = "failed"
+	default:
+		return hc, fmt.Errorf("classifier signal %q is not one of all_clear|needs_attention|failed", hc.Signal)
+	}
+	return hc, nil
 }
 
 // extractGuardrailTrigger scans the agent output for a hard guardrail trigger.
@@ -882,4 +962,32 @@ func promptHash(req provider.TaskRequest) string {
 		h.Write([]byte(m.Content))
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// matchVault resolves a vault-pick reply — {"vault":"Name"} from constrained
+// backends, or a bare name from lenient ones — to a configured vault.
+func matchVault(vaults []*model.ObsidianVault, reply string) *model.ObsidianVault {
+	picked := strings.TrimSpace(reply)
+	if obj := ExtractJSONObject(reply); obj != "" {
+		var m struct {
+			Vault string `json:"vault"`
+		}
+		if err := json.Unmarshal([]byte(obj), &m); err == nil && m.Vault != "" {
+			picked = m.Vault
+		}
+	}
+	picked = strings.Trim(picked, "\"'` \t\r\n")
+	for _, v := range vaults {
+		if strings.EqualFold(v.Name, picked) {
+			return v
+		}
+	}
+	// Last resort: a name mentioned anywhere in the reply.
+	lower := strings.ToLower(reply)
+	for _, v := range vaults {
+		if v.Name != "" && strings.Contains(lower, strings.ToLower(v.Name)) {
+			return v
+		}
+	}
+	return nil
 }

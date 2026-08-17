@@ -110,14 +110,13 @@ func TestDeriveHealthSignal_Structured(t *testing.T) {
 		{"structured needs_attention with reason", "HEALTH_SIGNAL: needs_attention\nHEALTH_REASON: CPU spike detected", "needs_attention", "CPU spike detected"},
 		{"structured failed", "HEALTH_SIGNAL: failed", "failed", ""},
 		{"structured case insensitive", "HEALTH_SIGNAL: All_Clear", "all_clear", ""},
-		// Keyword fallback is demoted: a single keyword is no longer enough.
-		{"structured invalid value, one keyword → all_clear", "HEALTH_SIGNAL: unknown\nerror detected", "all_clear", ""},
-		{"no marker no keywords", "All services responded normally within SLA.", "all_clear", ""},
-		{"keyword scan two distinct keywords", "The error rate exceeded 5%.", "needs_attention", "no HEALTH_SIGNAL emitted; inferred from keywords: error, exceeded"},
-		// Structured beats keyword: "no errors found" should be all_clear via marker
-		{"structured beats keyword false positive", "Checked logs: no errors found.\nHEALTH_SIGNAL: all_clear", "all_clear", ""},
-		// The classic false positive is now all_clear (only "error" appears).
-		{"no marker misleading text", "error rate: 0% — no errors found", "all_clear", ""},
+		// No marker (or an invalid value) → "" — the LLM classifier decides; the
+		// keyword scan and its false positives are gone.
+		{"structured invalid value → unresolved", "HEALTH_SIGNAL: unknown\nerror detected", "", ""},
+		{"no marker → unresolved", "All services responded normally within SLA.", "", ""},
+		{"no marker with alarming words → still unresolved", "The error rate exceeded 5%.", "", ""},
+		{"structured beats prose", "Checked logs: no errors found.\nHEALTH_SIGNAL: all_clear", "all_clear", ""},
+		{"no marker misleading text → unresolved", "error rate: 0% — no errors found", "", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
