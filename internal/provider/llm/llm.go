@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/solarisjon/phoenix/internal/provider"
+	"github.com/solarisjon/phoenix/internal/provider/openaiwire"
 )
 
 // Config holds the configuration for a custom LLM endpoint.
@@ -38,9 +39,16 @@ type Config struct {
 	// OpenAI caches automatically — no wire change needed.
 	UsePromptCache bool `json:"use_prompt_cache"`
 
-	// MaxTokens is the maximum number of output tokens. Required by the Anthropic
-	// API; ignored by OpenAI. Defaults to 8192 if zero.
+	// MaxTokens is the default maximum number of output tokens. Required by the
+	// Anthropic API (defaults to 8192 if zero there). For the OpenAI flavour it
+	// is only sent when non-zero — set it for local servers (llama.cpp, vLLM),
+	// whose default output length is often unbounded. A per-request
+	// TaskRequest.MaxOutputTokens takes precedence.
 	MaxTokens int `json:"max_tokens"`
+
+	// Temperature is the default sampling temperature. nil = don't send (server
+	// default). A per-request TaskRequest.Temperature takes precedence.
+	Temperature *float64 `json:"temperature,omitempty"`
 
 	// CostPerCacheWriteToken is the USD cost per token when the cache is written
 	// (first call). Defaults to CostPerInputToken * 1.25 if zero.
@@ -69,7 +77,7 @@ func New(configJSON string) (*Adapter, error) {
 	if cfg.Model == "" {
 		cfg.Model = "gpt-4o"
 	}
-	timeout := 60 * time.Second
+	timeout := defaultTimeout(cfg.Endpoint)
 	if cfg.TimeoutSeconds > 0 {
 		timeout = time.Duration(cfg.TimeoutSeconds) * time.Second
 	}
@@ -77,6 +85,23 @@ func New(configJSON string) (*Adapter, error) {
 		cfg:    cfg,
 		client: &http.Client{Timeout: timeout},
 	}, nil
+}
+
+const (
+	// hostedTimeout is the default HTTP timeout for remote API endpoints.
+	hostedTimeout = 60 * time.Second
+	// localTimeout is the default for self-hosted endpoints (llama.cpp, vLLM,
+	// LM Studio, Ollama's /v1 …): cold model loads and slow local inference
+	// routinely exceed 60 s.
+	localTimeout = 900 * time.Second
+)
+
+// defaultTimeout picks the HTTP timeout to use when the config doesn't set one.
+func defaultTimeout(endpoint string) time.Duration {
+	if provider.IsLocalEndpoint(endpoint) {
+		return localTimeout
+	}
+	return hostedTimeout
 }
 
 // isAnthropic reports whether the adapter is configured for the Anthropic Messages API.
@@ -107,15 +132,11 @@ func (a *Adapter) Execute(ctx context.Context, req provider.TaskRequest) (provid
 		return a.parseAnthropicResponse(raw)
 	}
 
-	var completion chatCompletion
-	if err := json.Unmarshal(raw, &completion); err != nil {
-		return provider.TaskResponse{}, fmt.Errorf("parse completion: %w", err)
+	completion, err := openaiwire.ParseCompletion(raw)
+	if err != nil {
+		return provider.TaskResponse{}, err
 	}
-
-	output := ""
-	if len(completion.Choices) > 0 {
-		output = completion.Choices[0].Message.Content
-	}
+	output := completion.Text()
 
 	tokensIn := completion.Usage.PromptTokens
 	tokensOut := completion.Usage.CompletionTokens
@@ -244,10 +265,12 @@ func (a *Adapter) buildRequestBody(req provider.TaskRequest, stream bool) chatRe
 		cr.System = systemRaw
 
 		// Anthropic requires max_tokens.
-		cr.MaxTokens = a.cfg.MaxTokens
+		cr.MaxTokens = a.maxTokens(req)
 		if cr.MaxTokens == 0 {
 			cr.MaxTokens = 8192
 		}
+		cr.Temperature = a.temperature(req)
+		cr.StopSequences = req.StopSequences
 
 		// Build messages: context turns + user prompt (no system entry).
 		messages := make([]chatMessage, 0, len(req.Context)+1)
@@ -272,9 +295,31 @@ func (a *Adapter) buildRequestBody(req provider.TaskRequest, stream bool) chatRe
 		if stream {
 			cr.StreamOptions = &streamOptions{IncludeUsage: true}
 		}
+
+		// Generation controls — only sent when set, so hosted defaults are
+		// untouched unless the user or runner asks for them.
+		cr.MaxTokens = a.maxTokens(req)
+		cr.Temperature = a.temperature(req)
+		cr.Stop = req.StopSequences
 	}
 
 	return cr
+}
+
+// maxTokens resolves the output cap: per-request value wins, else config, else 0 (omit).
+func (a *Adapter) maxTokens(req provider.TaskRequest) int {
+	if req.MaxOutputTokens > 0 {
+		return req.MaxOutputTokens
+	}
+	return a.cfg.MaxTokens
+}
+
+// temperature resolves the sampling temperature: per-request wins, else config, else nil (omit).
+func (a *Adapter) temperature(req provider.TaskRequest) *float64 {
+	if req.Temperature != nil {
+		return req.Temperature
+	}
+	return a.cfg.Temperature
 }
 
 func (a *Adapter) buildHTTPRequest(ctx context.Context, body chatRequest) (*http.Request, error) {
@@ -312,55 +357,15 @@ func (a *Adapter) doRequest(ctx context.Context, body chatRequest) (*http.Respon
 	return resp, nil
 }
 
-// readSSEStream handles OpenAI-style SSE: chunks are streamDelta with choices[].delta.content,
-// terminated by "data: [DONE]".
+// readSSEStream handles OpenAI-style SSE via the shared openaiwire reader,
+// attaching this adapter's cost calculation to the terminal chunk.
 func (a *Adapter) readSSEStream(ctx context.Context, body io.Reader, ch chan<- provider.StreamChunk) {
-	scanner := bufio.NewScanner(body)
-	var tokensIn, tokensOut int
-	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			ch <- provider.StreamChunk{Error: ctx.Err(), Done: true}
-			return
-		default:
-		}
-
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		data := strings.TrimPrefix(line, "data: ")
-		if data == "[DONE]" {
-			cost := a.calcCostWithCache(tokensIn, tokensOut, 0, 0)
-			ch <- provider.StreamChunk{Done: true, TokensIn: tokensIn, TokensOut: tokensOut, CostUSD: cost}
-			return
-		}
-
-		var delta streamDelta
-		if err := json.Unmarshal([]byte(data), &delta); err != nil {
-			continue // skip malformed chunks
-		}
-
-		content := ""
-		if len(delta.Choices) > 0 {
-			content = delta.Choices[0].Delta.Content
-		}
-		if content != "" {
-			ch <- provider.StreamChunk{Content: content}
-		}
-		// Capture usage when the provider includes it (requires stream_options.include_usage).
-		if delta.Usage != nil {
-			tokensIn = delta.Usage.PromptTokens
-			tokensOut = delta.Usage.CompletionTokens
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		ch <- provider.StreamChunk{Error: fmt.Errorf("stream read: %w", err), Done: true}
-		return
-	}
-	cost := a.calcCostWithCache(tokensIn, tokensOut, 0, 0)
-	ch <- provider.StreamChunk{Done: true, TokensIn: tokensIn, TokensOut: tokensOut, CostUSD: cost}
+	openaiwire.ReadSSE(ctx, body, ch, openaiwire.SSEOptions{
+		Finish: func(u openaiwire.Usage) provider.StreamChunk {
+			cost := a.calcCostWithCache(u.PromptTokens, u.CompletionTokens, 0, 0)
+			return provider.StreamChunk{Done: true, TokensIn: u.PromptTokens, TokensOut: u.CompletionTokens, CostUSD: cost}
+		},
+	})
 }
 
 // readAnthropicSSEStream handles Anthropic Messages API SSE format.
@@ -495,58 +500,15 @@ func (a *Adapter) calcCostWithCache(tokensIn, tokensOut, cacheWrite, cacheRead i
 		float64(tokensOut)*a.cfg.CostPerOutputToken
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
+func truncate(s string, n int) string { return openaiwire.Truncate(s, n) }
 
-// ---- OpenAI wire types ----
+// ---- OpenAI wire types (shared with other OpenAI-compatible adapters) ----
 
-type streamOptions struct {
-	IncludeUsage bool `json:"include_usage"`
-}
-
-type chatRequest struct {
-	Model         string          `json:"model"`
-	System        json.RawMessage `json:"system,omitempty"`
-	Messages      []chatMessage   `json:"messages"`
-	Stream        bool            `json:"stream"`
-	StreamOptions *streamOptions  `json:"stream_options,omitempty"`
-	MaxTokens     int             `json:"max_tokens,omitempty"`
-}
-
-type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type chatCompletion struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Usage struct {
-		PromptTokens             int `json:"prompt_tokens"`
-		CompletionTokens         int `json:"completion_tokens"`
-		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	} `json:"usage"`
-}
-
-type streamDelta struct {
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
-	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage"`
-}
+type (
+	streamOptions = openaiwire.StreamOptions
+	chatRequest   = openaiwire.ChatRequest
+	chatMessage   = openaiwire.ChatMessage
+)
 
 // ---- Anthropic wire types ----
 

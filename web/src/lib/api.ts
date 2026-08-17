@@ -153,6 +153,7 @@ export interface Task {
   tokens_out: number
   source: string
   health_signal: 'all_clear' | 'needs_attention' | 'failed' | null
+  health_reason?: string  // HEALTH_REASON text, or why the signal was inferred (empty when not a monitor run)
   guardrail_reason: string | null
   dismissed: boolean
   is_critic_review: boolean

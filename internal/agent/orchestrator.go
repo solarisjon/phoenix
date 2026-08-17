@@ -141,30 +141,9 @@ func OrchestratorSystemSection(availableAgents []*model.Agent, allProviders []*m
 
 // ---- Plan parsing ----
 
-// extractPlanJSON pulls the JSON object from the LLM output. The model may
-// wrap it in a ```json ... ``` code block or return it bare.
-func extractPlanJSON(output string) string {
-	// Try fenced code block first.
-	for _, fence := range []string{"```json", "```"} {
-		start := strings.Index(output, fence)
-		if start == -1 {
-			continue
-		}
-		start += len(fence)
-		end := strings.Index(output[start:], "```")
-		if end == -1 {
-			continue
-		}
-		return strings.TrimSpace(output[start : start+end])
-	}
-	// Fall back: find the first { … } in the output.
-	start := strings.Index(output, "{")
-	end := strings.LastIndex(output, "}")
-	if start != -1 && end > start {
-		return output[start : end+1]
-	}
-	return ""
-}
+// extractPlanJSON pulls the JSON object from the LLM output. Thin wrapper over
+// the shared ExtractJSONObject (markers.go) kept for call-site readability.
+func extractPlanJSON(output string) string { return ExtractJSONObject(output) }
 
 // ---- Extended plan with agent routing ----
 

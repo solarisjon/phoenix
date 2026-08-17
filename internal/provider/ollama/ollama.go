@@ -43,9 +43,36 @@ type Config struct {
 	// Default false — thinking tokens are stripped for cleaner task output.
 	KeepThinking bool `json:"keep_thinking"`
 
-	// TimeoutSeconds sets the HTTP request timeout. Default 300 (5 min).
+	// TimeoutSeconds sets the HTTP request timeout. Default 900 (15 min) —
+	// local inference plus cold model load routinely exceeds a few minutes.
 	TimeoutSeconds int `json:"timeout_seconds"`
+
+	// NumCtx sets the context window (Ollama option num_ctx). Ollama's own
+	// default is small (2048–4096 tokens) regardless of what the model
+	// supports, so Phoenix prompts with skills/history silently overflow
+	// unless this is raised. 0 = don't send (server default).
+	NumCtx int `json:"num_ctx"`
+
+	// NumPredict caps output tokens (Ollama option num_predict). Default 4096
+	// when zero; -1 = unlimited. A per-request TaskRequest.MaxOutputTokens
+	// takes precedence.
+	NumPredict int `json:"num_predict"`
+
+	// Temperature is the default sampling temperature. nil = don't send.
+	// A per-request TaskRequest.Temperature takes precedence.
+	Temperature *float64 `json:"temperature,omitempty"`
+
+	// MaxConcurrent caps how many Phoenix tasks may run on this provider at
+	// once (match OLLAMA_NUM_PARALLEL). Excess tasks stay queued in Phoenix
+	// instead of blocking inside Ollama while their timeout ticks.
+	// 0 = unlimited (today's behaviour).
+	MaxConcurrent int `json:"max_concurrent"`
 }
+
+// defaultNumPredict is the output cap used when neither the config nor the
+// request specifies one. Prevents a looping small model from generating until
+// the context window is exhausted.
+const defaultNumPredict = 4096
 
 // Adapter implements provider.Provider using the Ollama HTTP API.
 type Adapter struct {
@@ -68,7 +95,7 @@ func New(configJSON string) (*Adapter, error) {
 	}
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	if cfg.TimeoutSeconds <= 0 {
-		timeout = 300 * time.Second
+		timeout = 900 * time.Second
 	}
 	return &Adapter{
 		cfg:    cfg,
@@ -103,6 +130,7 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 		"model":    a.cfg.Model,
 		"messages": messages,
 		"stream":   true,
+		"options":  a.buildOptions(req),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ollama: marshal request: %w", err)
@@ -133,6 +161,22 @@ func (a *Adapter) StreamExecute(ctx context.Context, req provider.TaskRequest) (
 	}()
 
 	return ch, nil
+}
+
+// MaxConcurrent implements provider.SlotLimiter (0 = unlimited).
+func (a *Adapter) MaxConcurrent() int { return a.cfg.MaxConcurrent }
+
+// Capabilities implements provider.Capable. Ollama's context window is only
+// known when num_ctx is configured (the server default is model-dependent).
+func (a *Adapter) Capabilities(_ context.Context) provider.Capabilities {
+	return provider.Capabilities{
+		Local:              true,
+		SupportsJSONSchema: true, // Ollama accepts a JSON schema in "format"
+		SupportsJSONMode:   true,
+		ContextWindow:      a.cfg.NumCtx,
+		Slots:              a.cfg.MaxConcurrent,
+		Model:              a.cfg.Model,
+	}
 }
 
 // EstimateCost returns zero — local models have no API cost.
@@ -231,6 +275,38 @@ func (a *Adapter) buildMessages(req provider.TaskRequest) []ollamaMessage {
 	msgs = append(msgs, ollamaMessage{Role: "user", Content: req.Prompt})
 
 	return msgs
+}
+
+// buildOptions assembles the Ollama "options" object (model runtime
+// parameters). Only keys with a meaningful value are included so the server
+// default applies otherwise.
+func (a *Adapter) buildOptions(req provider.TaskRequest) map[string]any {
+	opts := map[string]any{}
+
+	if a.cfg.NumCtx > 0 {
+		opts["num_ctx"] = a.cfg.NumCtx
+	}
+
+	numPredict := a.cfg.NumPredict
+	if req.MaxOutputTokens > 0 {
+		numPredict = req.MaxOutputTokens
+	}
+	if numPredict == 0 {
+		numPredict = defaultNumPredict
+	}
+	opts["num_predict"] = numPredict
+
+	if req.Temperature != nil {
+		opts["temperature"] = *req.Temperature
+	} else if a.cfg.Temperature != nil {
+		opts["temperature"] = *a.cfg.Temperature
+	}
+
+	if len(req.StopSequences) > 0 {
+		opts["stop"] = req.StopSequences
+	}
+
+	return opts
 }
 
 func (a *Adapter) parseStream(ctx context.Context, r io.Reader, ch chan<- provider.StreamChunk) {

@@ -130,6 +130,14 @@ func (c *Checker) probe(ctx context.Context, rec *model.Provider) {
 				c.registry.Invalidate(rec.ID)
 			} else {
 				status = "ok"
+				// Refresh probed capabilities (context window, slots) while
+				// we're here — the user may have restarted a local server
+				// with different flags. Cheap; adapters cache internally.
+				if capable, ok := prov.(provider.Capable); ok {
+					cctx, ccancel := context.WithTimeout(ctx, 5*time.Second)
+					_ = capable.Capabilities(cctx)
+					ccancel()
+				}
 			}
 		}
 	}

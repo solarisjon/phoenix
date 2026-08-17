@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/solarisjon/phoenix/internal/provider"
 )
@@ -209,5 +210,70 @@ func TestEstimateCost(t *testing.T) {
 	est := a.EstimateCost(provider.TaskRequest{Prompt: "anything"})
 	if est.EstimatedCostUSD != 0 {
 		t.Errorf("cost = %v, want 0 for local model", est.EstimatedCostUSD)
+	}
+}
+
+// ---- Generation options (local-models phase 0.1) ----
+
+func TestBuildOptions_Defaults(t *testing.T) {
+	a, _ := New(`{"model":"qwen3:8b"}`)
+	opts := a.buildOptions(provider.TaskRequest{Prompt: "hi"})
+	if opts["num_predict"] != defaultNumPredict {
+		t.Errorf("num_predict = %v, want default %d", opts["num_predict"], defaultNumPredict)
+	}
+	for _, k := range []string{"num_ctx", "temperature", "stop"} {
+		if _, ok := opts[k]; ok {
+			t.Errorf("expected %s absent by default, got %v", k, opts[k])
+		}
+	}
+}
+
+func TestBuildOptions_FromConfigAndRequest(t *testing.T) {
+	a, err := New(`{"model":"qwen3:8b","num_ctx":16384,"num_predict":2048,"temperature":0.3}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := a.buildOptions(provider.TaskRequest{Prompt: "hi"})
+	if opts["num_ctx"] != 16384 || opts["num_predict"] != 2048 || opts["temperature"] != 0.3 {
+		t.Errorf("config options not applied: %v", opts)
+	}
+	temp := 0.9
+	opts = a.buildOptions(provider.TaskRequest{Prompt: "hi", MaxOutputTokens: 256, Temperature: &temp, StopSequences: []string{"END"}})
+	if opts["num_predict"] != 256 || opts["temperature"] != 0.9 {
+		t.Errorf("request values must override config: %v", opts)
+	}
+	if stop, ok := opts["stop"].([]string); !ok || len(stop) != 1 || stop[0] != "END" {
+		t.Errorf("stop = %v, want [END]", opts["stop"])
+	}
+}
+
+func TestStreamExecute_SendsOptionsOnWire(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write([]byte(`{"message":{"role":"assistant","content":"ok"},"done":true,"prompt_eval_count":1,"eval_count":1}` + "\n"))
+	}))
+	defer srv.Close()
+	a, err := New(`{"model":"m","base_url":"` + srv.URL + `","num_ctx":8192}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Execute(context.Background(), provider.TaskRequest{Prompt: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	opts, ok := got["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("options object missing from request body: %v", got)
+	}
+	if opts["num_ctx"] != float64(8192) || opts["num_predict"] != float64(defaultNumPredict) {
+		t.Errorf("options on wire = %v", opts)
+	}
+}
+
+func TestNew_DefaultTimeout(t *testing.T) {
+	a, _ := New(`{"model":"m"}`)
+	if a.client.Timeout != 900*time.Second {
+		t.Errorf("default timeout = %v, want 900s", a.client.Timeout)
 	}
 }

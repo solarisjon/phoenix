@@ -244,3 +244,84 @@ func TestUnlimitedConcurrency_RunsBothImmediately(t *testing.T) {
 	waitForStatus(t, taskRepo, task1.ID, model.TaskStatusCompleted)
 	waitForStatus(t, taskRepo, task2.ID, model.TaskStatusCompleted)
 }
+
+// ---- Provider-level slot gate (local-models phase 1.3, #102) ----
+
+// slottedProvider is a blockingProvider that also declares a concurrency
+// limit via provider.SlotLimiter — like a llama-server with --parallel N.
+type slottedProvider struct {
+	blockingProvider
+	slots int
+}
+
+func (s *slottedProvider) MaxConcurrent() int { return s.slots }
+
+// TestProviderSlots_QueuesAcrossAgents verifies that two agents with unlimited
+// per-agent concurrency but sharing a 1-slot provider run one at a time: the
+// second task stays queued in Phoenix (not "running" while blocked inside the
+// server), and starts as soon as the first finishes.
+func TestProviderSlots_QueuesAcrossAgents(t *testing.T) {
+	sprov := &slottedProvider{slots: 1}
+
+	agA := &model.Agent{ID: "agent-a", Name: "A", ProviderID: "prov-slot", Status: model.AgentStatusActive}
+	agB := &model.Agent{ID: "agent-b", Name: "B", ProviderID: "prov-slot", Status: model.AgentStatusActive}
+	agentRepo := newMemAgentRepo(agA, agB)
+	taskRepo := &memTaskRepo{tasks: make(map[string]*model.Task)}
+	reg := registry.NewRegistry(&fakeProviderRepo{record: &model.Provider{ID: "prov-slot", Type: model.ProviderTypeLLM, Config: `{}`}})
+	reg.InjectForTest("prov-slot", sprov)
+	runner := New(agentRepo, taskRepo, &mockProjectRepo{}, nil, nil, reg, nil)
+
+	t1 := makeTaskForAgent(agA.ID, "proj")
+	t2 := makeTaskForAgent(agB.ID, "proj")
+	taskRepo.Create(context.Background(), t1)
+	taskRepo.Create(context.Background(), t2)
+
+	if err := runner.RunTask(context.Background(), t1.ID); err != nil {
+		t.Fatal(err)
+	}
+	sprov.waitForNReleases(t, 1)
+
+	if err := runner.RunTask(context.Background(), t2.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Give the runner a moment; t2 must NOT have reached the provider.
+	time.Sleep(50 * time.Millisecond)
+	sprov.mu.Lock()
+	n := len(sprov.releases)
+	sprov.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("second task reached the provider despite 1 slot (releases=%d)", n)
+	}
+	got, _ := taskRepo.Get(context.Background(), t2.ID)
+	if got.Status != model.TaskStatusQueued {
+		t.Fatalf("t2 status = %s, want queued", got.Status)
+	}
+	if got.TimeoutAt != nil {
+		t.Errorf("t2 timeout should not start while queued")
+	}
+
+	// Finish t1 → slot frees → t2 (a different agent!) starts.
+	sprov.releaseNth(t, 0)
+	waitForStatus(t, taskRepo, t1.ID, model.TaskStatusCompleted)
+	sprov.waitForNReleases(t, 2)
+	sprov.releaseNth(t, 1)
+	waitForStatus(t, taskRepo, t2.ID, model.TaskStatusCompleted)
+}
+
+// TestProviderSlots_UnlimitedWhenNotSlotLimiter verifies providers that don't
+// implement SlotLimiter are unaffected — both tasks run concurrently.
+func TestProviderSlots_UnlimitedWhenNotSlotLimiter(t *testing.T) {
+	bprov := &blockingProvider{}
+	runner, taskRepo, ag := buildRunnerWithBlockingProvider(t, bprov, 0)
+	t1 := makeTaskForAgent(ag.ID, "proj")
+	t2 := makeTaskForAgent(ag.ID, "proj")
+	taskRepo.Create(context.Background(), t1)
+	taskRepo.Create(context.Background(), t2)
+	_ = runner.RunTask(context.Background(), t1.ID)
+	_ = runner.RunTask(context.Background(), t2.ID)
+	bprov.waitForNReleases(t, 2)
+	bprov.releaseNth(t, 0)
+	bprov.releaseNth(t, 1)
+	waitForStatus(t, taskRepo, t1.ID, model.TaskStatusCompleted)
+	waitForStatus(t, taskRepo, t2.ID, model.TaskStatusCompleted)
+}

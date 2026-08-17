@@ -29,6 +29,7 @@ interface LLMConfig {
   api_flavour: string   // "openai" (default) or "anthropic"
   use_prompt_cache: boolean
   max_tokens: number
+  temperature?: number   // undefined = server/model default
   cost_per_cache_write_token: number
   cost_per_cache_read_token: number
 }
@@ -112,12 +113,6 @@ function LLMFields({ cfg, onChange, providerId }: {
               </span>
             </span>
           </label>
-          <div>
-            <Label htmlFor="max_tokens">Max output tokens</Label>
-            <Input id="max_tokens" type="number" value={cfg.max_tokens || ''} onChange={set('max_tokens')}
-              placeholder="8192" />
-            <p className="text-xs text-slate-600 mt-1">Required by the Anthropic API. Leave blank for default (8192).</p>
-          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="cache_write">Cache write token cost (USD)</Label>
@@ -145,10 +140,29 @@ function LLMFields({ cfg, onChange, providerId }: {
             placeholder="0.000015" />
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="max_tokens">Max output tokens</Label>
+          <Input id="max_tokens" type="number" value={cfg.max_tokens || ''} onChange={set('max_tokens')}
+            placeholder={isAnthropic ? '8192' : 'server default'} />
+          <p className="text-xs text-slate-600 mt-1">
+            {isAnthropic
+              ? 'Required by the Anthropic API. Blank = 8192.'
+              : 'Set this for local servers (llama.cpp, vLLM) — their default is often unlimited. 4096 is plenty.'}
+          </p>
+        </div>
+        <div>
+          <Label htmlFor="temperature">Temperature</Label>
+          <Input id="temperature" type="number" step="0.1" min="0" max="2" value={cfg.temperature ?? ''}
+            onChange={e => onChange({ ...cfg, temperature: e.target.value === '' ? undefined : Number(e.target.value) })}
+            placeholder="model default" />
+        </div>
+      </div>
       <div>
         <Label htmlFor="timeout">Timeout (seconds)</Label>
-        <Input id="timeout" type="number" value={cfg.timeout_seconds} onChange={set('timeout_seconds')}
-          placeholder="60" />
+        <Input id="timeout" type="number" value={cfg.timeout_seconds || ''} onChange={set('timeout_seconds')}
+          placeholder="auto — 60 hosted, 900 for localhost / LAN endpoints" />
+        <p className="text-xs text-slate-600 mt-1">Local endpoints (localhost, 10.x, 192.168.x, *.local) default to 900s to cover cold model loads.</p>
       </div>
     </div>
   )
@@ -303,6 +317,10 @@ interface OllamaConfig {
   model: string
   keep_thinking: boolean
   timeout_seconds: number
+  num_ctx: number          // context window (Ollama option num_ctx); 0 = server default
+  num_predict: number      // max output tokens; 0 = Phoenix default (4096)
+  temperature?: number     // undefined = server default
+  max_concurrent: number   // 0 = unlimited; match OLLAMA_NUM_PARALLEL to keep extra tasks queued in Phoenix
 }
 
 const defaultOllama: OllamaConfig = {
@@ -310,7 +328,10 @@ const defaultOllama: OllamaConfig = {
   base_url: 'http://localhost:11434',
   model: '',
   keep_thinking: false,
-  timeout_seconds: 300,
+  timeout_seconds: 0,
+  num_ctx: 0,
+  num_predict: 0,
+  max_concurrent: 0,
 }
 
 function OllamaFields({ cfg, onChange, providerId }: {
@@ -343,15 +364,156 @@ function OllamaFields({ cfg, onChange, providerId }: {
           placeholder="e.g. qwen3.5:latest, llama3.2:3b"
         />
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="ol-num-ctx">Context window (num_ctx)</Label>
+          <Input id="ol-num-ctx" type="number" value={cfg.num_ctx || ''} onChange={setNum('num_ctx')}
+            placeholder="server default (often 2048–4096)" />
+          <p className="text-xs text-slate-600 mt-1">Ollama's default is small. 8192–16384 recommended so skills and follow-up history fit.</p>
+        </div>
+        <div>
+          <Label htmlFor="ol-num-predict">Max output tokens (num_predict)</Label>
+          <Input id="ol-num-predict" type="number" value={cfg.num_predict || ''} onChange={setNum('num_predict')}
+            placeholder="4096" />
+          <p className="text-xs text-slate-600 mt-1">Stops a looping model from filling the whole context. -1 = unlimited.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="ol-temp">Temperature</Label>
+          <Input id="ol-temp" type="number" step="0.1" min="0" max="2" value={cfg.temperature ?? ''}
+            onChange={e => onChange({ ...cfg, temperature: e.target.value === '' ? undefined : Number(e.target.value) })}
+            placeholder="model default" />
+        </div>
+        <div>
+          <Label htmlFor="ol-timeout">Timeout (seconds)</Label>
+          <Input id="ol-timeout" type="number" value={cfg.timeout_seconds || ''} onChange={setNum('timeout_seconds')}
+            placeholder="900" />
+          <p className="text-xs text-slate-600 mt-1">Includes cold model load. Default 900s (15 min).</p>
+        </div>
+      </div>
       <div>
-        <Label htmlFor="ol-timeout">Timeout (seconds)</Label>
-        <Input id="ol-timeout" type="number" value={cfg.timeout_seconds} onChange={setNum('timeout_seconds')}
-          placeholder="300" />
-        <p className="text-xs text-slate-600 mt-1">Local models can be slow to generate. 300s (5 min) is a safe default.</p>
+        <Label htmlFor="ol-slots">Max concurrent tasks</Label>
+        <Input id="ol-slots" type="number" value={cfg.max_concurrent || ''} onChange={setNum('max_concurrent')}
+          placeholder="unlimited" />
+        <p className="text-xs text-slate-600 mt-1">Match <code>OLLAMA_NUM_PARALLEL</code> so extra tasks wait in Phoenix's queue instead of inside Ollama while their timeout runs.</p>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
         <input type="checkbox" checked={cfg.keep_thinking} onChange={setBool('keep_thinking')} className="rounded" />
         Show thinking tokens in output (chain-of-thought models like Qwen3)
+      </label>
+    </div>
+  )
+}
+
+// ---- llama.cpp (llama-server) — stored as type=llm with kind=llamacpp ----
+
+interface LlamaCppConfig {
+  kind: 'llamacpp'
+  base_url: string
+  model: string
+  api_key: string
+  timeout_seconds: number
+  keep_thinking: boolean
+  context_window: number     // 0 = probe from /props
+  max_output_tokens: number  // 0 = 4096 default; -1 = unlimited
+  temperature?: number
+  cache_prompt: boolean
+  max_concurrent: number     // 0 = probe slot count from /props
+}
+
+const defaultLlamaCpp: LlamaCppConfig = {
+  kind: 'llamacpp',
+  base_url: 'http://localhost:8081',
+  model: '',
+  api_key: '',
+  timeout_seconds: 0,
+  keep_thinking: false,
+  context_window: 0,
+  max_output_tokens: 0,
+  cache_prompt: true,
+  max_concurrent: 0,
+}
+
+function LlamaCppFields({ cfg, onChange, providerId }: {
+  cfg: LlamaCppConfig
+  onChange: (c: LlamaCppConfig) => void
+  providerId?: string
+}) {
+  const set = (key: keyof LlamaCppConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.value })
+  const setNum = (key: keyof LlamaCppConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: Number(e.target.value) })
+  const setBool = (key: keyof LlamaCppConfig) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...cfg, [key]: e.target.checked })
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="lc-url">llama-server URL</Label>
+        <Input id="lc-url" value={cfg.base_url} onChange={set('base_url')}
+          placeholder="http://localhost:8081" />
+        <p className="text-xs text-slate-600 mt-1">
+          Base URL without <code>/v1</code>. Start llama-server with <code>--port 8081</code> — port 8080 is Phoenix.
+        </p>
+      </div>
+      <div>
+        <Label htmlFor="lc-model">Model</Label>
+        <ModelComboBox
+          providerId={providerId}
+          directFetch={!providerId ? { kind: 'llm', endpoint: cfg.base_url || 'http://localhost:8081', authHeader: cfg.api_key ? `Bearer ${cfg.api_key}` : '' } : undefined}
+          value={cfg.model}
+          onChange={v => onChange({ ...cfg, model: v })}
+          placeholder="as reported by /v1/models (optional in single-model mode)"
+        />
+        <p className="text-xs text-slate-600 mt-1">Single-model servers ignore this; router mode (<code>--models-dir</code>) selects the model by it.</p>
+      </div>
+      <div>
+        <Label htmlFor="lc-key">API key</Label>
+        <Input id="lc-key" value={cfg.api_key} onChange={set('api_key')}
+          placeholder="only if started with --api-key  (or ${LLAMA_API_KEY})" />
+        <EnvHint />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="lc-ctx">Context window override</Label>
+          <Input id="lc-ctx" type="number" value={cfg.context_window || ''} onChange={setNum('context_window')}
+            placeholder="auto — probed from /props" />
+          <p className="text-xs text-slate-600 mt-1">Phoenix reads the per-slot <code>n_ctx</code> from the server. Set only to override.</p>
+        </div>
+        <div>
+          <Label htmlFor="lc-maxout">Max output tokens</Label>
+          <Input id="lc-maxout" type="number" value={cfg.max_output_tokens || ''} onChange={setNum('max_output_tokens')}
+            placeholder="4096" />
+          <p className="text-xs text-slate-600 mt-1">-1 = unlimited (not recommended).</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <Label htmlFor="lc-temp">Temperature</Label>
+          <Input id="lc-temp" type="number" step="0.1" min="0" max="2" value={cfg.temperature ?? ''}
+            onChange={e => onChange({ ...cfg, temperature: e.target.value === '' ? undefined : Number(e.target.value) })}
+            placeholder="model default" />
+        </div>
+        <div>
+          <Label htmlFor="lc-slots">Max concurrent</Label>
+          <Input id="lc-slots" type="number" value={cfg.max_concurrent || ''} onChange={setNum('max_concurrent')}
+            placeholder="auto — server slots" />
+          <p className="text-xs text-slate-600 mt-1">Extra tasks queue in Phoenix.</p>
+        </div>
+        <div>
+          <Label htmlFor="lc-timeout">Timeout (seconds)</Label>
+          <Input id="lc-timeout" type="number" value={cfg.timeout_seconds || ''} onChange={setNum('timeout_seconds')}
+            placeholder="900" />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={cfg.cache_prompt} onChange={setBool('cache_prompt')} className="rounded" />
+        Reuse KV cache across requests (<code>cache_prompt</code>) — much faster repeat runs of the same agent
+      </label>
+      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={cfg.keep_thinking} onChange={setBool('keep_thinking')} className="rounded" />
+        Show thinking tokens in output (requires <code>--reasoning-format deepseek</code> on the server)
       </label>
     </div>
   )
@@ -363,7 +525,7 @@ const defaultLLM: LLMConfig = {
   model: 'gpt-4o',
   cost_per_input_token: 0.000005,
   cost_per_output_token: 0.000015,
-  timeout_seconds: 60,
+  timeout_seconds: 0,
   api_flavour: 'openai',
   use_prompt_cache: false,
   max_tokens: 0,
@@ -648,13 +810,19 @@ function ProviderForm({ initial, onSave, onClose }: {
   const [codingCfg, setCodingCfg] = useState<CodingAgentConfig>(
     initial?.type === 'coding_agent' ? parseConfig('coding_agent', initial.config) as CodingAgentConfig : { ...defaultCoding }
   )
-  // Ollama is stored as type=llm with kind=ollama in config
-  const isOllama = initial?.type === 'llm' && (() => { try { return JSON.parse(initial.config).kind === 'ollama' } catch { return false } })()
+  // Ollama and llama.cpp are stored as type=llm with kind=ollama / kind=llamacpp in config
+  const initialKind = initial?.type === 'llm' ? (() => { try { return JSON.parse(initial.config).kind as string | undefined } catch { return undefined } })() : undefined
+  const isOllama = initialKind === 'ollama'
+  const isLlamaCpp = initialKind === 'llamacpp'
   const [ollamaCfg, setOllamaCfg] = useState<OllamaConfig>(
-    isOllama ? parseConfig('llm', initial!.config) as unknown as OllamaConfig : { ...defaultOllama }
+    isOllama ? { ...defaultOllama, ...JSON.parse(initial!.config) } : { ...defaultOllama }
   )
-  const [uiType, setUiType] = useState<'llm' | 'ollama' | 'coding_agent'>(
-    initial?.type === 'coding_agent' ? 'coding_agent' : isOllama ? 'ollama' : 'llm'
+  const [llamaCppCfg, setLlamaCppCfg] = useState<LlamaCppConfig>(
+    isLlamaCpp ? { ...defaultLlamaCpp, ...JSON.parse(initial!.config) } : { ...defaultLlamaCpp }
+  )
+  type UiType = 'llm' | 'ollama' | 'llamacpp' | 'coding_agent'
+  const [uiType, setUiType] = useState<UiType>(
+    initial?.type === 'coding_agent' ? 'coding_agent' : isOllama ? 'ollama' : isLlamaCpp ? 'llamacpp' : 'llm'
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -695,6 +863,10 @@ function ProviderForm({ initial, onSave, onClose }: {
       storageType = 'llm'
       cfg = ollamaCfg
       if (!ollamaCfg.model.trim()) { setError('Model is required'); return }
+    } else if (uiType === 'llamacpp') {
+      storageType = 'llm'
+      cfg = llamaCppCfg
+      if (!llamaCppCfg.base_url.trim()) { setError('llama-server URL is required'); return }
     } else {
       storageType = 'coding_agent'
       cfg = codingCfg
@@ -725,9 +897,10 @@ function ProviderForm({ initial, onSave, onClose }: {
         <div>
           <Label htmlFor="type">Type</Label>
           <Select id="type" value={uiType} onChange={e => {
-            setUiType(e.target.value as 'llm' | 'ollama' | 'coding_agent')
+            setUiType(e.target.value as UiType)
             setError('')
           }}>
+            <option value="llamacpp">🦙 llama.cpp (llama-server, local)</option>
             <option value="ollama">🧠 Ollama (local models)</option>
             <option value="llm">LLM Endpoint (OpenAI-compatible)</option>
             <option value="coding_agent">Coding Agent (pi, opencode…)</option>
@@ -738,10 +911,11 @@ function ProviderForm({ initial, onSave, onClose }: {
       {/* Divider */}
       <div className="border-t border-slate-800 pt-4">
         <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-4">
-          {uiType === 'llm' ? 'LLM Endpoint Configuration' : uiType === 'ollama' ? 'Ollama Configuration' : 'Coding Agent Configuration'}
+          {uiType === 'llm' ? 'LLM Endpoint Configuration' : uiType === 'ollama' ? 'Ollama Configuration' : uiType === 'llamacpp' ? 'llama.cpp Configuration' : 'Coding Agent Configuration'}
         </p>
         {uiType === 'llm' && <LLMFields cfg={llmCfg} onChange={setLlmCfg} providerId={initial?.id} />}
         {uiType === 'ollama' && <OllamaFields cfg={ollamaCfg} onChange={setOllamaCfg} providerId={initial?.id} />}
+        {uiType === 'llamacpp' && <LlamaCppFields cfg={llamaCppCfg} onChange={setLlamaCppCfg} providerId={initial?.id} />}
         {uiType === 'coding_agent' && <CodingAgentFields cfg={codingCfg} onChange={setCodingCfg} />}
       </div>
 
@@ -791,7 +965,7 @@ function ProviderForm({ initial, onSave, onClose }: {
       )}
 
       {/* Model Pool — only shown when editing an existing LLM provider */}
-      {initial && (uiType === 'llm' || uiType === 'ollama') && (
+      {initial && (uiType === 'llm' || uiType === 'ollama' || uiType === 'llamacpp') && (
         <div className="border-t border-slate-800 pt-4 space-y-3">
           <div>
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Model Pool</p>
@@ -880,6 +1054,7 @@ export function ProvidersPage() {
     try {
       const cfg = JSON.parse(p.config)
       if (cfg.kind === 'ollama') return `🧠 ${cfg.base_url ?? 'localhost:11434'} · ${cfg.model}`
+      if (cfg.kind === 'llamacpp') return `🦙 ${cfg.base_url ?? 'localhost:8081'}${cfg.model ? ' · ' + cfg.model : ''}`
       const kind = cfg.kind ? `[${cfg.kind}] ` : ''
       return kind + (cfg.endpoint || cfg.binary_path || '–')
     } catch { return '–' }
@@ -889,6 +1064,7 @@ export function ProvidersPage() {
     try {
       const cfg = JSON.parse(p.config)
       if (cfg.kind === 'ollama') return '🧠'
+      if (cfg.kind === 'llamacpp') return '🦙'
     } catch { /* */ }
     return p.type === 'llm' ? '⯁' : '⌘'
   }
@@ -897,6 +1073,7 @@ export function ProvidersPage() {
     try {
       const cfg = JSON.parse(p.config)
       if (cfg.kind === 'ollama') return 'Ollama (local)'
+      if (cfg.kind === 'llamacpp') return 'llama.cpp (local)'
     } catch { /* */ }
     return p.type === 'llm' ? 'LLM Endpoint' : 'Coding Agent'
   }

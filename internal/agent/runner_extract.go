@@ -196,13 +196,15 @@ type parsedMemo struct {
 }
 
 // parseMemoBlocks extracts all MEMO_START … MEMO_END sections from text.
+// Markers and header keys are matched tolerantly (see markers.go): case-
+// insensitive, Markdown decoration ignored, "Priority: High" accepted.
 func parseMemoBlocks(output string) []parsedMemo {
 	var results []parsedMemo
 	lines := strings.Split(output, "\n")
 
 	i := 0
 	for i < len(lines) {
-		if strings.TrimSpace(lines[i]) != "MEMO_START" {
+		if !isBareMarker(lines[i], "MEMO_START") {
 			i++
 			continue
 		}
@@ -214,20 +216,24 @@ func parseMemoBlocks(output string) []parsedMemo {
 		headerDone := false
 
 		for i < len(lines) {
-			if strings.TrimSpace(lines[i]) == "MEMO_END" {
+			if isBareMarker(lines[i], "MEMO_END") {
 				i++
 				break
 			}
 			line := lines[i]
 			if !headerDone {
-				if strings.HasPrefix(line, "Title:") {
-					title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
+				if strings.TrimSpace(line) == "" {
+					// Blank lines between the marker and the headers are tolerated.
 					i++
 					continue
 				}
-				if strings.HasPrefix(line, "Priority:") {
-					pval := strings.TrimSpace(strings.ToLower(strings.TrimPrefix(line, "Priority:")))
-					if pval == "high" {
+				if v, ok := headerValue(line, "Title"); ok {
+					title = v
+					i++
+					continue
+				}
+				if v, ok := headerValue(line, "Priority"); ok {
+					if normaliseEnum(v) == "high" {
 						priority = model.MemoPriorityHigh
 					}
 					i++
@@ -240,12 +246,19 @@ func parseMemoBlocks(output string) []parsedMemo {
 			i++
 		}
 
-		if title == "" || len(bodyLines) == 0 {
+		body := strings.TrimSpace(strings.Join(bodyLines, "\n"))
+		if title == "" && body != "" {
+			// Small models often skip the Title header — fall back to the
+			// first body line so the memo isn't silently dropped.
+			first := strings.TrimSpace(strings.SplitN(body, "\n", 2)[0])
+			title = truncateStr(strings.Trim(first, leadDecoration), 80)
+		}
+		if title == "" || body == "" {
 			continue // skip malformed blocks
 		}
 		results = append(results, parsedMemo{
 			title:    title,
-			body:     strings.TrimSpace(strings.Join(bodyLines, "\n")),
+			body:     body,
 			priority: priority,
 		})
 	}
@@ -497,58 +510,90 @@ func truncateStr(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
+// healthKeywordThreshold is the number of DISTINCT alert keywords that must
+// appear in an output lacking a HEALTH_SIGNAL line before the keyword fallback
+// reports needs_attention. A single "error" in "no errors found" is not enough.
+// The fallback is scheduled for removal once the structured health classifier
+// (local-models phase 4) lands.
+const healthKeywordThreshold = 2
+
 // deriveHealthSignal inspects the output text of a completed monitor task and
-// returns one of three health signals:
+// returns one of three health signals plus a human-readable reason:
 //   - "all_clear"       — completed successfully, no issues detected
 //   - "needs_attention" — completed but issues detected
 //   - "failed"          — task itself failed (set separately in failTask)
 //
-// Structured output is checked first: if the agent emits a line starting with
-// "HEALTH_SIGNAL:" that value is used directly. This avoids false positives from
-// keyword matching (e.g. "no errors found" or "error rate: 0%").
-// Falls back to keyword scanning when no structured marker is present.
-func deriveHealthSignal(output string) string {
-	const marker = "HEALTH_SIGNAL:"
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, marker) {
-			val := strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
-			switch strings.ToLower(val) {
-			case "all_clear":
-				return "all_clear"
-			case "needs_attention":
-				return "needs_attention"
-			case "failed":
-				return "failed"
+// Structured output is checked first: a line beginning "HEALTH_SIGNAL: <value>"
+// (tolerant of case, Markdown decoration and "needs attention" spelling) wins,
+// and a following "HEALTH_REASON: <text>" line becomes the reason. The LAST
+// valid signal line is used, so a model that restates the format early and
+// emits the real verdict at the end is read correctly.
+//
+// When no marker is present the keyword fallback applies (see
+// healthKeywordThreshold) and the reason says so explicitly, so the UI can show
+// that the signal was inferred rather than declared.
+func deriveHealthSignal(output string) (signal, reason string) {
+	lines := strings.Split(output, "\n")
+	for i, line := range lines {
+		rest, ok := markerLine(line, "HEALTH_SIGNAL")
+		if !ok {
+			continue
+		}
+		// Value may be on the same line or, rarely, the next.
+		val := normaliseEnum(rest)
+		if val == "" && i+1 < len(lines) {
+			val = normaliseEnum(lines[i+1])
+		}
+		switch val {
+		case "all_clear", "allclear", "ok", "healthy", "clear":
+			signal = "all_clear"
+		case "needs_attention", "needsattention", "attention", "warning", "degraded":
+			signal = "needs_attention"
+		case "failed", "fail", "failure", "critical", "down":
+			signal = "failed"
+		default:
+			continue
+		}
+		reason = ""
+		// Look for a HEALTH_REASON on the following few lines.
+		for j := i + 1; j < len(lines) && j <= i+3; j++ {
+			if r, ok := markerLine(lines[j], "HEALTH_REASON"); ok {
+				reason = r
+				break
 			}
 		}
 	}
+	if signal != "" {
+		return signal, reason
+	}
 
-	// Fallback: keyword scan for agents that predate structured output.
+	// Fallback: keyword scan for agents/models that emitted no marker.
 	lower := strings.ToLower(output)
 	alertKeywords := []string{
 		"error", "warning", "alert", "critical", "failure", "fail", "issue",
 		"problem", "exception", "danger", "anomaly", "breach", "exceeded",
 		"unavailable", "down", "offline", "unreachable", "timeout", "timed out",
 	}
+	var hits []string
 	for _, kw := range alertKeywords {
 		if strings.Contains(lower, kw) {
-			return "needs_attention"
+			hits = append(hits, kw)
 		}
 	}
-	return "all_clear"
+	if len(hits) >= healthKeywordThreshold {
+		return "needs_attention", "no HEALTH_SIGNAL emitted; inferred from keywords: " + strings.Join(hits, ", ")
+	}
+	return "all_clear", "no HEALTH_SIGNAL emitted; no alert keywords found"
 }
 
 // extractGuardrailTrigger scans the agent output for a hard guardrail trigger.
-// It looks for a line that starts exactly with "GUARDRAIL_TRIGGERED:" and returns
-// the reason text. Returns "" if no trigger is found.
-// The match is anchored to the start of a line to avoid false positives in explanatory text.
+// It looks for a line that starts with "GUARDRAIL_TRIGGERED:" (tolerant of case
+// and Markdown decoration) and returns the reason text. Returns "" if no
+// trigger is found. The match is anchored to the start of a line to avoid false
+// positives in explanatory text.
 func extractGuardrailTrigger(output string) string {
-	const marker = "GUARDRAIL_TRIGGERED:"
 	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, marker) {
-			reason := strings.TrimSpace(strings.TrimPrefix(trimmed, marker))
+		if reason, ok := markerLine(line, "GUARDRAIL_TRIGGERED"); ok {
 			if reason == "" {
 				reason = "Hard guardrail triggered (no reason provided)"
 			}
@@ -704,30 +749,52 @@ TASK_COMPLETE: <brief summary of what you fixed or determined>`,
 const reactMaxIterationsDefault = 10
 
 // parseNextAction extracts the content of a NEXT_ACTION block from agent output.
-// Returns ("", false) when no block is found.
+// The marker must begin a line (after Markdown decoration); the body runs to a
+// bare END_NEXT_ACTION line or end of output. When several blocks are present
+// the LAST one wins — a model that restates the format and then emits the real
+// directive is read correctly. Returns ("", false) when no block is found.
 func parseNextAction(output string) (string, bool) {
-	const start = "NEXT_ACTION:"
-	const end = "END_NEXT_ACTION"
-	startIdx := strings.Index(output, start)
-	if startIdx < 0 {
+	lines := strings.Split(output, "\n")
+	start := -1
+	var firstLine string
+	for i, l := range lines {
+		if rest, ok := markerLine(l, "NEXT_ACTION"); ok {
+			start, firstLine = i, rest
+		}
+	}
+	if start == -1 {
 		return "", false
 	}
-	body := output[startIdx+len(start):]
-	endIdx := strings.Index(body, end)
-	if endIdx >= 0 {
-		body = body[:endIdx]
+	var body []string
+	if firstLine != "" {
+		body = append(body, firstLine)
 	}
-	body = strings.TrimSpace(body)
-	if body == "" {
+	for _, l := range lines[start+1:] {
+		if isBareMarker(l, "END_NEXT_ACTION") {
+			break
+		}
+		if _, ok := markerLine(l, "TASK_COMPLETE"); ok {
+			break
+		}
+		body = append(body, l)
+	}
+	text := strings.TrimSpace(strings.Join(body, "\n"))
+	if text == "" {
 		return "", false
 	}
-	return body, true
+	return text, true
 }
 
-// parseTaskComplete checks whether the agent signalled loop termination.
-// Looks for "TASK_COMPLETE:" anywhere in the output.
+// parseTaskComplete checks whether the agent signalled loop termination with a
+// line beginning "TASK_COMPLETE:". The marker must start a line — a model
+// merely quoting the instruction mid-sentence no longer terminates the loop.
 func parseTaskComplete(output string) bool {
-	return strings.Contains(output, "TASK_COMPLETE:")
+	for _, l := range strings.Split(output, "\n") {
+		if _, ok := markerLine(l, "TASK_COMPLETE"); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // maybeSpawnReActIteration checks whether the completed task belongs to a

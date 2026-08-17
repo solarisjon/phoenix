@@ -268,6 +268,7 @@ type Task struct {
 	TokensOut         int        `json:"tokens_out"`
 	Source            string     `json:"source"`           // free-text provenance, empty if human-created
 	HealthSignal      *string    `json:"health_signal"`    // monitor runs: "all_clear" | "needs_attention" | "failed"
+	HealthReason      string     `json:"health_reason"`    // monitor runs: HEALTH_REASON text, or why the signal was inferred
 	GuardrailReason   *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
 	LastError         string     `json:"last_error"`       // most recent failure message; preserved across retries
 	Dismissed         bool       `json:"dismissed"`        // hidden from inbox but kept for audit

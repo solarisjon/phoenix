@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/solarisjon/phoenix/internal/provider"
 )
@@ -111,15 +112,8 @@ func TestExecute_WithAuthHeader(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		resp := chatCompletion{}
-		resp.Choices = append(resp.Choices, struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		}{})
-		resp.Choices[0].Message.Content = "ok"
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
 	})
 
 	cfg := map[string]interface{}{
@@ -169,16 +163,7 @@ func TestStreamExecute_Success(t *testing.T) {
 
 		chunks := []string{"Hello", " world", "!"}
 		for _, c := range chunks {
-			delta := streamDelta{}
-			delta.Choices = append(delta.Choices, struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-			}{Delta: struct {
-				Content string `json:"content"`
-			}{Content: c}})
-
-			data, _ := json.Marshal(delta)
+			data, _ := json.Marshal(map[string]any{"choices": []map[string]any{{"delta": map[string]any{"content": c}}}})
 			w.Write([]byte("data: " + string(data) + "\n\n"))
 			flusher.Flush()
 		}
@@ -236,15 +221,7 @@ func TestStreamExecute_CapturesUsage(t *testing.T) {
 		flusher := w.(http.Flusher)
 
 		// Content chunk.
-		delta := streamDelta{}
-		delta.Choices = append(delta.Choices, struct {
-			Delta struct {
-				Content string `json:"content"`
-			} `json:"delta"`
-		}{Delta: struct {
-			Content string `json:"content"`
-		}{Content: "answer"}})
-		data, _ := json.Marshal(delta)
+		data, _ := json.Marshal(map[string]any{"choices": []map[string]any{{"delta": map[string]any{"content": "answer"}}}})
 		w.Write([]byte("data: " + string(data) + "\n\n"))
 		flusher.Flush()
 
@@ -616,5 +593,123 @@ func TestNew_DefaultModel(t *testing.T) {
 	}
 	if a.cfg.Model != "gpt-4o" {
 		t.Errorf("Model = %q, want gpt-4o", a.cfg.Model)
+	}
+}
+
+// ---- Generation controls (local-models phase 0.1) ----
+
+func TestBuildRequestBody_OpenAI_GenerationControls_AbsentByDefault(t *testing.T) {
+	a := newAdapter(t, "http://unused")
+	cr := a.buildRequestBody(provider.TaskRequest{Prompt: "hi"}, false)
+	raw, _ := json.Marshal(cr)
+	for _, key := range []string{`"max_tokens"`, `"temperature"`, `"stop"`, `"stop_sequences"`} {
+		if strings.Contains(string(raw), key) {
+			t.Errorf("expected %s absent from OpenAI body when unset, got %s", key, raw)
+		}
+	}
+}
+
+func TestBuildRequestBody_OpenAI_GenerationControls_FromRequest(t *testing.T) {
+	a := newAdapter(t, "http://unused")
+	temp := 0.2
+	cr := a.buildRequestBody(provider.TaskRequest{
+		Prompt:          "hi",
+		MaxOutputTokens: 1234,
+		Temperature:     &temp,
+		StopSequences:   []string{"END"},
+	}, false)
+	if cr.MaxTokens != 1234 {
+		t.Errorf("MaxTokens = %d, want 1234", cr.MaxTokens)
+	}
+	if cr.Temperature == nil || *cr.Temperature != 0.2 {
+		t.Errorf("Temperature = %v, want 0.2", cr.Temperature)
+	}
+	if len(cr.Stop) != 1 || cr.Stop[0] != "END" {
+		t.Errorf("Stop = %v, want [END]", cr.Stop)
+	}
+	if cr.StopSequences != nil {
+		t.Errorf("OpenAI flavour must not set stop_sequences, got %v", cr.StopSequences)
+	}
+	raw, _ := json.Marshal(cr)
+	if !strings.Contains(string(raw), `"max_tokens":1234`) || !strings.Contains(string(raw), `"temperature":0.2`) {
+		t.Errorf("wire body missing controls: %s", raw)
+	}
+}
+
+func TestBuildRequestBody_OpenAI_GenerationControls_ConfigFallback(t *testing.T) {
+	a, err := New(`{"endpoint":"http://unused","max_tokens":4096,"temperature":0.7}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr := a.buildRequestBody(provider.TaskRequest{Prompt: "hi"}, false)
+	if cr.MaxTokens != 4096 {
+		t.Errorf("MaxTokens = %d, want 4096 from config", cr.MaxTokens)
+	}
+	if cr.Temperature == nil || *cr.Temperature != 0.7 {
+		t.Errorf("Temperature = %v, want 0.7 from config", cr.Temperature)
+	}
+	// Request value wins over config.
+	cr = a.buildRequestBody(provider.TaskRequest{Prompt: "hi", MaxOutputTokens: 100}, false)
+	if cr.MaxTokens != 100 {
+		t.Errorf("MaxTokens = %d, want request value 100 to override config", cr.MaxTokens)
+	}
+}
+
+func TestBuildRequestBody_Anthropic_GenerationControls(t *testing.T) {
+	a, err := New(`{"endpoint":"http://unused","api_flavour":"anthropic"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	temp := 0.0
+	cr := a.buildRequestBody(provider.TaskRequest{
+		Prompt:          "hi",
+		MaxOutputTokens: 512,
+		Temperature:     &temp,
+		StopSequences:   []string{"STOP"},
+	}, false)
+	if cr.MaxTokens != 512 {
+		t.Errorf("MaxTokens = %d, want 512", cr.MaxTokens)
+	}
+	if cr.Temperature == nil || *cr.Temperature != 0 {
+		t.Errorf("Temperature = %v, want 0", cr.Temperature)
+	}
+	if len(cr.StopSequences) != 1 || cr.StopSequences[0] != "STOP" {
+		t.Errorf("StopSequences = %v, want [STOP]", cr.StopSequences)
+	}
+	if cr.Stop != nil {
+		t.Errorf("Anthropic flavour must not set stop, got %v", cr.Stop)
+	}
+	raw, _ := json.Marshal(cr)
+	if !strings.Contains(string(raw), `"temperature":0`) {
+		t.Errorf("temperature 0 must still be sent (pointer semantics): %s", raw)
+	}
+}
+
+func TestNew_DefaultTimeout_LocalVsHosted(t *testing.T) {
+	cases := []struct {
+		endpoint string
+		want     time.Duration
+	}{
+		{"http://localhost:8081/v1", localTimeout},
+		{"http://127.0.0.1:8081/v1", localTimeout},
+		{"http://192.168.1.20:8080/v1", localTimeout},
+		{"http://10.0.0.5/v1", localTimeout},
+		{"http://mac-studio.local:8081/v1", localTimeout},
+		{"https://api.openai.com/v1", hostedTimeout},
+		{"https://api.anthropic.com/v1", hostedTimeout},
+	}
+	for _, c := range cases {
+		a, err := New(`{"endpoint":"` + c.endpoint + `"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a.client.Timeout != c.want {
+			t.Errorf("%s: timeout = %v, want %v", c.endpoint, a.client.Timeout, c.want)
+		}
+	}
+	// Explicit config always wins.
+	a, _ := New(`{"endpoint":"http://localhost:8081/v1","timeout_seconds":30}`)
+	if a.client.Timeout != 30*time.Second {
+		t.Errorf("explicit timeout_seconds ignored: %v", a.client.Timeout)
 	}
 }

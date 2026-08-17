@@ -114,22 +114,23 @@ func assembleSystemPrompt(a *model.Agent, t *model.Task, globalGuardrails, serve
 	// plus the HEALTH_SIGNAL structured output requirement.
 	b.WriteString("\n## Briefing Memos\n")
 	if t.Source == "monitor" {
-		b.WriteString(`You MUST end your response with a health signal declaration and a briefing memo. Use these exact formats.
+		b.WriteString(`You MUST end your response with a health signal declaration and a briefing memo. Use these exact formats — copy the marker words verbatim, on their own lines, without rewording or formatting them.
 
-**Health signal** — emit this as a standalone line so the platform can parse it:
+Emit exactly one of these three lines (the platform parses it):
 
 HEALTH_SIGNAL: all_clear
+HEALTH_SIGNAL: needs_attention
+HEALTH_SIGNAL: failed
 
-Use one of three values:
 - all_clear       — everything is nominal; no issues detected
 - needs_attention — something requires investigation or action
 - failed          — a critical failure is occurring right now
 
-Optionally follow it with a reason line:
+Follow it with a reason line:
 
 HEALTH_REASON: <one sentence explaining the signal, especially for non-clear signals>
 
-**Memo** — always include one after the health signal:
+Then always include a memo after the health signal:
 
 MEMO_START
 Title: <concise one-line title>
@@ -177,12 +178,31 @@ Only emit an ARTIFACT block when you have actually created or modified something
 `)
 
 	if globalGuardrails != "" {
-		b.WriteString("\n## Platform-Wide Guardrails (mandatory — overrides all other instructions)\n")
-		b.WriteString(globalGuardrails)
 		b.WriteString("\n")
+		b.WriteString(globalGuardrailsSection(globalGuardrails))
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+// globalGuardrailsSection renders the platform-wide guardrails block.
+func globalGuardrailsSection(text string) string {
+	return "## Platform-Wide Guardrails (mandatory — overrides all other instructions)\n" + strings.TrimSpace(text) + "\n"
+}
+
+// InjectGlobalGuardrails appends the platform-wide guardrails as the FINAL
+// system-prompt section. The runner calls this after every other injector
+// (react loop, Obsidian, skills, memories …) so the section that claims to
+// "override all other instructions" really is the last thing the model reads.
+// AssembleRequest still accepts globalGuardrails for callers that assemble a
+// one-shot prompt with no later injections; the runner passes "" there and
+// uses this instead. No-op when text is empty.
+func InjectGlobalGuardrails(req provider.TaskRequest, text string) provider.TaskRequest {
+	if strings.TrimSpace(text) == "" {
+		return req
+	}
+	req.SystemPrompt = strings.TrimRight(req.SystemPrompt, "\n") + "\n\n" + strings.TrimSpace(globalGuardrailsSection(text))
+	return req
 }
 
 // BuiltinCriticPrompt returns a system prompt for an ephemeral devil's advocate
@@ -412,18 +432,43 @@ Do not emit both signals — pick exactly one.`,
 	return req
 }
 
+// skillTokenWarnThreshold is the approximate token count (chars/4) above which
+// a single injected skill, or the total of all injected skills, is considered
+// oversized for small-context models. Nothing is truncated yet — that arrives
+// with prompt budgeting (local-models phase 2) — but the runner logs and
+// records the warning so users can see why a local model lost the plot.
+const skillTokenWarnThreshold = 3000
+
+// SkillSizeWarning describes an oversized skill injection.
+type SkillSizeWarning struct {
+	Skill  string // skill name, or "" for the aggregate warning
+	Tokens int    // approximate tokens (chars/4)
+}
+
+func (w SkillSizeWarning) String() string {
+	if w.Skill == "" {
+		return fmt.Sprintf("injected skills total ~%d tokens (threshold %d)", w.Tokens, skillTokenWarnThreshold)
+	}
+	return fmt.Sprintf("skill %q is ~%d tokens (threshold %d)", w.Skill, w.Tokens, skillTokenWarnThreshold)
+}
+
 // InjectSkills appends the instructions for any skill that is relevant to this
 // task: either bound as the project's default (proj.DefaultSkillID), or
 // mentioned by slug in the task's title/description or the project's
 // objective (e.g. "execute the morning_coffee skill"). Skills are a
 // Phoenix-native mechanism, so they work identically no matter which
 // provider/CLI actually executes the task.
-func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task, proj *model.Project) provider.TaskRequest {
+//
+// The returned warnings flag skills whose instructions are large enough to
+// crowd a small model's context window (see skillTokenWarnThreshold).
+func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task, proj *model.Project) (provider.TaskRequest, []SkillSizeWarning) {
 	matched := MatchSkills(skills, t, proj)
 	if len(matched) == 0 {
-		return req
+		return req, nil
 	}
 
+	var warnings []SkillSizeWarning
+	total := 0
 	var b strings.Builder
 	b.WriteString(req.SystemPrompt)
 	b.WriteString("\n\n## Skills\n")
@@ -436,9 +481,18 @@ func InjectSkills(req provider.TaskRequest, skills []*model.Skill, t *model.Task
 		}
 		b.WriteString(sk.Instructions)
 		b.WriteString("\n\n")
+
+		tokens := (len(sk.Description) + len(sk.Instructions)) / 4
+		total += tokens
+		if tokens > skillTokenWarnThreshold {
+			warnings = append(warnings, SkillSizeWarning{Skill: sk.Name, Tokens: tokens})
+		}
+	}
+	if total > skillTokenWarnThreshold && len(matched) > 1 {
+		warnings = append(warnings, SkillSizeWarning{Tokens: total})
 	}
 	req.SystemPrompt = strings.TrimRight(b.String(), "\n")
-	return req
+	return req, warnings
 }
 
 // InjectMemories appends a ## Persistent Memory section to the system prompt

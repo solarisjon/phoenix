@@ -21,7 +21,7 @@ const taskSelectCols = ` id, project_id, agent_id, parent_task_id, follow_up_of,
 	runner_pid, timeout_at,
 	source, health_signal, guardrail_reason, last_error,
 	created_at, started_at, completed_at, is_critic_review, reviewed_task_id, critic_mode, prompt_hash, summary_cache, priority, depends_on, loop_iteration,
-	task_type, orchestration_plan, step_slug, deliverables_json, derived_health `
+	task_type, orchestration_plan, step_slug, deliverables_json, derived_health, health_reason `
 
 func (r *TaskRepo) List(ctx context.Context, projectID string) ([]*model.Task, error) {
 	rows, err := r.db.QueryContext(ctx,
@@ -190,13 +190,15 @@ func (r *TaskRepo) Update(ctx context.Context, t *model.Task) error {
 		  started_at = ?, completed_at = ?,
 		  health_signal = ?, guardrail_reason = ?, last_error = ?,
 		  is_critic_review = ?, reviewed_task_id = ?, prompt_hash = ?,
-		  orchestration_plan = ?, step_slug = ?, deliverables_json = ?, derived_health = ?
+		  orchestration_plan = ?, step_slug = ?, deliverables_json = ?, derived_health = ?,
+		  health_reason = ?
 		WHERE id = ?`,
 		string(t.Status), t.Output, t.CostUSD, t.TokensIn, t.TokensOut, dismissed,
 		t.RunnerPID, t.TimeoutAt,
 		t.StartedAt, t.CompletedAt,
 		t.HealthSignal, t.GuardrailReason, t.LastError, isCriticReview, nullString(t.ReviewedTaskID), t.PromptHash,
-		t.OrchestrationPlan, t.StepSlug, t.DeliverablesJSON, t.DerivedHealth, t.ID)
+		t.OrchestrationPlan, t.StepSlug, t.DeliverablesJSON, t.DerivedHealth,
+		t.HealthReason, t.ID)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
@@ -409,7 +411,7 @@ func scanTaskRow(dest *model.Task, scanFn func(...any) error) error {
 		&dest.Source, &healthSignal, &guardrailReason, &lastError,
 		&dest.CreatedAt, &startedAt, &completedAt, &isCriticReview, &reviewedTaskID,
 		&dest.CriticMode, &dest.PromptHash, &dest.SummaryCache, &dest.Priority, &dependsOn, &dest.LoopIteration,
-		&taskType, &orchestrationPlan, &stepSlug, &deliverablesJSON, &derivedHealth,
+		&taskType, &orchestrationPlan, &stepSlug, &deliverablesJSON, &derivedHealth, &dest.HealthReason,
 	); err != nil {
 		return err
 	}

@@ -101,27 +101,32 @@ func TestAssembleSystemPrompt_GlobalGuardrails(t *testing.T) {
 
 func TestDeriveHealthSignal_Structured(t *testing.T) {
 	cases := []struct {
-		name   string
-		output string
-		want   string
+		name       string
+		output     string
+		want       string
+		wantReason string // "" = don't check
 	}{
-		{"structured all_clear", "Some output\nHEALTH_SIGNAL: all_clear\nmore text", "all_clear"},
-		{"structured needs_attention", "HEALTH_SIGNAL: needs_attention\nHEALTH_REASON: CPU spike detected", "needs_attention"},
-		{"structured failed", "HEALTH_SIGNAL: failed", "failed"},
-		{"structured case insensitive", "HEALTH_SIGNAL: All_Clear", "all_clear"},
-		{"structured invalid value falls through to keyword scan", "HEALTH_SIGNAL: unknown\nerror detected", "needs_attention"},
-		// Keyword scan fallback — previously caused false positives
-		{"no marker no keywords", "All services responded normally within SLA.", "all_clear"},
-		{"keyword scan error", "The error rate exceeded 5%.", "needs_attention"},
+		{"structured all_clear", "Some output\nHEALTH_SIGNAL: all_clear\nmore text", "all_clear", ""},
+		{"structured needs_attention with reason", "HEALTH_SIGNAL: needs_attention\nHEALTH_REASON: CPU spike detected", "needs_attention", "CPU spike detected"},
+		{"structured failed", "HEALTH_SIGNAL: failed", "failed", ""},
+		{"structured case insensitive", "HEALTH_SIGNAL: All_Clear", "all_clear", ""},
+		// Keyword fallback is demoted: a single keyword is no longer enough.
+		{"structured invalid value, one keyword → all_clear", "HEALTH_SIGNAL: unknown\nerror detected", "all_clear", ""},
+		{"no marker no keywords", "All services responded normally within SLA.", "all_clear", ""},
+		{"keyword scan two distinct keywords", "The error rate exceeded 5%.", "needs_attention", "no HEALTH_SIGNAL emitted; inferred from keywords: error, exceeded"},
 		// Structured beats keyword: "no errors found" should be all_clear via marker
-		{"structured beats keyword false positive", "Checked logs: no errors found.\nHEALTH_SIGNAL: all_clear", "all_clear"},
-		{"no marker misleading text", "error rate: 0% — no errors found", "needs_attention"}, // fallback still triggers on "error"
+		{"structured beats keyword false positive", "Checked logs: no errors found.\nHEALTH_SIGNAL: all_clear", "all_clear", ""},
+		// The classic false positive is now all_clear (only "error" appears).
+		{"no marker misleading text", "error rate: 0% — no errors found", "all_clear", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := deriveHealthSignal(tc.output)
+			got, reason := deriveHealthSignal(tc.output)
 			if got != tc.want {
 				t.Errorf("deriveHealthSignal(%q) = %q, want %q", tc.output, got, tc.want)
+			}
+			if tc.wantReason != "" && reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
 			}
 		})
 	}

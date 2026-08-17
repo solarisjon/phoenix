@@ -155,9 +155,11 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             {(task.derived_health || task.health_signal) && (
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${healthBadgeClass(task.derived_health || task.health_signal || '')}`}>
+              <span
+                className={`text-xs font-medium px-2 py-0.5 rounded-full border ${healthBadgeClass(task.derived_health || task.health_signal || '')}`}
+                title={task.health_reason || undefined}
+              >
                 {healthBadgeLabel(task.derived_health || task.health_signal || '')}
-                {task.derived_health ? '' : ''}
               </span>
             )}
             {task.task_type === 'orchestration' && (
@@ -169,6 +171,12 @@ function RunCard({ task, agent }: { task: Task; agent?: Agent }) {
             <Badge variant={variant}>{taskStatusLabel(task.status)}</Badge>
             <span className="text-sm text-slate-300">{task.title}</span>
           </div>
+          {task.health_reason && (
+            <div className={cn('mt-1 text-xs truncate', task.health_reason.startsWith('no HEALTH_SIGNAL emitted') ? 'text-slate-500 italic' : 'text-slate-400')}
+              title={task.health_reason}>
+              {task.health_reason}
+            </div>
+          )}
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
             <span>{timeAgo(task.created_at)}</span>
             {task.status === 'running' && task.started_at && (

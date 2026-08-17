@@ -116,10 +116,12 @@ func SkillOrchestrationModeSection(skill *model.Skill) string {
 	return b.String()
 }
 
-// InjectSkillOrchestrationMode prepends orchestration instructions for skill workflows.
+// InjectSkillOrchestrationMode appends orchestration instructions for skill
+// workflows directly after the agent's base prompt (see InjectSkillExecutionMode
+// for why this is an append rather than a prepend).
 func InjectSkillOrchestrationMode(req provider.TaskRequest, skill *model.Skill) provider.TaskRequest {
 	section := SkillOrchestrationModeSection(skill)
-	req.SystemPrompt = section + "\n" + req.SystemPrompt
+	req.SystemPrompt = strings.TrimRight(req.SystemPrompt, "\n") + "\n\n" + strings.TrimSpace(section)
 	return req
 }
 

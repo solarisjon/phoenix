@@ -52,7 +52,29 @@ type Runner struct {
 	mu           sync.Mutex
 	cancels      map[string]context.CancelCauseFunc // task ID → cancel-with-cause
 	agentRunning map[string]int                     // agent ID → count of running goroutines
+
+	// Provider-level concurrency gate. Local model servers (llama-server
+	// --parallel N, Ollama) can only serve a bounded number of requests at
+	// once; anything beyond that queues INSIDE the server while Phoenix thinks
+	// the task is running and its timeout ticks. providerRunning counts live
+	// tasks per provider and providerSlots caches each provider's limit
+	// (from provider.SlotLimiter; 0 = unlimited) so tasks stay `queued` in
+	// Phoenix until a slot is genuinely free.
+	providerRunning map[string]int // provider ID → running task count
+	taskProvider    map[string]string
+	slotMu          sync.Mutex
+	providerSlots   map[string]slotEntry
 }
+
+// slotEntry caches a provider's concurrency limit.
+type slotEntry struct {
+	limit int
+	at    time.Time
+}
+
+// slotCacheTTL bounds how long a probed slot count is trusted before re-asking
+// the adapter (a user may restart llama-server with a different --parallel).
+const slotCacheTTL = 60 * time.Second
 
 // New creates a Runner. onEvent and onMemo may be nil (events/memos are dropped).
 func New(
@@ -66,18 +88,21 @@ func New(
 ) *Runner {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	return &Runner{
-		agents:       agents,
-		tasks:        tasks,
-		projects:     projects,
-		settings:     settings,
-		memos:        memos,
-		registry:     reg,
-		onEvent:      onEvent,
-		bgCtx:        bgCtx,
-		bgCancel:     bgCancel,
-		taskTimeout:  DefaultTaskTimeout,
-		cancels:      make(map[string]context.CancelCauseFunc),
-		agentRunning: make(map[string]int),
+		agents:          agents,
+		tasks:           tasks,
+		projects:        projects,
+		settings:        settings,
+		memos:           memos,
+		registry:        reg,
+		providerRunning: make(map[string]int),
+		taskProvider:    make(map[string]string),
+		providerSlots:   make(map[string]slotEntry),
+		onEvent:         onEvent,
+		bgCtx:           bgCtx,
+		bgCancel:        bgCancel,
+		taskTimeout:     DefaultTaskTimeout,
+		cancels:         make(map[string]context.CancelCauseFunc),
+		agentRunning:    make(map[string]int),
 	}
 }
 
@@ -166,14 +191,7 @@ func (r *Runner) RunTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("runner: agent %s not found", task.AgentID)
 	}
 
-	r.mu.Lock()
-	running := r.agentRunning[task.AgentID]
-	maxC := agent.MaxConcurrent
-	if maxC == 0 || running < maxC {
-		r.tryStartLocked(task)
-	}
-	r.mu.Unlock()
-
+	r.startIfCapacity(task, agent)
 	return nil
 }
 
@@ -199,15 +217,66 @@ func (r *Runner) ResumeTask(ctx context.Context, taskID string) error {
 		return fmt.Errorf("runner: agent %s not found for resume", task.AgentID)
 	}
 
-	r.mu.Lock()
-	running := r.agentRunning[task.AgentID]
-	maxC := agent.MaxConcurrent
-	if maxC == 0 || running < maxC {
-		r.tryStartLocked(task)
-	}
-	r.mu.Unlock()
-
+	r.startIfCapacity(task, agent)
 	return nil
+}
+
+// startIfCapacity starts the task now if both its agent and its provider have
+// a free slot; otherwise it stays queued for drainQueue to pick up later.
+func (r *Runner) startIfCapacity(task *model.Task, agent *model.Agent) bool {
+	limit := r.providerLimit(agent.ProviderID) // may probe; do it outside the mutex
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.canStartLocked(agent, limit) {
+		return false
+	}
+	return r.tryStartLocked(task, agent.ProviderID)
+}
+
+// canStartLocked reports whether agent (with the given provider slot limit,
+// 0 = unlimited) has capacity for one more task. Caller holds r.mu.
+func (r *Runner) canStartLocked(agent *model.Agent, providerLimit int) bool {
+	if agent.MaxConcurrent > 0 && r.agentRunning[agent.ID] >= agent.MaxConcurrent {
+		return false
+	}
+	if providerLimit > 0 && r.providerRunning[agent.ProviderID] >= providerLimit {
+		return false
+	}
+	return true
+}
+
+// providerLimit returns the provider's concurrent-request limit (0 = unknown /
+// unlimited), consulting provider.SlotLimiter and caching the answer for
+// slotCacheTTL. Never called under r.mu — the adapter may probe the server.
+func (r *Runner) providerLimit(providerID string) int {
+	if providerID == "" || r.registry == nil {
+		return 0
+	}
+	r.slotMu.Lock()
+	if e, ok := r.providerSlots[providerID]; ok && time.Since(e.at) < slotCacheTTL {
+		r.slotMu.Unlock()
+		return e.limit
+	}
+	r.slotMu.Unlock()
+
+	limit := 0
+	if prov, err := r.registry.Get(r.bgCtx, providerID); err == nil {
+		if sl, ok := prov.(provider.SlotLimiter); ok {
+			limit = sl.MaxConcurrent()
+		}
+	}
+	r.slotMu.Lock()
+	r.providerSlots[providerID] = slotEntry{limit: limit, at: time.Now()}
+	r.slotMu.Unlock()
+	return limit
+}
+
+// InvalidateProviderSlots drops the cached slot limit for a provider (call
+// after the provider record is updated or resynced).
+func (r *Runner) InvalidateProviderSlots(providerID string) {
+	r.slotMu.Lock()
+	delete(r.providerSlots, providerID)
+	r.slotMu.Unlock()
 }
 
 // CancelTask stops a running or queued task. Safe to call if the task is
@@ -421,7 +490,7 @@ func (r *Runner) ActiveTasks() []string {
 
 // tryStartLocked starts a goroutine for task. Must be called with r.mu held.
 // Returns false without starting if the task is already tracked (concurrent call).
-func (r *Runner) tryStartLocked(task *model.Task) bool {
+func (r *Runner) tryStartLocked(task *model.Task, providerID string) bool {
 	if _, already := r.cancels[task.ID]; already {
 		return false
 	}
@@ -429,19 +498,45 @@ func (r *Runner) tryStartLocked(task *model.Task) bool {
 	taskCtx, cancel := context.WithCancelCause(timeoutCtx)
 	r.cancels[task.ID] = cancel
 	r.agentRunning[task.AgentID]++
+	if providerID != "" {
+		r.providerRunning[providerID]++
+		r.taskProvider[task.ID] = providerID
+	}
 	go func() {
 		defer func() {
 			r.mu.Lock()
 			delete(r.cancels, task.ID)
 			r.agentRunning[task.AgentID]--
+			if pid := r.taskProvider[task.ID]; pid != "" {
+				r.providerRunning[pid]--
+				delete(r.taskProvider, task.ID)
+			}
 			r.mu.Unlock()
 			cancel(nil)
 			timeoutCancel()
 			r.drainQueue(task.AgentID)
+			if providerID != "" {
+				r.drainProviderPeers(providerID, task.AgentID)
+			}
 		}()
 		r.execute(taskCtx, task)
 	}()
 	return true
+}
+
+// drainProviderPeers starts queued tasks for OTHER agents that share the
+// given provider — a slot just freed up on it. Called outside the mutex.
+func (r *Runner) drainProviderPeers(providerID, exceptAgentID string) {
+	agents, err := r.agents.List(r.bgCtx, "")
+	if err != nil {
+		return
+	}
+	for _, a := range agents {
+		if a == nil || a.ID == exceptAgentID || a.ProviderID != providerID {
+			continue
+		}
+		r.drainQueue(a.ID)
+	}
 }
 
 // drainQueue starts queued tasks for the agent while it has capacity.
@@ -456,12 +551,11 @@ func (r *Runner) drainQueue(agentID string) {
 		if err != nil || agent == nil {
 			return
 		}
+		limit := r.providerLimit(agent.ProviderID)
 		r.mu.Lock()
-		running := r.agentRunning[agentID]
-		maxC := agent.MaxConcurrent
-		canStart := maxC == 0 || running < maxC
+		canStart := r.canStartLocked(agent, limit)
 		if canStart {
-			if started := r.tryStartLocked(next); !started {
+			if started := r.tryStartLocked(next, agent.ProviderID); !started {
 				// Another concurrent drainQueue call already claimed this task.
 				// That goroutine will drain the rest when it completes.
 				r.mu.Unlock()
@@ -541,7 +635,8 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 	var allSkills []*model.Skill
 	var skillCtx SkillContext
 
-	if task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil {
+	builtinCritic := task.IsCriticReview && task.CriticMode == model.CriticModeBuiltin && task.ReviewedTaskID != nil
+	if builtinCritic {
 		reviewed, err := r.tasks.Get(ctx, *task.ReviewedTaskID)
 		if err != nil || reviewed == nil {
 			return req, fmt.Errorf("builtin critic: reviewed task %s not found: %w", *task.ReviewedTaskID, err)
@@ -552,7 +647,17 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		allSkills = skillCtx.AllSkills
 		matchedSkills = skillCtx.Matched
 
-		req = AssembleRequest(ec.agent, task, ec.proj, globalGuardrails, r.serverURL())
+		// Global guardrails are injected LAST (see InjectGlobalGuardrails at the
+		// end of this function) so they follow every optional section.
+		req = AssembleRequest(ec.agent, task, ec.proj, "", r.serverURL())
+
+		// Skill mode sections sit directly after the agent's base prompt so
+		// they override routing-focused behaviour without preceding it.
+		if skillCtx.Strategy == SkillStrategyDirect {
+			req = InjectSkillExecutionMode(req, matchedSkills, SkillHaystack(task, ec.proj))
+		} else if skillCtx.Strategy == SkillStrategyOrchestrate && ec.agent.IsOrchestrator {
+			req = InjectSkillOrchestrationMode(req, PrimaryMatchedSkill(matchedSkills))
+		}
 
 		// If this agent is the global orchestrator, append decomposition instructions
 		// for orchestration tasks except direct skill execution.
@@ -630,15 +735,11 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 	}
 
 	if !task.IsCriticReview && len(allSkills) > 0 {
-		req = InjectSkills(req, allSkills, task, ec.proj)
-	}
-
-	if skillCtx.Strategy != SkillStrategyNone && !task.IsCriticReview {
-		strategy := skillCtx.Strategy
-		if strategy == SkillStrategyDirect {
-			req = InjectSkillExecutionMode(req, matchedSkills, SkillHaystack(task, ec.proj))
-		} else if strategy == SkillStrategyOrchestrate && ec.agent.IsOrchestrator {
-			req = InjectSkillOrchestrationMode(req, PrimaryMatchedSkill(matchedSkills))
+		var warnings []SkillSizeWarning
+		req, warnings = InjectSkills(req, allSkills, task, ec.proj)
+		for _, w := range warnings {
+			slog.Warn("runner: oversized skill injected — small-context models may truncate or ignore it",
+				"task_id", task.ID, "agent_id", ec.agent.ID, "warning", w.String())
 		}
 	}
 
@@ -651,6 +752,12 @@ func (r *Runner) buildTaskRequest(ctx context.Context, task *model.Task, ec *exe
 		} else if memories != "" {
 			req = InjectMemories(req, memories)
 		}
+	}
+
+	// Platform-wide guardrails go last so they genuinely override everything
+	// above. The built-in critic keeps its dedicated prompt untouched (as before).
+	if !builtinCritic {
+		req = InjectGlobalGuardrails(req, globalGuardrails)
 	}
 
 	return req, nil
@@ -788,8 +895,9 @@ func (r *Runner) finaliseTask(ctx context.Context, task *model.Task, out *stream
 	}
 
 	if task.Source == "monitor" && task.ParentTaskID == nil {
-		sig := deriveHealthSignal(out.fullText)
+		sig, reason := deriveHealthSignal(out.fullText)
 		task.HealthSignal = &sig
+		task.HealthReason = reason
 		if ec.proj != nil {
 			consecutiveBad := r.updateHeartbeatSignal(ec.proj, sig)
 			if sig != "all_clear" {

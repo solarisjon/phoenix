@@ -26,29 +26,29 @@ func ParseArtifactBlocks(output string) []ParsedArtifact {
 	lines := strings.Split(output, "\n")
 	i := 0
 	for i < len(lines) {
-		if strings.TrimSpace(lines[i]) != "ARTIFACT_START" {
+		if !isBareMarker(lines[i], "ARTIFACT_START") {
 			i++
 			continue
 		}
 		i++
 		var a ParsedArtifact
 		for i < len(lines) {
-			if strings.TrimSpace(lines[i]) == "ARTIFACT_END" {
+			if isBareMarker(lines[i], "ARTIFACT_END") {
 				i++
 				break
 			}
 			line := lines[i]
 			switch {
-			case strings.HasPrefix(line, "Type:"):
-				a.ArtType = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "Type:")))
-			case strings.HasPrefix(line, "Path:"):
-				a.Path = strings.TrimSpace(strings.TrimPrefix(line, "Path:"))
-			case strings.HasPrefix(line, "URL:"):
-				a.Path = strings.TrimSpace(strings.TrimPrefix(line, "URL:"))
-			case strings.HasPrefix(line, "Title:"):
-				a.Title = strings.TrimSpace(strings.TrimPrefix(line, "Title:"))
-			case strings.HasPrefix(line, "Vault:"):
-				a.Vault = strings.TrimSpace(strings.TrimPrefix(line, "Vault:"))
+			case has(line, "Type"):
+				a.ArtType = strings.ToLower(val(line, "Type"))
+			case has(line, "Path"):
+				a.Path = val(line, "Path")
+			case has(line, "URL"):
+				a.Path = val(line, "URL")
+			case has(line, "Title"):
+				a.Title = val(line, "Title")
+			case has(line, "Vault"):
+				a.Vault = val(line, "Vault")
 			}
 			i++
 		}
@@ -58,3 +58,9 @@ func ParseArtifactBlocks(output string) []ParsedArtifact {
 	}
 	return results
 }
+
+// has / val are small readability wrappers over headerValue (markers.go) so the
+// switch above stays declarative. Header keys are matched case-insensitively
+// and tolerate Markdown decoration ("- **Path:** `/x`").
+func has(line, key string) bool   { _, ok := headerValue(line, key); return ok }
+func val(line, key string) string { v, _ := headerValue(line, key); return v }

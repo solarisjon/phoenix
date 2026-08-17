@@ -12,6 +12,7 @@ import (
 	"github.com/solarisjon/phoenix/internal/provider/claudecode"
 	"github.com/solarisjon/phoenix/internal/provider/crush"
 	"github.com/solarisjon/phoenix/internal/provider/cursor"
+	"github.com/solarisjon/phoenix/internal/provider/llamacpp"
 	"github.com/solarisjon/phoenix/internal/provider/llm"
 	"github.com/solarisjon/phoenix/internal/provider/ollama"
 	"github.com/solarisjon/phoenix/internal/provider/opencode"
@@ -131,8 +132,11 @@ func buildProvider(rec *model.Provider) (provider.Provider, error) {
 		if err := json.Unmarshal([]byte(expandedConfig), &llmMeta); err != nil {
 			return nil, fmt.Errorf("llm config: parse kind: %w", err)
 		}
-		if llmMeta.Kind == "ollama" {
+		switch llmMeta.Kind {
+		case "ollama":
 			return ollama.New(expandedConfig)
+		case "llamacpp":
+			return llamacpp.New(expandedConfig)
 		}
 		return llm.New(expandedConfig)
 	case model.ProviderTypeCodingAgent:

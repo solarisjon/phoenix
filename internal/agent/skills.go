@@ -589,10 +589,13 @@ func SkillExecutionModeSection(matched []*model.Skill, haystack string) string {
 	return b.String()
 }
 
-// InjectSkillExecutionMode prepends skill execution instructions so they override
-// routing-focused agent behaviour.
+// InjectSkillExecutionMode appends skill execution instructions directly after
+// the agent's base prompt so they override routing-focused agent behaviour.
+// (They used to be prepended before the behaviour section; they now follow it
+// so the assembled prompt reads behaviour → mode → optional sections → global
+// guardrails, and the platform-wide guardrails can be the genuine last word.)
 func InjectSkillExecutionMode(req provider.TaskRequest, matched []*model.Skill, haystack string) provider.TaskRequest {
 	section := SkillExecutionModeSection(matched, haystack)
-	req.SystemPrompt = section + "\n" + req.SystemPrompt
+	req.SystemPrompt = strings.TrimRight(req.SystemPrompt, "\n") + "\n\n" + strings.TrimSpace(section)
 	return req
 }

@@ -130,6 +130,7 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate the registry cache so next execution picks up new config.
 	s.registry.Invalidate(id)
+	s.invalidateProviderSlots(id)
 
 	respond(w, http.StatusOK, existing)
 }
@@ -192,6 +193,7 @@ func (s *Server) resyncProvider(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.registry.Invalidate(id)
+	s.invalidateProviderSlots(id)
 	respond(w, http.StatusOK, map[string]string{
 		"status":  "ok",
 		"message": envMsg + " · provider cache cleared",
@@ -218,7 +220,16 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.registry.Invalidate(id)
+	s.invalidateProviderSlots(id)
 	respond(w, http.StatusNoContent, nil)
+}
+
+// invalidateProviderSlots drops the runner's cached concurrency limit for a
+// provider so the next task start re-probes it (nil-safe for tests).
+func (s *Server) invalidateProviderSlots(id string) {
+	if s.runner != nil {
+		s.runner.InvalidateProviderSlots(id)
+	}
 }
 
 // testProvider validates that a provider is reachable and correctly configured.
