@@ -16,7 +16,8 @@ This file is the authoritative quick-load context document for any coding agent 
 
 **Todo list:** `jons-todo-list` (annotated, [FIXED]/[TODO] markers)  
 **Design spec:** `docs/superpowers/specs/2026-05-28-phoenix-design.md`  
-**Implementation plan:** `docs/superpowers/specs/2026-05-28-phoenix-implementation-plan.md`
+**Implementation plan:** `docs/superpowers/specs/2026-05-28-phoenix-implementation-plan.md`  
+**Local models (llama.cpp) — active initiative:** spec `docs/superpowers/specs/2026-08-17-local-models-design.md`, plan `docs/superpowers/specs/2026-08-17-local-models-implementation-plan.md`, user guide `docs/guides/local-models-llama-cpp.md`
 
 ## Quick orientation
 

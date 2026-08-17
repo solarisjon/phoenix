@@ -104,6 +104,10 @@ Run models locally — no API key required.
 
 Thinking tokens (chain-of-thought from qwen3, deepseek-r1) are suppressed by default. Enable *Show thinking tokens* to surface the reasoning.
 
+### llama.cpp (local models, `llama-server`)
+
+Native provider: **Settings → Providers → Add Provider → 🦙 llama.cpp**, URL `http://localhost:8081` (start llama-server with `--port 8081` — 8080 is Phoenix). Phoenix reads the server's context window and slot count from `/props`, counts tokens exactly via `/tokenize`, keeps the KV cache warm (`cache_prompt`), caps output at 4096 tokens by default, strips thinking tokens, and queues tasks in Phoenix when all server slots are busy. Model choice, `--ctx-size`/`--parallel` tuning, reasoning flags and troubleshooting: [`docs/guides/local-models-llama-cpp.md`](docs/guides/local-models-llama-cpp.md). Roadmap (prompt budgeting, compact prompts, helper model, eval harness): [design spec](docs/superpowers/specs/2026-08-17-local-models-design.md).
+
 ### LLM endpoints
 
 Any OpenAI-compatible chat completions endpoint:
@@ -548,6 +552,7 @@ internal/
   frontend/            embedded React dist (web/dist → compiled in)
 web/                   React + TypeScript + Vite + Tailwind
 docs/
+  guides/              User guides (local models with llama.cpp, …)
   plugins/             Plugin developer documentation and examples
   superpowers/specs/   Design specs and implementation plans
   GLOSSARY.md          Domain glossary
@@ -675,6 +680,7 @@ Initial release: agents, projects, monitors, tasks, inbox, providers, WebSocket 
 See [GitHub Issues](https://github.com/solarisjon/phoenix/issues) for the full backlog.
 
 Near-term:
+- First-class local model support via llama.cpp — context budgeting, compact prompt profile, grammar-constrained output, helper-model routing, model eval harness ([design spec](docs/superpowers/specs/2026-08-17-local-models-design.md), [plan](docs/superpowers/specs/2026-08-17-local-models-implementation-plan.md))
 - Mobile-friendly layout (sidebar collapses to bottom nav)
 - Keyboard shortcuts (R=retry, D=dismiss, J/K navigate tasks)
 - GitHub Issues plugin — bidirectional (receive issues → tasks, post output → comments)

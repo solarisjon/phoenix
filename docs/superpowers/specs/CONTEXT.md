@@ -96,6 +96,7 @@ internal/
     prompt.go                          # system prompt assembly; guardrails; hiring; InjectObsidianVaults()
     artifacts.go                       # ParseArtifactBlocks: file|url|jira|confluence|html|obsidian types
     runner_extract.go                  # extractAndSaveMemos, extractAndSaveArtifacts, maybeAutoWriteObsidian
+    markers.go                         # tolerant protocol-marker primitives (markerLine, isBareMarker, headerValue, ExtractJSONObject)
   scheduler/
     scheduler.go                       # scans every 60s; interval monitors use per-monitor tickers; daily monitors evaluated centrally against wall clock (catch-up + dedup)
   provider/
@@ -103,6 +104,8 @@ internal/
     envexpand.go                       # ${ENV_VAR} expansion in configs
     llm/llm.go                         # OpenAI-compatible SSE streaming HTTP adapter
     ollama/ollama.go                   # Ollama local model adapter (/api/chat NDJSON)
+    llamacpp/llamacpp.go               # llama.cpp llama-server native adapter (/props, /tokenize, /health, json_schema)
+    openaiwire/wire.go                 # shared OpenAI chat-completions structs + SSE reader
     opencode/opencode.go               # opencode CLI adapter
     pi/pi.go                           # pi CLI adapter (stdin prompt delivery, --mode json)
     claudecode/claudecode.go           # claude CLI adapter (stream-json)
@@ -404,13 +407,30 @@ WS                 /api/ws
 | Kind | Type | Binary | Stream format | Notes |
 |------|------|--------|---------------|-------|
 | `llm` | `llm` | HTTP | SSE `data: {"choices":[...]}` | OpenAI-compatible |
-| `ollama` | `llm` | HTTP | NDJSON `/api/chat` | Local models; kind field in config |
+| `ollama` | `llm` | HTTP | NDJSON `/api/chat` | Local models; kind field in config; `num_ctx`/`num_predict`/`max_concurrent` |
+| `llamacpp` | `llm` | HTTP | OpenAI SSE `/v1/chat/completions` | llama-server native: `/props` → context window+slots, `/tokenize` exact tokens, `/health` ping, `cache_prompt`, `response_format json_schema`; kind field in config |
 | `opencode` | `coding_agent` | `opencode` | NDJSON `{"type":"text","part":{...}}` | |
 | `pi` | `coding_agent` | `pi` | NDJSON `{"type":"message_update",...}` | Prompt via stdin |
 | `claudecode` | `coding_agent` | `claude` | NDJSON `{"type":"assistant",...}` | |
 | `crush` | `coding_agent` | `crush` | Plain text lines | Prompt via stdin; system prompt via AGENTS.md |
 
-Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=ollama` → ollama adapter, else → llm adapter.
+Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=ollama` → ollama adapter, `kind=llamacpp` → llamacpp adapter, else → llm adapter. OpenAI wire structs + SSE reader are shared in `internal/provider/openaiwire/` (used by `llm` and `llamacpp`).
+
+**Optional provider interfaces** (type-assert, like `ModelLister`/`Pinger`): `Capable` (→ `provider.Capabilities{ContextWindow, Slots, SupportsJSONSchema, Local, Reasoning, ExactTokenCount, …}`), `TokenCounter` (`CountTokens`), `SlotLimiter` (`MaxConcurrent`). `provider.HeuristicTokenCount` is the chars/4 fallback. `TaskRequest` carries `MaxOutputTokens`, `Temperature`, `StopSequences`, `ResponseSchema`.
+
+**Provider-level concurrency gate (runner):** `startIfCapacity` / `canStartLocked` check both agent `max_concurrent` and the provider's `SlotLimiter` limit (cached 60 s in `providerSlots`; `InvalidateProviderSlots` on provider update/resync/delete). Tasks that can't get a slot stay `queued`; when a task finishes, `drainQueue(agent)` then `drainProviderPeers(provider)` starts queued tasks of other agents on the same provider.
+
+**llama.cpp:** native `kind=llamacpp` provider (Phase 1, #102, done 2026-08-17) — see `docs/guides/local-models-llama-cpp.md`. Remaining phases (prompt budgeting, `compact` profile, helper-model routing, ResponseSchema through all adapters, eval harness) — epic #100, spec `2026-08-17-local-models-design.md`, plan `2026-08-17-local-models-implementation-plan.md`.
+
+**Local-models Phase 1 (done 2026-08-17, #102):** `internal/provider/openaiwire/` (shared wire + SSE); `internal/provider/llamacpp/` adapter (Provider+ModelLister+Pinger+Capable+TokenCounter+SlotLimiter; `/props` cached 60 s, `/tokenize` memoised 512 entries, `cache_prompt` default on, `max_output_tokens` default 4096, reasoning_content stripped unless `keep_thinking`, reasoning inferred from model name); Ollama gains `max_concurrent` + `Capable`; runner provider-slot gate; healthcheck refreshes capabilities after a successful ping; Providers UI has a 🦙 llama.cpp form. Ollama `max_concurrent` defaults to 0 (unlimited — unchanged) rather than the plan's 1, to avoid regressing existing setups.
+
+**Local-models Phase 0 (done 2026-08-17, #105/#106/#101):**
+- `provider.TaskRequest` gained `MaxOutputTokens`, `Temperature *float64`, `StopSequences`. `llm` sends `max_tokens`/`temperature`/`stop` (OpenAI) or `temperature`/`stop_sequences` (Anthropic) only when set; `ollama` sends `options{num_ctx,num_predict(default 4096),temperature,stop}`. `provider.IsLocalEndpoint()` — `llm` default timeout is 900 s for loopback/RFC1918/`.local` endpoints, 60 s hosted; `ollama` default 900 s. UI forms expose these; timeout fields default to blank (= auto).
+- `internal/agent/markers.go` — shared tolerant marker primitives (`markerLine`, `isBareMarker`, `headerValue`, `normaliseEnum`, `ExtractJSONObject`). All protocol parsers (memo, artifact, guardrail, health, NEXT_ACTION, TASK_COMPLETE, plan JSON) use them: line-anchored, case-insensitive, Markdown-decoration tolerant. `TASK_COMPLETE:`/`NEXT_ACTION:` are line-anchored (last occurrence wins) — a model quoting the instruction mid-sentence no longer terminates the loop.
+- `deriveHealthSignal` returns `(signal, reason)`; `HEALTH_REASON:` is parsed and stored in `tasks.health_reason` (migration 055; in `taskSelectCols`). Keyword fallback demoted: needs ≥2 distinct keywords and the reason says "inferred from keywords: …" (fully removed in Phase 4).
+- Prompt order: `buildTaskRequest` passes `""` to `AssembleRequest` and calls `InjectGlobalGuardrails` LAST (after react/obsidian/skills/memories) so "Platform-Wide Guardrails" is genuinely the final section. Skill-mode sections (`InjectSkillExecutionMode`/`InjectSkillOrchestrationMode`) now APPEND right after the base prompt instead of prepending. `InjectSkills` returns `[]SkillSizeWarning` (>3k tokens per skill or total) which the runner logs.
+
+Remaining gaps (Phases 1–6): no prompt-size budgeting/truncation; no `llamacpp` kind; assist endpoints and the summariser ignore model tiers; `SelectModelForDomain` result discarded when an existing agent matches; `SelectOrchestrationModel` has no caller; no retry on malformed structured output; `agents.max_tokens_per_run` (migration 030) is dead.
 
 ---
 
@@ -472,7 +492,7 @@ sqlite3 ~/.local/share/phoenix/phoenix.db ".schema agents"
 - Crush provider: `4f4119b0` (kind=crush, binary=/opt/homebrew/bin/crush)
 - Ollama provider: `83247978` (kind=ollama, model=qwen3.5:latest)
 - Sandbox project: `00000000-0000-0000-0000-000000000002`
-- Migrations applied: 001–043
+- Migrations applied: 001–055
 
 ---
 
@@ -573,6 +593,11 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 - **artifact_path on memos:** only set for `Type: file` artifacts whose path ends in `.md`. Other file types and all non-file artifact types leave `artifact_path` empty. The `GET /api/memos/file-content` endpoint only serves absolute paths with `.md` extension — rejects all others with 400.
 - **plugins.type 'memory':** migration 036 rebuilds the plugins table to allow the 'memory' type (SQLite cannot ALTER CHECK constraints). Safe to run on existing DB — data is copied.
 - **taskSelectCols priority column:** `priority` was added to `taskSelectCols` const in `task.go` (migration 043). If you add a new task column, add it to `taskSelectCols` AND update `scanTask` + `scanTasks` — mismatched column count causes a scan panic at runtime.
+- **health_reason column (migration 055):** `tasks.health_reason TEXT NOT NULL DEFAULT ''` is the last entry in `taskSelectCols` and scanned into `dest.HealthReason` directly. Set from `deriveHealthSignal` in `finaliseTask` for monitor runs.
+- **llamacpp default port:** the adapter defaults to `http://localhost:8081` — llama-server's own default is 8080, which collides with Phoenix. `/v1` suffix on base_url is stripped.
+- **SlotLimiter probing:** `providerLimit()` may hit the network (`/props`, 3 s timeout) — never call it under `r.mu`. It is cached 60 s.
+- **Marker parsing:** never add a new `strings.HasPrefix(line, "MARKER")` parser — use `markerLine`/`isBareMarker`/`headerValue` from `internal/agent/markers.go` so small models' decorated/paraphrased output (`**MARKER**`, `` `MARKER` ``, `marker:`, `Health signal — x`) still parses. Never match a marker with `strings.Contains` on the whole output. Don't put bold "**Health signal** —"-style headings in prompts — a real 14B model echoed the heading instead of the marker.
+- **Global guardrails ordering:** if you add a new system-prompt injector to `buildTaskRequest`, add it BEFORE the final `InjectGlobalGuardrails` call, not after.
 - **SetPriority in test fakes:** any struct implementing `store.TaskRepo` (test fakes like `memTaskRepo`, `fakeTaskRepo`) must implement `SetPriority(ctx, taskID, priority) error`. Add a no-op stub if the test doesn't need real priority.
 - **task_templates project_id NULL semantics:** `project_id = NULL` means global (available everywhere). `project_id = X` means scoped to that project only. `GET /api/task-templates?project_id=X` returns global + project-specific templates. No `project_id` param returns only global.
 - **Provider health checker:** `internal/healthcheck/checker.go` starts in a goroutine via `healthchecker.Start(sigCtx)` in `main.go`. It calls `GET /api/providers` internally and pings each provider. For coding_agent providers it calls `CheckCodingAgentBinary()` from `internal/provider/check.go` (binary PATH check only, no subprocess). For llm/ollama it makes an HTTP request. Results written via `providerRepo.UpdateHealth()`.
