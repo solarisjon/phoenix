@@ -566,27 +566,9 @@ func (s *Server) generateProjectDescription(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	providerID := req.ProviderID
-	if providerID == "" {
-		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
-		if err != nil || len(providers) == 0 {
-			respondErr(w, http.StatusBadRequest, "no providers available for generation")
-			return
-		}
-		for _, p := range providers {
-			if p.Type == model.ProviderTypeLLM {
-				providerID = p.ID
-				break
-			}
-		}
-		if providerID == "" {
-			providerID = providers[0].ID
-		}
-	}
-
-	prov, err := s.registry.Get(r.Context(), providerID)
+	prov, err := s.assistProvider(r.Context(), req.ProviderID)
 	if err != nil {
-		respondErr(w, http.StatusBadRequest, fmt.Sprintf("provider load failed: %v", err))
+		respondErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -724,27 +706,10 @@ func (s *Server) suggestProjectNextAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Find a suitable LLM provider.
-	providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
-	if err != nil || len(providers) == 0 {
-		respondErr(w, http.StatusUnprocessableEntity, "no providers available for suggestions")
-		return
-	}
-	var providerID string
-	for _, p := range providers {
-		if p.Type == model.ProviderTypeLLM {
-			providerID = p.ID
-			break
-		}
-	}
-	if providerID == "" {
-		// Fall back to any provider (may be a coding agent — best-effort).
-		providerID = providers[0].ID
-	}
-
-	prov, err := s.registry.Get(r.Context(), providerID)
+	// Helper model (Settings → System), else best available — see assistProvider.
+	prov, err := s.assistProvider(r.Context(), "")
 	if err != nil {
-		respondErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("provider load failed: %v", err))
+		respondErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 

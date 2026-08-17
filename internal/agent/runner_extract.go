@@ -355,7 +355,9 @@ func (r *Runner) maybeAutoWriteObsidian(task *model.Task, a *model.Agent, output
 	}
 
 	go func() {
-		prov, err := r.registry.Get(r.bgCtx, a.ProviderID)
+		// Note generation is a helper job — use the utility model when one is
+		// configured, else fall back to the agent's own provider.
+		prov, err := r.utilityProvider(r.bgCtx, a.ProviderID)
 		if err != nil {
 			slog.Warn("obsidian auto-write: provider load failed", "task_id", task.ID, "error", err)
 			return

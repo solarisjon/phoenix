@@ -297,6 +297,7 @@ type Task struct {
 	PromptTokens      int        `json:"prompt_tokens"`    // tokens of the assembled prompt as sent (0 = unknown)
 	PromptTrims       string     `json:"prompt_trims"`     // JSON array of prompt budgeting trims (migration 056); "[]" when none
 	RepairAttempts    int        `json:"repair_attempts"`  // one-shot structured-output repair calls made
+	ModelOverride     string     `json:"model_override"`   // per-task model (migration 057); "" = agent/monitor/provider default
 	GuardrailReason   *string    `json:"guardrail_reason"` // set when task is paused by a hard guardrail
 	LastError         string     `json:"last_error"`       // most recent failure message; preserved across retries
 	Dismissed         bool       `json:"dismissed"`        // hidden from inbox but kept for audit
@@ -355,6 +356,14 @@ type SystemSettings struct {
 	// DefaultWorkerAgentID is the coding agent used for orchestrated skill subtasks
 	// when the workflow wizard auto-wires execution agents.
 	DefaultWorkerAgentID string `json:"default_worker_agent_id"`
+
+	// Helper ("utility") model — used for the small, frequent LLM jobs that don't
+	// need the task's own (possibly large/expensive) model: follow-up chain
+	// summaries, Obsidian note generation, description/guardrail generation,
+	// health-signal classification. Empty = automatic (cheapest fast-tier pool
+	// model, else the first LLM provider). Local-models phase 3.
+	UtilityProviderID string `json:"utility_provider_id"`
+	UtilityModel      string `json:"utility_model"` // optional model override on that provider
 }
 
 // ObsidianVault represents a single Obsidian vault directory with user-provided context

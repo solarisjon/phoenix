@@ -438,7 +438,13 @@ Registry dispatches: `coding_agent` type → `kind` field; `llm` type → `kind=
 - `Runner.DryRun` + `POST /api/tasks/estimate` (now takes `project_id`) dry-runs the real prompt: returns `prompt_tokens, context_window, budget, fits, trims, local, exact_tokens, profile`; UI compose panel shows a context meter and "will be trimmed" note; task detail shows a "Prompt trimmed" panel; model-pool rows have Context window + Prompt profile fields.
 - Live-verified on llama-server (Qwen3-0.6B, 8k): dry-run predicted the real run exactly; exact `/tokenize` counts within ~10 tokens of the server's `prompt_tokens`.
 
-Remaining gaps (Phases 3–6): assist endpoints and the summariser ignore model tiers; `SelectModelForDomain` result discarded when an existing agent matches; `SelectOrchestrationModel` has no caller; no retry on malformed structured output; `agents.max_tokens_per_run` (migration 030) is dead.
+**Local-models Phase 3 (done 2026-08-17, #103):** helper-model routing.
+- `system_settings` keys `utility_provider_id` / `utility_model` (Settings → System → **Helper Model**). `agent.ChooseUtilityProvider` (utility.go): requested → setting → cheapest `fast`-tier pool model → first LLM provider → any. `ResolveUtilityProvider` builds it via the registry (`GetWithOverride` when a model is set).
+- API: all eight assist endpoints (`generateAgent`, `generateTaskDescription`, `generateProjectDescription`, `suggestProjectNextAction`, `generateGlobalGuardrails`, `generateObsidianVaultContext`, `writeTaskToObsidian`, `generateTeamDescription`) go through `s.assistProvider(ctx, requestedID)` (`internal/api/assist.go`) — the copy-pasted "first LLM provider" blocks are gone.
+- Runner: `r.utilityProvider(ctx, fallbackProviderID)` — follow-up chain summariser and Obsidian auto-write (vault pick + note) use the helper model when a setting or fast-tier pool model exists, else the task's own provider.
+- Orchestrator: `resolveSubtaskRouting` now returns a model override for an existing agent only when `SelectModelForDomain`'s provider == the agent's provider (a task can't switch providers); spawned subtasks carry it via **`tasks.model_override` (migration 057)**, honoured in `loadExecutionContext` (precedence: task.model_override → monitor_model → agent.model_override → planning-tier pool model for orchestration tasks on an orchestrator agent (`planningModelFor` → `SelectOrchestrationModel`, previously uncalled) → provider default).
+
+Remaining gaps (Phases 4–6): `SelectModelForDomain` result discarded when an existing agent matches; `SelectOrchestrationModel` has no caller; no retry on malformed structured output; `agents.max_tokens_per_run` (migration 030) is dead.
 
 ---
 
@@ -603,7 +609,9 @@ Open backlog — https://github.com/solarisjon/phoenix/issues:
 - **taskSelectCols priority column:** `priority` was added to `taskSelectCols` const in `task.go` (migration 043). If you add a new task column, add it to `taskSelectCols` AND update `scanTask` + `scanTasks` — mismatched column count causes a scan panic at runtime.
 - **Golden prompt files:** any change to prompt wording fails `TestPromptGolden`; regenerate with `go test ./internal/agent -run TestPromptGolden -update` and review the diff. That is the intended friction.
 - **Adding a prompt injector:** call it through `pa.Apply(key, priority, shrinker, fn)` in `buildTaskRequestMeta` (not by mutating `req` directly) so budgeting can see it; pick a priority from `prompt_sections.go`; add before the final `global_guardrails` Apply.
-- **prompt_tokens/prompt_trims/repair_attempts (migration 056):** last three entries in `taskSelectCols`; `prompt_trims` is a JSON array string ("[]" when none — `nonEmptyJSONArray`).
+- **tasks.model_override (migration 057):** last entry in `taskSelectCols` (after `repair_attempts`), also in the INSERT. It is the ONLY per-task model knob; agents/monitors keep theirs.
+- **Assist endpoints:** never select a provider inline — call `s.assistProvider(ctx, req.ProviderID)`.
+- **prompt_tokens/prompt_trims/repair_attempts (migration 056):** entries in `taskSelectCols` after `health_reason`; `prompt_trims` is a JSON array string ("[]" when none — `nonEmptyJSONArray`).
 - **health_reason column (migration 055):** `tasks.health_reason TEXT NOT NULL DEFAULT ''` is the last entry in `taskSelectCols` and scanned into `dest.HealthReason` directly. Set from `deriveHealthSignal` in `finaliseTask` for monitor runs.
 - **llamacpp default port:** the adapter defaults to `http://localhost:8081` — llama-server's own default is 8080, which collides with Phoenix. `/v1` suffix on base_url is stripped.
 - **SlotLimiter probing:** `providerLimit()` may hit the network (`/props`, 3 s timeout) — never call it under `r.mu`. It is cached 60 s.

@@ -387,28 +387,30 @@ func (o *Orchestrator) spawnSubtasks(ctx context.Context, parent *model.Task, pl
 			break
 		}
 
-		// Only the agentID is used here: for a newly-created dynamic agent, the
-		// model/provider are already baked into it (see createDynamicAgent); for
-		// an existing agent, its own configured provider/model applies.
-		agentID, _, _, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
+		// For a newly-created dynamic agent the model/provider are baked into
+		// it (see createDynamicAgent). For an existing agent, modelOverride is
+		// the domain-selected model when it lives on that agent's provider —
+		// carried per task via tasks.model_override (migration 057).
+		agentID, modelOverride, _, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
 		if err != nil {
 			slog.Warn("orchestrator: resolve subtask routing", "subtask", sub.Title, "error", err)
 			continue
 		}
 
 		subtask := &model.Task{
-			ID:           uuid.New().String(),
-			ProjectID:    parent.ProjectID,
-			AgentID:      agentID,
-			ParentTaskID: &parent.ID,
-			Title:        sub.Title,
-			Description:  sub.Description,
-			Status:       model.TaskStatusPending,
-			TaskType:     model.TaskTypeSubtask,
-			Source:       "orchestrator",
-			Input:        "{}",
-			Output:       "{}",
-			CreatedAt:    time.Now(),
+			ID:            uuid.New().String(),
+			ProjectID:     parent.ProjectID,
+			AgentID:       agentID,
+			ModelOverride: modelOverride,
+			ParentTaskID:  &parent.ID,
+			Title:         sub.Title,
+			Description:   sub.Description,
+			Status:        model.TaskStatusPending,
+			TaskType:      model.TaskTypeSubtask,
+			Source:        "orchestrator",
+			Input:         "{}",
+			Output:        "{}",
+			CreatedAt:     time.Now(),
 		}
 
 		if err := o.tasks.Create(ctx, subtask); err != nil {
@@ -443,7 +445,7 @@ func (o *Orchestrator) spawnSkillSubtasks(ctx context.Context, parent *model.Tas
 	created := 0
 	for i, sub := range plan.Subtasks {
 		step := skillStepAt(skill, i, sub.Title, workingDir)
-		agentID, _, _, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
+		agentID, modelOverride, _, err := o.resolveSubtaskRouting(ctx, sub, allAgents, allProviders, parent.ProjectID, i)
 		if err != nil {
 			slog.Warn("orchestrator: resolve skill subtask routing", "subtask", sub.Title, "error", err)
 			continue
@@ -474,20 +476,21 @@ func (o *Orchestrator) spawnSkillSubtasks(ctx context.Context, parent *model.Tas
 		}
 
 		subtask := &model.Task{
-			ID:           uuid.New().String(),
-			ProjectID:    parent.ProjectID,
-			AgentID:      agentID,
-			ParentTaskID: &parent.ID,
-			Title:        sub.Title,
-			Description:  desc,
-			Status:       status,
-			TaskType:     model.TaskTypeSubtask,
-			Source:       "orchestrator:skill",
-			StepSlug:     step.Slug,
-			DependsOn:    deps,
-			Input:        "{}",
-			Output:       "{}",
-			CreatedAt:    time.Now(),
+			ID:            uuid.New().String(),
+			ProjectID:     parent.ProjectID,
+			AgentID:       agentID,
+			ModelOverride: modelOverride,
+			ParentTaskID:  &parent.ID,
+			Title:         sub.Title,
+			Description:   desc,
+			Status:        status,
+			TaskType:      model.TaskTypeSubtask,
+			Source:        "orchestrator:skill",
+			StepSlug:      step.Slug,
+			DependsOn:     deps,
+			Input:         "{}",
+			Output:        "{}",
+			CreatedAt:     time.Now(),
 		}
 
 		if err := o.tasks.Create(ctx, subtask); err != nil {
@@ -549,9 +552,14 @@ func (o *Orchestrator) resolveSubtaskRouting(ctx context.Context, sub routedSubt
 	// 2. Find cheapest model for the domain/complexity.
 	pID, mID := SelectModelForDomain(allProviders, sub.Domain, sub.Complexity)
 
-	// 3. Find an existing agent that best matches this domain.
+	// 3. Find an existing agent that best matches this domain. The selected
+	// model is only usable if it lives on that agent's provider (a task can't
+	// switch providers); otherwise the agent runs on its own default model.
 	bestAgent := o.findBestMatchingAgent(allAgents, sub.Domain)
 	if bestAgent != nil {
+		if pID != "" && pID != bestAgent.ProviderID {
+			return bestAgent.ID, "", bestAgent.ProviderID, nil
+		}
 		return bestAgent.ID, mID, pID, nil
 	}
 

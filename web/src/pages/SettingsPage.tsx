@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { AgentsPage } from './AgentsPage'
 import { ProvidersPage } from './ProvidersPage'
 import { api } from '../lib/api'
-import type { SystemSettings, SysInfo, Project, ThemeResponse } from '../lib/api'
+import type { SystemSettings, SysInfo, Project, ThemeResponse, Provider } from '../lib/api'
+import { ModelComboBox } from '@/components/ui/model-combo-box'
 import { timeAgo } from '../lib/utils'
 import { getErrorMessage } from '../lib/errors'
 import { THEMES, getTheme, setTheme, injectCommunityThemes } from '../lib/theme'
@@ -67,6 +68,88 @@ function SystemInfoSection() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Helper (utility) model — the small model Phoenix uses for its own frequent
+ * side jobs (follow-up summaries, Obsidian notes, description/guardrail
+ * generation, health classification) instead of each task's main model.
+ */
+function HelperModelSection() {
+  const [settings, setSettings] = useState<SystemSettings | null>(null)
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([api.admin.getSettings(), api.providers.list()])
+      .then(([s, p]) => { setSettings(s); setProviders(p.filter(x => x.type === 'llm')) })
+      .catch(() => {})
+  }, [])
+
+  const save = async () => {
+    if (!settings) return
+    setSaving(true); setError(null)
+    try {
+      const updated = await api.admin.saveSettings(settings)
+      setSettings(updated)
+      setSaved(true); setTimeout(() => setSaved(false), 2500)
+    } catch (e: unknown) {
+      setError(getErrorMessage(e))
+    } finally { setSaving(false) }
+  }
+
+  if (!settings) return null
+  const providerId = settings.utility_provider_id ?? ''
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Helper Model</h2>
+        <p className="text-slate-400 text-sm mt-1">
+          The model Phoenix uses for its own small, frequent jobs — follow-up conversation summaries, Obsidian note
+          generation, description and guardrail suggestions, health-signal classification. Pick a fast, cheap model
+          (or a small local one) so those jobs don't run on each task's main model.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-sm font-medium text-slate-200 block mb-1.5">Provider</label>
+          <select
+            value={providerId}
+            onChange={e => setSettings(s => s ? { ...s, utility_provider_id: e.target.value, utility_model: '' } : s)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+          >
+            <option value="">— Auto (cheapest Fast-tier pool model, else first LLM provider) —</option>
+            {providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm font-medium text-slate-200 block mb-1.5">Model override</label>
+          {providerId ? (
+            <ModelComboBox
+              providerId={providerId}
+              value={settings.utility_model ?? ''}
+              onChange={v => setSettings(s => s ? { ...s, utility_model: v } : s)}
+              placeholder="provider default"
+              allowEmpty
+            />
+          ) : (
+            <p className="text-xs text-slate-500 mt-2">Choose a provider to pick a specific model.</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {saved && <span className="text-emerald-400 text-sm">✓ Saved</span>}
+        {error && <span className="text-red-400 text-sm">{error}</span>}
+      </div>
     </div>
   )
 }
@@ -445,6 +528,7 @@ function SystemTab() {
 
       {/* Global Guardrails */}
       <GlobalGuardrailsSection />
+      <HelperModelSection />
 
       <hr className="border-slate-800" />
 

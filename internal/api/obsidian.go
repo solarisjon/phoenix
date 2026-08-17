@@ -171,27 +171,9 @@ func (s *Server) generateObsidianVaultContext(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	providerID := req.ProviderID
-	if providerID == "" {
-		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
-		if err != nil || len(providers) == 0 {
-			respondErr(w, http.StatusBadRequest, "no providers available")
-			return
-		}
-		for _, p := range providers {
-			if p.Type == model.ProviderTypeLLM {
-				providerID = p.ID
-				break
-			}
-		}
-		if providerID == "" {
-			providerID = providers[0].ID
-		}
-	}
-
-	prov, err := s.registry.Get(r.Context(), providerID)
+	prov, err := s.assistProvider(r.Context(), req.ProviderID)
 	if err != nil {
-		respondErr(w, http.StatusBadRequest, fmt.Sprintf("provider load failed: %v", err))
+		respondErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -283,27 +265,9 @@ func (s *Server) writeTaskToObsidian(w http.ResponseWriter, r *http.Request) {
 	agent, _ := s.agents.Get(r.Context(), task.AgentID)
 	project, _ := s.projects.Get(r.Context(), task.ProjectID)
 
-	providerID := req.ProviderID
-	if providerID == "" {
-		providers, err := s.providers.List(r.Context(), userFromCtx(r.Context()).ID)
-		if err == nil {
-			for _, p := range providers {
-				if p.Type == model.ProviderTypeLLM {
-					providerID = p.ID
-					break
-				}
-			}
-		}
-	}
-
-	if providerID == "" {
-		respondErr(w, http.StatusBadRequest, "no LLM provider available for note generation")
-		return
-	}
-
-	prov, err := s.registry.Get(r.Context(), providerID)
+	prov, err := s.assistProvider(r.Context(), req.ProviderID)
 	if err != nil {
-		respondErr(w, http.StatusBadRequest, fmt.Sprintf("provider load failed: %v", err))
+		respondErr(w, http.StatusBadRequest, "no LLM provider available for note generation: "+err.Error())
 		return
 	}
 

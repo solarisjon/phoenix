@@ -269,6 +269,9 @@ export interface SystemSettings {
   orchestrator_confidence_threshold: number
   skill_import_dirs: string[]
   default_worker_agent_id: string
+  // Helper (utility) model for summaries, classification, description generation. Empty = auto.
+  utility_provider_id?: string
+  utility_model?: string
 }
 
 export interface ObsidianVault {

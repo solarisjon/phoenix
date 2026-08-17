@@ -140,6 +140,10 @@ Click **Test** on the provider card (hits `/health` — instant, no inference). 
 
 **Using the generic LLM endpoint instead.** You can still add llama-server as an *LLM Endpoint (OpenAI-compatible)* with `endpoint: http://localhost:8081/v1` — that path works, but Phoenix then knows nothing about the server's context window or slots. Prefer the native type.
 
+### Set a helper model (recommended)
+
+**Settings → System → Helper Model.** Phoenix runs a lot of small side jobs — follow-up conversation summaries, Obsidian note generation, "suggest a description", guardrail drafts, next-action suggestions. Point them at a small fast model (a 3–4B llama.cpp provider, or the 0.6B if you just want them instant) so they never wait behind, or run on, the big model your agents use. Leave it on *Auto* and Phoenix picks the cheapest model tagged **Fast** in any provider's model pool (all local models cost 0, so tag your small one Fast). In llama-server router mode this is a natural fit: create one Phoenix provider per model and set the small one as helper.
+
 ### Populate the model pool (optional but recommended)
 
 If you use the orchestrator / dynamic model selection, add entries to the provider's **Allowed Models** with a sensible `capability_tier`:

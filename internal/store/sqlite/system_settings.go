@@ -88,6 +88,8 @@ func (r *SystemSettingsRepo) Get(ctx context.Context) (*model.SystemSettings, er
 		OrchestratorConfidenceThreshold: confidenceThreshold,
 		SkillImportDirs:                 skillImportDirs,
 		DefaultWorkerAgentID:            kv["default_worker_agent_id"],
+		UtilityProviderID:               kv["utility_provider_id"],
+		UtilityModel:                    kv["utility_model"],
 	}
 	return s, nil
 }
@@ -208,6 +210,12 @@ func (r *SystemSettingsRepo) Save(ctx context.Context, s *model.SystemSettings) 
 		return fmt.Errorf("marshal skill_import_dirs: %w", err)
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "skill_import_dirs", string(skillImportDirs), now); err != nil {
+		return err
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "utility_provider_id", s.UtilityProviderID, now); err != nil {
+		return err
+	}
+	if _, err := r.db.ExecContext(ctx, upsert, "utility_model", s.UtilityModel, now); err != nil {
 		return err
 	}
 	if _, err := r.db.ExecContext(ctx, upsert, "default_worker_agent_id", s.DefaultWorkerAgentID, now); err != nil {

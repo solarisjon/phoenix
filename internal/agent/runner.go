@@ -605,9 +605,18 @@ func (r *Runner) loadExecutionContext(ctx context.Context, task *model.Task) (*e
 		ec.workingDir = p.WorkingDir
 	}
 
+	// Model precedence: task.model_override → monitor_model → agent.model_override
+	// → (orchestration task on an orchestrator agent) planning-tier pool model
+	// → provider default.
 	modelOverride := agent.ModelOverride
 	if task.Source == "monitor" && ec.proj != nil && ec.proj.MonitorModel != "" {
 		modelOverride = ec.proj.MonitorModel
+	}
+	if task.ModelOverride != "" {
+		modelOverride = task.ModelOverride
+	}
+	if modelOverride == "" && agent.IsOrchestrator && task.TaskType == model.TaskTypeOrchestration {
+		modelOverride = r.planningModelFor(ctx, agent.ProviderID)
 	}
 	prov, err := r.registry.GetWithOverride(ctx, agent.ProviderID, modelOverride)
 	if err != nil {
@@ -863,7 +872,14 @@ func (r *Runner) applyFollowUpContext(ctx context.Context, pa *PromptAssembly, t
 			if len(chain) > contextSummarisationKeepRecent {
 				oldTurns = chain[:len(chain)-contextSummarisationKeepRecent]
 			}
-			summResp, summErr := ec.prov.Execute(ctx, BuildSummaryRequest(oldTurns))
+			// Summarising old turns is a helper job: use the utility model
+			// (Settings → System → Helper Model) when configured, else the
+			// task's own provider.
+			summProv, provErr := r.utilityProvider(ctx, ec.agent.ProviderID)
+			if provErr != nil {
+				summProv = ec.prov
+			}
+			summResp, summErr := summProv.Execute(ctx, BuildSummaryRequest(oldTurns))
 			if summErr != nil {
 				slog.Warn("runner: context summarisation failed (falling back to verbatim)", "task_id", task.ID, "error", summErr)
 			} else {
@@ -1587,4 +1603,66 @@ func (r *Runner) DryRun(ctx context.Context, agentID, projectID, title, descript
 		return res, buildErr
 	}
 	return res, nil
+}
+
+// utilityProvider returns the provider for helper jobs (summaries, note
+// generation, classification): the configured helper model if any, else the
+// cheapest fast-tier pool model, else the given fallback provider (typically
+// the task's own). Never returns nil without an error.
+func (r *Runner) utilityProvider(ctx context.Context, fallbackProviderID string) (provider.Provider, error) {
+	r.mu.Lock()
+	provRepo := r.providers
+	r.mu.Unlock()
+	if r.registry == nil {
+		return nil, fmt.Errorf("no registry")
+	}
+	var lister ProviderLister
+	if provRepo != nil {
+		lister = provRepo
+	}
+	var settings SettingsGetter
+	if r.settings != nil {
+		settings = r.settings
+	}
+	// Explicit helper setting or fast-tier pool model?
+	if choice, ok := ChooseUtilityProvider(ctx, lister, settings, ""); ok && (choice.Source == "setting" || choice.Source == "pool:fast") {
+		var (
+			prov provider.Provider
+			err  error
+		)
+		if choice.Model != "" {
+			prov, err = r.registry.GetWithOverride(ctx, choice.ProviderID, choice.Model)
+		} else {
+			prov, err = r.registry.Get(ctx, choice.ProviderID)
+		}
+		if err == nil {
+			return prov, nil
+		}
+		slog.Warn("runner: helper model unavailable, falling back to task provider", "provider_id", choice.ProviderID, "error", err)
+	}
+	if fallbackProviderID == "" {
+		return nil, fmt.Errorf("no helper provider and no fallback")
+	}
+	return r.registry.Get(ctx, fallbackProviderID)
+}
+
+// planningModelFor returns the cheapest planning-tier model in providerID's
+// pool (via SelectOrchestrationModel), or "" when the pool has none or the
+// selection lands on a different provider (a task can't switch providers).
+func (r *Runner) planningModelFor(ctx context.Context, providerID string) string {
+	r.mu.Lock()
+	provRepo := r.providers
+	r.mu.Unlock()
+	if provRepo == nil {
+		return ""
+	}
+	all, err := provRepo.List(ctx, "")
+	if err != nil {
+		return ""
+	}
+	pID, mID := SelectOrchestrationModel(all)
+	if pID != providerID {
+		return ""
+	}
+	return mID
 }

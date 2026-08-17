@@ -135,7 +135,9 @@ Cheap fixes that remove the sharpest edges. All behind existing config; nothing 
 
 ---
 
-## Phase 3 — Utility model routing (1 day)
+## Phase 3 — Utility model routing (1 day) — ✅ DONE 2026-08-17 (#103)
+
+> Shipped: settings keys + Settings → System "Helper Model" section; `agent.ChooseUtilityProvider`/`ResolveUtilityProvider`; `s.assistProvider` for the eight assist endpoints; runner `utilityProvider` for the summariser and Obsidian auto-write; orchestrator routing fix + `SelectOrchestrationModel` finally called (`planningModelFor`). Addition beyond plan: **`tasks.model_override` (migration 057)** — needed so a subtask on an existing agent can carry the domain-selected model. Live-verified: `generate-description` ran on the 0.6B llama provider once set as helper.
 
 ### Step 3.1: Setting + resolver
 
